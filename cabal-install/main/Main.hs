@@ -77,6 +77,7 @@ import qualified Distribution.Client.CmdUpdate    as CmdUpdate
 import qualified Distribution.Client.CmdBuild     as CmdBuild
 import qualified Distribution.Client.CmdRepl      as CmdRepl
 import qualified Distribution.Client.CmdFreeze    as CmdFreeze
+import qualified Distribution.Client.CmdGenBounds as CmdGenBounds
 import qualified Distribution.Client.CmdHaddock   as CmdHaddock
 import qualified Distribution.Client.CmdHaddockProject as CmdHaddockProject
 import qualified Distribution.Client.CmdInstall   as CmdInstall
@@ -269,6 +270,7 @@ mainWorker args = do
       , newCmd  CmdBuild.buildCommand         CmdBuild.buildAction
       , newCmd  CmdRepl.replCommand           CmdRepl.replAction
       , newCmd  CmdFreeze.freezeCommand       CmdFreeze.freezeAction
+      , newCmd  CmdGenBounds.genBoundsCommand CmdGenBounds.genBoundsAction
       , newCmd  CmdHaddock.haddockCommand     CmdHaddock.haddockAction
       , newCmd  CmdHaddockProject.haddockProjectCommand
                                               CmdHaddockProject.haddockProjectAction

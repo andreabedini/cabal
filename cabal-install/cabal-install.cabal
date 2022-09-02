@@ -82,6 +82,7 @@ library
         Distribution.Client.CmdErrorMessages
         Distribution.Client.CmdExec
         Distribution.Client.CmdFreeze
+        Distribution.Client.CmdGenBounds
         Distribution.Client.CmdHaddock
         Distribution.Client.CmdHaddockProject
         Distribution.Client.CmdInstall
