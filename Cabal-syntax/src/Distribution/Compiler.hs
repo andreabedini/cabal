@@ -64,7 +64,6 @@ import qualified Text.PrettyPrint as Disp
 
 data CompilerFlavor =
   GHC | GHCJS | NHC | YHC | Hugs | HBC | Helium | JHC | Eta
-  | HaskellSuite String -- string is the id of the actual compiler
   | OtherCompiler String
   deriving (Generic, Show, Read, Eq, Ord, Typeable, Data)
 
@@ -78,7 +77,6 @@ knownCompilerFlavors =
 
 instance Pretty CompilerFlavor where
   pretty (OtherCompiler name) = Disp.text name
-  pretty (HaskellSuite name)  = Disp.text name
   pretty NHC                  = Disp.text "nhc98"
   pretty other                = Disp.text (lowercase (show other))
 

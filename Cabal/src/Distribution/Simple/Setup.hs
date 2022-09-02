@@ -454,10 +454,7 @@ configureOptions showOrParseArgs =
          configHcFlavor (\v flags -> flags { configHcFlavor = v })
          (choiceOpt [ (Flag GHC,   ("g", ["ghc"]),   "compile with GHC")
                     , (Flag GHCJS, ([] , ["ghcjs"]), "compile with GHCJS")
-                    -- "haskell-suite" compiler id string will be replaced
-                    -- by a more specific one during the configure stage
-                    , (Flag (HaskellSuite "haskell-suite"), ([] , ["haskell-suite"]),
-                        "compile with a haskell-suite compiler")])
+                    ])
 
       ,option "" ["cabal-file"]
          "use this Cabal file"

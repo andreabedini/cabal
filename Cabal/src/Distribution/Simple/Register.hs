@@ -61,7 +61,6 @@ import Distribution.Simple.BuildTarget
 
 import qualified Distribution.Simple.GHC   as GHC
 import qualified Distribution.Simple.GHCJS as GHCJS
-import qualified Distribution.Simple.HaskellSuite as HaskellSuite
 import qualified Distribution.Simple.PackageIndex as Index
 
 import Distribution.Backpack.DescribeUnitId
@@ -290,7 +289,6 @@ createPackageDB verbosity comp progdb preferCompat dbPath =
     case compilerFlavor comp of
       GHC   -> HcPkg.init (GHC.hcPkgInfo   progdb) verbosity preferCompat dbPath
       GHCJS -> HcPkg.init (GHCJS.hcPkgInfo progdb) verbosity False dbPath
-      HaskellSuite _ -> HaskellSuite.initPackageDB verbosity progdb dbPath
       _              -> die' verbosity $
                               "Distribution.Simple.Register.createPackageDB: "
                            ++ "not implemented for this compiler"
@@ -340,8 +338,6 @@ registerPackage verbosity comp progdb packageDbs installedPkgInfo registerOption
   case compilerFlavor comp of
     GHC   -> GHC.registerPackage   verbosity progdb packageDbs installedPkgInfo registerOptions
     GHCJS -> GHCJS.registerPackage verbosity progdb packageDbs installedPkgInfo registerOptions
-    HaskellSuite {} ->
-      HaskellSuite.registerPackage verbosity      progdb packageDbs installedPkgInfo
     _ | HcPkg.registerMultiInstance registerOptions
           -> die' verbosity "Registering multiple package instances is not yet supported for this compiler"
     _    -> die' verbosity "Registering is not implemented for this compiler"
