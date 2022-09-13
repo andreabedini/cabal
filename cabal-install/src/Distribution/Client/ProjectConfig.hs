@@ -198,7 +198,9 @@ projectConfigWithBuilderRepoContext verbosity BuildTimeSettings{..} =
 -- to the 'BuildTimeSettings'
 --
 projectConfigWithSolverRepoContext
-  :: Verbosity -> ProjectConfigShared -> ProjectConfigBuildOnly
+  :: Verbosity
+  -> ProjectConfigShared
+  -> ProjectConfigBuildOnly
   -> (RepoContext -> IO a)
   -> IO a
 projectConfigWithSolverRepoContext verbosity

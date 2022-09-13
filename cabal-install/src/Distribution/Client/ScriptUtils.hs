@@ -90,7 +90,7 @@ import Distribution.Types.PackageName.Magic
 import Distribution.Utils.NubList
     ( fromNubList )
 import Distribution.Client.ProjectPlanning
-    ( configureCompiler )
+    ( phaseConfigureCompiler )
 import Distribution.Verbosity
     ( normal )
 import Language.Haskell.Extension
@@ -243,7 +243,9 @@ withContextAndSelectors noTargets kind flags@NixStyleFlags {..} targetStrings gl
 
         projectCfgSkeleton <- readProjectBlockFromScript verbosity httpTransport (distDirLayout ctx) (takeFileName script) scriptContents
 
-        (compiler, Platform arch os, _) <- runRebuild (distProjectRootDirectory . distDirLayout $ ctx) $ configureCompiler verbosity (distDirLayout ctx) ((fst $ ignoreConditions projectCfgSkeleton) <> projectConfig ctx)
+        (compiler, Platform arch os, _) <-
+          runRebuild (distProjectRootDirectory . distDirLayout $ ctx)
+                     (phaseConfigureCompiler verbosity (distDirLayout ctx) (fst (ignoreConditions projectCfgSkeleton) <> projectConfig ctx))
 
         let projectCfg = instantiateProjectConfigSkeleton os arch (compilerInfo compiler) mempty projectCfgSkeleton :: ProjectConfig
 

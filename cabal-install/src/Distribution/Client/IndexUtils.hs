@@ -6,6 +6,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE TupleSections #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -302,7 +303,7 @@ getSourcePackagesAtIndexState verbosity repoCtxt mb_idxState mb_activeRepos = do
 
   pkgss' <- case organizeByRepos activeRepos rdRepoName pkgss of
     Right x  -> return x
-    Left err -> warn verbosity err >> return (map (\x -> (x, CombineStrategyMerge)) pkgss)
+    Left err -> warn verbosity err >> return (map (, CombineStrategyMerge) pkgss)
 
   let activeRepos' :: ActiveRepos
       activeRepos' = ActiveRepos
@@ -338,8 +339,11 @@ getSourcePackagesAtIndexState verbosity repoCtxt mb_idxState mb_activeRepos = do
           ]
 
   _ <- evaluate pkgs
+
   _ <- evaluate prefs
+
   _ <- evaluate totalIndexState
+
   return (SourcePackageDb {
     packageIndex       = pkgs,
     packagePreferences = prefs

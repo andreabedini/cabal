@@ -15,7 +15,6 @@
 module Distribution.Client.Dependency (
     -- * The main package dependency resolver
     DepResolverParams,
-    chooseSolver,
     resolveDependencies,
     Progress(..),
     foldProgress,
@@ -82,8 +81,7 @@ import Distribution.Client.Types
          , RelaxDepScope(..), RelaxDepMod(..), RelaxDepSubject(..), isRelaxDeps
          )
 import Distribution.Client.Dependency.Types
-         ( PreSolver(..), Solver(..)
-         , PackagesPreferenceDefault(..) )
+         ( PackagesPreferenceDefault(..) )
 import Distribution.Package
          ( PackageName, mkPackageName, PackageIdentifier(PackageIdentifier), PackageId
          , Package(..), packageName, packageVersion )
@@ -108,7 +106,6 @@ import qualified Distribution.Compat.Graph as Graph
 import           Distribution.Solver.Types.ComponentDeps (ComponentDeps)
 import qualified Distribution.Solver.Types.ComponentDeps as CD
 import           Distribution.Solver.Types.ConstraintSource
-import           Distribution.Solver.Types.DependencyResolver
 import           Distribution.Solver.Types.InstalledPreference as Preference
 import           Distribution.Solver.Types.LabeledPackageConstraint
 import           Distribution.Solver.Types.OptionalStanza
@@ -672,15 +669,6 @@ standardInstallPolicy installedPkgIndex sourcePkgDb pkgSpecifiers
 -- * Interface to the standard resolver
 -- ------------------------------------------------------------
 
-chooseSolver :: Verbosity -> PreSolver -> CompilerInfo -> IO Solver
-chooseSolver _verbosity preSolver _cinfo =
-    case preSolver of
-      AlwaysModular -> do
-        return Modular
-
-runSolver :: Solver -> SolverConfig -> DependencyResolver UnresolvedPkgLoc
-runSolver Modular = modularResolver
-
 -- | Run the dependency solver.
 --
 -- Since this is potentially an expensive operation, the result is wrapped in a
@@ -690,27 +678,26 @@ runSolver Modular = modularResolver
 resolveDependencies :: Platform
                     -> CompilerInfo
                     -> PkgConfigDb
-                    -> Solver
                     -> DepResolverParams
                     -> Progress String String SolverInstallPlan
 
     --TODO: is this needed here? see dontUpgradeNonUpgradeablePackages
-resolveDependencies platform comp _pkgConfigDB _solver params
+resolveDependencies platform comp _pkgConfigDB params
   | Set.null (depResolverTargets params)
   = return (validateSolverResult platform comp indGoals [])
   where
     indGoals = depResolverIndependentGoals params
 
-resolveDependencies platform comp pkgConfigDB solver params =
+resolveDependencies platform comp pkgConfigDB params =
 
     Step (showDepResolverParams finalparams)
   $ fmap (validateSolverResult platform comp indGoals)
-  $ runSolver solver (SolverConfig reordGoals cntConflicts fineGrained minimize
-                      indGoals noReinstalls
-                      shadowing strFlags allowBootLibs onlyConstrained_ maxBkjumps enableBj
-                      solveExes order verbosity (PruneAfterFirstSuccess False))
-                     platform comp installedPkgIndex sourcePkgIndex
-                     pkgConfigDB preferences constraints targets
+  $ modularResolver (SolverConfig reordGoals cntConflicts fineGrained minimize
+              indGoals noReinstalls
+              shadowing strFlags allowBootLibs onlyConstrained_ maxBkjumps enableBj
+              solveExes order verbosity (PruneAfterFirstSuccess False))
+              platform comp installedPkgIndex sourcePkgIndex
+              pkgConfigDB preferences constraints targets
   where
 
     finalparams@(DepResolverParams

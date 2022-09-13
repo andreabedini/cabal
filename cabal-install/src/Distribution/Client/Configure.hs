@@ -300,9 +300,6 @@ planLocalPackage verbosity comp platform configFlags configExFlags
             case flagToMaybe (configCabalFilePath configFlags) of
                 Nothing -> defaultPackageDesc verbosity
                 Just fp -> return fp
-  solver <- chooseSolver verbosity (fromFlag $ configSolver configExFlags)
-            (compilerInfo comp)
-
   let -- We create a local package and ask to resolve a dependency on it
       localPkg = SourcePackage {
         srcpkgPackageId          = packageId pkg,
@@ -369,7 +366,7 @@ planLocalPackage verbosity comp platform configFlags configExFlags
             (SourcePackageDb mempty packagePrefs)
             [SpecificSourcePackage localPkg]
 
-  return (resolveDependencies platform (compilerInfo comp) pkgConfigDb solver resolverParams)
+  return (resolveDependencies platform (compilerInfo comp) pkgConfigDb resolverParams)
 
 
 -- | Call an installer for an 'SourcePackage' but override the configure

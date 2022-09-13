@@ -141,15 +141,11 @@ planPackages :: Verbosity
 planPackages verbosity comp platform freezeFlags
              installedPkgIndex sourcePkgDb pkgConfigDb pkgSpecifiers = do
 
-  solver <- chooseSolver verbosity
-            (fromFlag (freezeSolver freezeFlags)) (compilerInfo comp)
   notice verbosity "Resolving dependencies..."
 
-  installPlan <- foldProgress logMsg (die' verbosity) return $
-                   resolveDependencies
-                     platform (compilerInfo comp) pkgConfigDb
-                     solver
-                     resolverParams
+  installPlan <-
+    foldProgress logMsg (die' verbosity) return $
+    resolveDependencies platform (compilerInfo comp) pkgConfigDb resolverParams
 
   return $ pruneInstallPlan installPlan pkgSpecifiers
 
@@ -191,21 +187,20 @@ planPackages verbosity comp platform freezeFlags
 
     logMsg message rest = debug verbosity message >> rest
 
-    stanzas = [ TestStanzas | testsEnabled ]
-           ++ [ BenchStanzas | benchmarksEnabled ]
-    testsEnabled      = fromFlagOrDefault False $ freezeTests freezeFlags
-    benchmarksEnabled = fromFlagOrDefault False $ freezeBenchmarks freezeFlags
+    stanzas = [ TestStanzas | testsEnabled ] ++ [ BenchStanzas | benchmarksEnabled ]
 
-    reorderGoals     = fromFlag (freezeReorderGoals     freezeFlags)
-    countConflicts   = fromFlag (freezeCountConflicts   freezeFlags)
+    testsEnabled         = fromFlagOrDefault False $ freezeTests freezeFlags
+    benchmarksEnabled    = fromFlagOrDefault False $ freezeBenchmarks freezeFlags
+    reorderGoals         = fromFlag (freezeReorderGoals     freezeFlags)
+    countConflicts       = fromFlag (freezeCountConflicts   freezeFlags)
     fineGrainedConflicts = fromFlag (freezeFineGrainedConflicts freezeFlags)
-    minimizeConflictSet = fromFlag (freezeMinimizeConflictSet freezeFlags)
-    independentGoals = fromFlag (freezeIndependentGoals freezeFlags)
-    shadowPkgs       = fromFlag (freezeShadowPkgs       freezeFlags)
-    strongFlags      = fromFlag (freezeStrongFlags      freezeFlags)
-    maxBackjumps     = fromFlag (freezeMaxBackjumps     freezeFlags)
+    minimizeConflictSet  = fromFlag (freezeMinimizeConflictSet freezeFlags)
+    independentGoals     = fromFlag (freezeIndependentGoals freezeFlags)
+    shadowPkgs           = fromFlag (freezeShadowPkgs       freezeFlags)
+    strongFlags          = fromFlag (freezeStrongFlags      freezeFlags)
+    maxBackjumps         = fromFlag (freezeMaxBackjumps     freezeFlags)
     allowBootLibInstalls = fromFlag (freezeAllowBootLibInstalls freezeFlags)
-    onlyConstrained  = fromFlag (freezeOnlyConstrained  freezeFlags)
+    onlyConstrained      = fromFlag (freezeOnlyConstrained  freezeFlags)
 
 
 -- | Remove all unneeded packages from an install plan.

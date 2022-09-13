@@ -110,14 +110,18 @@ instance Parsec UpdateRequest where
 
 updateAction :: NixStyleFlags () -> [String] -> GlobalFlags -> IO ()
 updateAction flags@NixStyleFlags {..} extraArgs globalFlags = do
-  let ignoreProject = flagIgnoreProject projectFlags
+  projectConfig <-
+    withProjectOrGlobalConfig
+      verbosity
+      (flagIgnoreProject projectFlags)
+      globalConfigFlag
+      (projectConfig <$> establishProjectBaseContext verbosity cliConfig OtherCommand)
+      (\globalConfig -> return $ globalConfig <> cliConfig)
 
-  projectConfig <- withProjectOrGlobalConfig verbosity ignoreProject globalConfigFlag
-    (projectConfig <$> establishProjectBaseContext verbosity cliConfig OtherCommand)
-    (\globalConfig -> return $ globalConfig <> cliConfig)
-
-  projectConfigWithSolverRepoContext verbosity
-    (projectConfigShared projectConfig) (projectConfigBuildOnly projectConfig)
+  projectConfigWithSolverRepoContext
+    verbosity
+    (projectConfigShared projectConfig)
+    (projectConfigBuildOnly projectConfig)
     $ \repoCtxt -> do
 
     let repos :: [Repo]
@@ -134,7 +138,7 @@ updateAction flags@NixStyleFlags {..} extraArgs globalFlags = do
     unless (null updateRepoRequests) $ do
       let remoteRepoNames = map repoName repos
           unknownRepos = [r | (UpdateRequest r _) <- updateRepoRequests
-                            , not (r `elem` remoteRepoNames)]
+                            , r `notElem` remoteRepoNames]
       unless (null unknownRepos) $
         die' verbosity $ "'v2-update' repo(s): \""
                          ++ intercalate "\", \"" (map unRepoName unknownRepos)
