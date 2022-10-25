@@ -1,7 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# OPTIONS_GHC -Wno-deferred-out-of-scope-variables #-}
 
 -- | cabal-install CLI command: gen-bounds
 module Distribution.Client.CmdGenBounds
@@ -24,12 +23,15 @@ import Distribution.Client.Setup
   ( ConfigFlags (..),
     GlobalFlags,
   )
+import Distribution.Client.Types.PackageLocation
 import Distribution.Client.Types.PackageSpecifier
+import Distribution.Compat.Lens
 import Distribution.Package
   ( packageName,
     packageVersion,
   )
 import Distribution.PackageDescription
+import Distribution.PackageDescription.PrettyPrint
 import Distribution.Simple.Command
   ( CommandUI (..),
     usageAlternatives,
@@ -37,55 +39,24 @@ import Distribution.Simple.Command
 import Distribution.Simple.Flag
   ( fromFlagOrDefault,
   )
-import Distribution.Simple.Utils
-  ( die',
-    wrapText,
-  )
+import Distribution.Simple.Utils (die')
 import Distribution.Solver.Types.SourcePackage
+import Distribution.Types.GenericPackageDescription.Lens
 import Distribution.Verbosity
   ( normal,
   )
 import Distribution.Version hiding (hasLowerBound)
-import Text.PrettyPrint
+import System.FilePath
 import Prelude ()
 
 genBoundsCommand :: CommandUI (NixStyleFlags ())
 genBoundsCommand =
   CommandUI
     { commandName = "v2-gen-bounds",
-      commandSynopsis = "Freeze dependencies.",
+      commandSynopsis = "Fill in missing version bounds",
       commandUsage = usageAlternatives "v2-gen-bounds" ["[FLAGS]"],
-      commandDescription = Just $ \_ ->
-        wrapText $
-          "The project configuration is frozen so that it will be reproducible "
-            ++ "in future.\n\n"
-            ++ "The precise dependency configuration for the project is written to "
-            ++ "the 'cabal.project.genBounds' file (or '$project_file.genBounds' if "
-            ++ "'--project-file' is specified). This file extends the configuration "
-            ++ "from the 'cabal.project' file and thus is used as the project "
-            ++ "configuration for all other commands (such as 'v2-build', "
-            ++ "'v2-repl' etc).\n\n"
-            ++ "The genBounds file can be kept in source control. To make small "
-            ++ "adjustments it may be edited manually, or to make bigger changes "
-            ++ "you may wish to delete the file and re-genBounds. For more control, "
-            ++ "one approach is to try variations using 'v2-build --dry-run' with "
-            ++ "solver flags such as '--constraint=\"pkg < 1.2\"' and once you have "
-            ++ "a satisfactory solution to genBounds it using the 'v2-genBounds' command "
-            ++ "with the same set of flags.",
-      commandNotes = Just $ \pname ->
-        "Examples:\n"
-          ++ "  "
-          ++ pname
-          ++ " v2-gen-bounds\n"
-          ++ "    Freeze the configuration of the current project\n\n"
-          ++ "  "
-          ++ pname
-          ++ " v2-build --dry-run --constraint=\"aeson < 1\"\n"
-          ++ "    Check what a solution with the given constraints would look like\n"
-          ++ "  "
-          ++ pname
-          ++ " v2-gen-bounds --constraint=\"aeson < 1\"\n"
-          ++ "    Freeze a solution using the given constraints\n",
+      commandDescription = Nothing,
+      commandNotes = Nothing,
       commandDefaultFlags = defaultNixStyleFlags (),
       commandOptions = nixStyleOptions (const [])
     }
@@ -129,56 +100,25 @@ genBoundsAction flags@NixStyleFlags {configFlags} extraArgs globalFlags = do
                    not $ elabLocalToProject ecp
                ]
 
+  let improveDepedency dep@(Dependency pn vr nes) =
+        case Map.lookup pn versionsMap of
+          Nothing -> dep
+          Just v -> Dependency pn (improveVersionRange vr v) nes
+
   for_ localPackages $ \case
-    np@(NamedPackage _pn _pps) ->
-      putStrLn $ "\n TODO idk named package " ++ show np
-    (SpecificSourcePackage ssp) -> do
-      let SourcePackage {srcpkgPackageId = PackageIdentifier {pkgName}, srcpkgDescription} = ssp
+    SpecificSourcePackage SourcePackage {srcpkgPackageId, srcpkgSource = LocalUnpackedPackage pkgPath, srcpkgDescription, srcpkgDescrOverride = Nothing} -> do
+      let PackageIdentifier {pkgName} = srcpkgPackageId
 
-      -- We only work with the accumulated constraints (for the given
-      -- configuration)
+      let fp = pkgPath </> unPackageName pkgName <.> "cabal.revised"
+      putStrLn $ "Writing " ++ fp ++ " for " ++ prettyShow srcpkgPackageId
 
-      putStrLn $ "\nfor package " ++ unPackageName pkgName
-
-      for_ (condLibrary srcpkgDescription) $ \ct -> do
-        putStrLn "\nlibrary"
-        print (nest 4 $ vcat $ map (message versionsMap) $ condTreeConstraints ct)
-
-      for_ (condSubLibraries srcpkgDescription) $ \(ucn, ct) -> do
-        putStrLn $ "\nlibrary " ++ unUnqualComponentName ucn
-        print (nest 4 $ vcat $ map (message versionsMap) $ condTreeConstraints ct)
-
-      for_ (condForeignLibs srcpkgDescription) $ \(ucn, ct) -> do
-        putStrLn $ "\nforeign-lib " ++ unUnqualComponentName ucn
-        print (nest 4 $ vcat $ map (message versionsMap) $ condTreeConstraints ct)
-
-      for_ (condExecutables srcpkgDescription) $ \(ucn, ct) -> do
-        putStrLn $ "\nexecutable " ++ unUnqualComponentName ucn
-        print (nest 4 $ vcat $ map (message versionsMap) $ condTreeConstraints ct)
-
-      for_ (condTestSuites srcpkgDescription) $ \(ucn, ct) -> do
-        putStrLn $ "\ntest-suite " ++ unUnqualComponentName ucn
-        print (nest 4 $ vcat $ map (message versionsMap) $ condTreeConstraints ct)
-
-      for_ (condBenchmarks srcpkgDescription) $ \(ucn, ct) -> do
-        putStrLn $ "\nbenchmark " ++ unUnqualComponentName ucn
-        print (nest 4 $ vcat $ map (message versionsMap) $ condTreeConstraints ct)
+      writeGenericPackageDescription fp $
+        srcpkgDescription & (\f -> allCondTrees $ traverseCondTreeC f) %~ map improveDepedency
+    anyOtherCase ->
+      putStrLn $ "Not handled" ++ show anyOtherCase
   where
     verbosity = fromFlagOrDefault normal (configVerbosity configFlags)
     cliConfig = commandLineFlagsToProjectConfig globalFlags flags mempty
-
-message :: Map PackageName Version -> Dependency -> Doc
-message versionsMap dep =
-  let dep' = improveDepedency versionsMap dep
-   in if dep' == dep
-        then pretty dep
-        else hsep [pretty dep', "was", pretty dep]
-
-improveDepedency :: Map PackageName Version -> Dependency -> Dependency
-improveDepedency versionsMap dep@(Dependency pn vr nes) =
-  case Map.lookup pn versionsMap of
-    Nothing -> dep
-    Just v -> Dependency pn (improveVersionRange vr v) nes
 
 improveVersionRange :: VersionRange -> Version -> VersionRange
 improveVersionRange vr v =
