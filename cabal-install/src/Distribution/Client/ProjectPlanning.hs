@@ -479,8 +479,8 @@ rebuildInstallPlan verbosity distDirLayout cabalDirLayout projectConfig localPac
         (flagToMaybe $ projectConfigActiveRepos $ projectConfigShared projectConfig)
 
     let packageLocationsSignature =
-              [ (packageId pkg, srcpkgSource pkg)
-              | pkg <- PackageIndex.allPackages $ packageIndex sourcePkgDb ]
+          [ (packageId pkg, srcpkgSource pkg)
+          | pkg <- PackageIndex.allPackages $ packageIndex sourcePkgDb ]
 
     sourcePackageHashes <-
       rerunIfChanged verbosity fileMonitorSourceHashes packageLocationsSignature $
@@ -546,11 +546,10 @@ rebuildInstallPlanFromSourcePackageDb verbosity
             (configuredPrograms programDb)
             (getMapMappend (projectConfigSpecificPackage projectConfig))
 
-          (solverPlan, pkgConfigDB) <-
-            phaseRunSolver projectConfig compilerEtc sourcePkgDb localPackages
+          (solverPlan, pkgConfigDB) <- phaseRunSolver compilerEtc
 
           (elaboratedPlan, elaboratedShared) <-
-            phaseElaboratePlan projectConfig compilerEtc pkgConfigDB solverPlan sourcePackageHashes localPackages
+            phaseElaboratePlan projectConfig compilerEtc pkgConfigDB solverPlan
 
           -- Update the files we maintain that reflect our current build environment.
           -- In particular we maintain a JSON representation of the elaborated
@@ -582,18 +581,9 @@ rebuildInstallPlanFromSourcePackageDb verbosity
     -- This is expensive so we cache it independently.
     --
     phaseRunSolver
-        :: ProjectConfig
-        -> (Compiler, Platform, ProgramDb)
-        -> SourcePackageDb
-        -> [PackageSpecifier UnresolvedSourcePackage]
+        :: (Compiler, Platform, ProgramDb)
         -> Rebuild (SolverInstallPlan, PkgConfigDb)
-    phaseRunSolver projectConfig@ProjectConfig {
-                     projectConfigShared,
-                     projectConfigBuildOnly
-                   }
-                   (compiler, platform, progdb)
-                   sourcePkgDb
-                   localPackages = do
+    phaseRunSolver (compiler, platform, progdb) = do
        let solverSettings = resolveSolverSettings projectConfig
        rerunIfChanged verbosity fileMonitorSolverPlan
                        (solverSettings,
@@ -603,6 +593,7 @@ rebuildInstallPlanFromSourcePackageDb verbosity
           installedPkgIndex <- getInstalledPackages verbosity
                                                     compiler progdb platform
                                                     corePackageDbs
+
           pkgConfigDB       <- getPkgConfigDb verbosity progdb
 
           --TODO: [code cleanup] it'd be better if the Compiler contained the
@@ -627,7 +618,7 @@ rebuildInstallPlanFromSourcePackageDb verbosity
       where
         corePackageDbs :: [PackageDB]
         corePackageDbs = applyPackageDbFlags [GlobalPackageDB]
-                                             (projectConfigPackageDBs projectConfigShared)
+                                             (projectConfigPackageDBs $ projectConfigShared projectConfig)
 
         logMsg message rest = debugNoWrap verbosity message >> rest
 
@@ -663,19 +654,16 @@ rebuildInstallPlanFromSourcePackageDb verbosity
                        -> (Compiler, Platform, ProgramDb)
                        -> PkgConfigDb
                        -> SolverInstallPlan
-                       -> Map PackageId PackageSourceHash
-                       -> [PackageSpecifier (SourcePackage (PackageLocation loc))]
                        -> Rebuild ( ElaboratedInstallPlan
                                   , ElaboratedSharedConfig )
     phaseElaboratePlan ProjectConfig {
                          projectConfigShared,
                          projectConfigAllPackages,
                          projectConfigLocalPackages,
-                         projectConfigSpecificPackage,
-                         projectConfigBuildOnly
+                         projectConfigSpecificPackage
                        }
                        (compiler, platform, progdb) pkgConfigDB
-                       solverPlan sourcePackageHashes localPackages = do
+                       solverPlan = do
 
         liftIO $ debug verbosity "Elaborating the install plan..."
 
