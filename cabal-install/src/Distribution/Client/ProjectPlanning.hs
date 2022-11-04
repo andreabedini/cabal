@@ -546,30 +546,27 @@ rebuildInstallPlan verbosity distDirLayout cabalDirLayout projectConfig localPac
   where
     withRepoCtx = projectConfigWithSolverRepoContext verbosity (projectConfigShared projectConfig) (projectConfigBuildOnly projectConfig)
 
-rebuildInstallPlanFromSourcePackageDb
-  :: Verbosity
-  -> DistDirLayout
-  -> CabalDirLayout
-  -> ProjectConfig
-  -> SourcePackageDb
-  -> [PackageSpecifier UnresolvedSourcePackage]
-  -> Rebuild
-      ( ElaboratedInstallPlan -- with store packages
-      , ElaboratedInstallPlan -- with source packages
-      , ElaboratedSharedConfig
-      )
-  -- ^ @(improvedPlan, elaboratedPlan, _, _, _)@
-rebuildInstallPlanFromSourcePackageDb
-  verbosity
-  distDirLayout@DistDirLayout
-    { distProjectCacheFile
-    }
-  CabalDirLayout
-    { cabalStoreDirLayout
-    }
-  projectConfig
-  sourcePkgDb
-  localPackages = do
+rebuildInstallPlanFromSourcePackageDb :: Verbosity
+                   -> DistDirLayout -> CabalDirLayout
+                   -> ProjectConfig
+                   -> SourcePackageDb
+                   -> [PackageSpecifier UnresolvedSourcePackage]
+                   -> Rebuild
+                         ( ElaboratedInstallPlan  -- with store packages
+                         , ElaboratedInstallPlan  -- with source packages
+                         , ElaboratedSharedConfig
+                         )
+rebuildInstallPlanFromSourcePackageDb verbosity
+                   distDirLayout@DistDirLayout {
+                     distProjectCacheFile
+                   }
+                   CabalDirLayout {
+                     cabalStoreDirLayout
+                   }
+                   projectConfig
+                   sourcePkgDb
+                   localPackages = do
+
     progsearchpath <- liftIO getSystemSearchPath
     let projectConfigMonitored = projectConfig{projectConfigBuildOnly = mempty}
 
@@ -609,11 +606,14 @@ rebuildInstallPlanFromSourcePackageDb
                   solverPlan
                   localPackages
 
-              phaseMaintainPlanOutputs elaboratedPlan elaboratedShared
-              return (elaboratedPlan, elaboratedShared)
+      -- And so is the elaborated plan that the improved plan based on
+      (elaboratedPlan, elaboratedShared) <-
+        rerunIfChanged verbosity fileMonitorElaboratedPlan
+                       (projectConfigMonitored, localPackages, progsearchpath) $ do
 
           -- Configure the compiler we're using.
-          compilerEtc@(_compiler, _platform, programDb) <- configureCompiler verbosity distDirLayout projectConfig
+          compilerEtc@(_compiler, _platform, programDb) <-
+            configureCompiler verbosity distDirLayout projectConfig
 
           -- Users are allowed to specify program locations independently for
           -- each package (e.g. to use a particular version of a pre-processor
@@ -629,12 +629,9 @@ rebuildInstallPlanFromSourcePackageDb
           (elaboratedPlan, elaboratedShared) <-
             phaseElaboratePlan projectConfig compilerEtc pkgConfigDB solverPlan localPackages
 
-        return (improvedPlan, elaboratedPlan, elaboratedShared)
-    where
-      fileMonitorSolverPlan = newFileMonitorInCacheDir "solver-plan"
-      fileMonitorSourceHashes = newFileMonitorInCacheDir "source-hashes"
-      fileMonitorElaboratedPlan = newFileMonitorInCacheDir "elaborated-plan"
-      fileMonitorImprovedPlan = newFileMonitorInCacheDir "improved-plan"
+          phaseMaintainPlanOutputs elaboratedPlan elaboratedShared
+
+          return (elaboratedPlan, elaboratedShared)
 
       newFileMonitorInCacheDir :: Eq a => FilePath -> FileMonitor a b
       newFileMonitorInCacheDir = newFileMonitor . distProjectCacheFile
@@ -1018,10 +1015,11 @@ packageLocationsSignature
   :: SolverInstallPlan
   -> [(PackageId, PackageLocation (Maybe FilePath))]
 packageLocationsSignature solverPlan =
-  [ (packageId pkg, srcpkgSource pkg)
-  | SolverInstallPlan.Configured (SolverPackage{solverPkgSource = pkg}) <-
-      SolverInstallPlan.toList solverPlan
-  ]
+    [ (packageId pkg, srcpkgSource pkg)
+    | SolverInstallPlan.Configured SolverPackage { solverPkgSource = pkg}
+        <- SolverInstallPlan.toList solverPlan
+    ]
+
 
 -- | Get the 'HashValue' for all the source packages where we use hashes,
 -- and download any packages required to do so.
@@ -1042,13 +1040,13 @@ getPackageSourceHashes verbosity withRepoCtx solverPlan = do
             SolverInstallPlan.toList solverPlan
         ]
 
-      -- Tarballs that were local in the first place.
-      -- We'll hash these tarball files directly.
-      localTarballPkgs :: [(PackageId, FilePath)]
-      localTarballPkgs =
-        [ (pkgid, tarball)
-        | (pkgid, LocalTarballPackage tarball) <- allPkgLocations
-        ]
+    -- Determine if and where to get the package's source hash from.
+    --
+    let allPkgLocations :: [(PackageId, PackageLocation (Maybe FilePath))]
+        allPkgLocations =
+          [ (packageId pkg, srcpkgSource pkg)
+          | SolverInstallPlan.Configured SolverPackage { solverPkgSource = pkg}
+              <- SolverInstallPlan.toList solverPlan ]
 
       -- Tarballs from remote URLs. We must have downloaded these already
       -- (since we extracted the .cabal file earlier)
@@ -1564,15 +1562,11 @@ elaborateInstallPlan
         where
           f (SolverInstallPlan.PreExisting inst)
             | let ipkg = instSolverPkgIPI inst
-            , not (IPI.indefinite ipkg) =
-                Just
-                  ( IPI.installedUnitId ipkg
-                  , ( FullUnitId
-                        (IPI.installedComponentId ipkg)
-                        (Map.fromList (IPI.instantiatedWith ipkg))
-                    )
-                  )
-          f _ = Nothing
+            , not (IPI.indefinite ipkg)
+            = Just (IPI.installedUnitId ipkg,
+                     FullUnitId (IPI.installedComponentId ipkg)
+                                 (Map.fromList (IPI.instantiatedWith ipkg)))
+        f _ = Nothing
 
       elaboratedInstallPlan
         :: LogProgress (InstallPlan.GenericInstallPlan IPI.InstalledPackageInfo ElaboratedConfiguredPackage)
