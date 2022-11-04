@@ -491,11 +491,11 @@ rebuildInstallPlanFromSourcePackageDb :: Verbosity
                    -> ProjectConfig
                    -> SourcePackageDb
                    -> [PackageSpecifier UnresolvedSourcePackage]
-                   -> Rebuild ( ElaboratedInstallPlan  -- with store packages
+                   -> Rebuild
+                         ( ElaboratedInstallPlan  -- with store packages
                          , ElaboratedInstallPlan  -- with source packages
                          , ElaboratedSharedConfig
                          )
-                      -- ^ @(improvedPlan, elaboratedPlan, _, _, _)@
 rebuildInstallPlanFromSourcePackageDb verbosity
                    distDirLayout@DistDirLayout {
                      distProjectCacheFile
@@ -519,11 +519,11 @@ rebuildInstallPlanFromSourcePackageDb verbosity
       -- And so is the elaborated plan that the improved plan based on
       (elaboratedPlan, elaboratedShared) <-
         rerunIfChanged verbosity fileMonitorElaboratedPlan
-                       (projectConfigMonitored, localPackages,
-                        progsearchpath) $ do
+                       (projectConfigMonitored, localPackages, progsearchpath) $ do
 
           -- Configure the compiler we're using.
-          compilerEtc@(_compiler, _platform, programDb) <- configureCompiler verbosity distDirLayout projectConfig
+          compilerEtc@(_compiler, _platform, programDb) <-
+            configureCompiler verbosity distDirLayout projectConfig
 
           -- Users are allowed to specify program locations independently for
           -- each package (e.g. to use a particular version of a pre-processor
@@ -540,6 +540,7 @@ rebuildInstallPlanFromSourcePackageDb verbosity
             phaseElaboratePlan projectConfig compilerEtc pkgConfigDB solverPlan localPackages
 
           phaseMaintainPlanOutputs elaboratedPlan elaboratedShared
+
           return (elaboratedPlan, elaboratedShared)
 
       -- The improved plan changes each time we install something, whereas
@@ -856,7 +857,7 @@ packageLocationsSignature :: SolverInstallPlan
                           -> [(PackageId, PackageLocation (Maybe FilePath))]
 packageLocationsSignature solverPlan =
     [ (packageId pkg, srcpkgSource pkg)
-    | SolverInstallPlan.Configured (SolverPackage { solverPkgSource = pkg})
+    | SolverInstallPlan.Configured SolverPackage { solverPkgSource = pkg}
         <- SolverInstallPlan.toList solverPlan
     ]
 
@@ -877,7 +878,7 @@ getPackageSourceHashes verbosity withRepoCtx solverPlan = do
     let allPkgLocations :: [(PackageId, PackageLocation (Maybe FilePath))]
         allPkgLocations =
           [ (packageId pkg, srcpkgSource pkg)
-          | SolverInstallPlan.Configured (SolverPackage { solverPkgSource = pkg})
+          | SolverInstallPlan.Configured SolverPackage { solverPkgSource = pkg}
               <- SolverInstallPlan.toList solverPlan ]
 
         -- Tarballs that were local in the first place.
@@ -1364,8 +1365,8 @@ elaborateInstallPlan verbosity platform compiler compilerprogdb pkgConfigDB
             | let ipkg = instSolverPkgIPI inst
             , not (IPI.indefinite ipkg)
             = Just (IPI.installedUnitId ipkg,
-                     (FullUnitId (IPI.installedComponentId ipkg)
-                                 (Map.fromList (IPI.instantiatedWith ipkg))))
+                     FullUnitId (IPI.installedComponentId ipkg)
+                                 (Map.fromList (IPI.instantiatedWith ipkg)))
         f _ = Nothing
 
     elaboratedInstallPlan ::
