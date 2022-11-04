@@ -408,8 +408,6 @@ data SolverSettings
        solverSettingStrongFlags       :: StrongFlags,
        solverSettingAllowBootLibInstalls :: AllowBootLibInstalls,
        solverSettingOnlyConstrained   :: OnlyConstrained,
-       solverSettingIndexState        :: Maybe TotalIndexState,
-       solverSettingActiveRepos       :: Maybe ActiveRepos,
        solverSettingIndependentGoals  :: IndependentGoals
        -- Things that only make sense for manual mode, not --local mode
        -- too much control!

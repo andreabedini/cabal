@@ -20,6 +20,7 @@ module Distribution.Client.ProjectPlanning (
     -- * Producing the elaborated install plan
     rebuildProjectConfig,
     rebuildInstallPlan,
+    rebuildInstallPlanFromSourcePackageDb,
 
     -- * Build targets
     availableTargets,
@@ -413,7 +414,7 @@ configureCompiler verbosity
                            } = do
         let fileMonitorCompiler       = newFileMonitor . distProjectCacheFile $ "compiler"
 
-        progsearchpath <- liftIO $ getSystemSearchPath
+        progsearchpath <- liftIO getSystemSearchPath
         rerunIfChanged verbosity fileMonitorCompiler
                        (hcFlavor, hcPath, hcPkg, progsearchpath,
                         packageConfigProgramPaths,
@@ -445,7 +446,6 @@ configureCompiler verbosity
                   | dir <- fromNubList packageConfigProgramPathExtra ])
           $ defaultProgramDb
 
-
 -- | Return an up-to-date elaborated install plan.
 --
 -- Two variants of the install plan are returned: with and without packages
@@ -458,7 +458,7 @@ configureCompiler verbosity
 -- plan is useful for reporting and configuration. For example the @freeze@
 -- command needs the source package info to know about flag choices and
 -- dependencies of executables and setup scripts.
---
+
 rebuildInstallPlan :: Verbosity
                    -> DistDirLayout -> CabalDirLayout
                    -> ProjectConfig
@@ -469,17 +469,45 @@ rebuildInstallPlan :: Verbosity
                          , IndexUtils.TotalIndexState
                          , IndexUtils.ActiveRepos
                          )
+rebuildInstallPlan verbosity distDirLayout cabalDirLayout projectConfig localPackages =
+  runRebuild (distProjectRootDirectory distDirLayout) $ do
+
+    (sourcePkgDb, tis, ar) <-
+        getSourcePackages verbosity withRepoCtx
+            (flagToMaybe $ projectConfigIndexState $ projectConfigShared projectConfig)
+            (flagToMaybe $ projectConfigActiveRepos $ projectConfigShared projectConfig)
+
+    (improvedPlan, elaboratedPlan, elaboratedShared) <-
+      rebuildInstallPlanFromSourcePackageDb
+        verbosity distDirLayout cabalDirLayout projectConfig sourcePkgDb localPackages
+
+    return (improvedPlan, elaboratedPlan, elaboratedShared, tis, ar)
+
+  where
+    withRepoCtx = projectConfigWithSolverRepoContext verbosity (projectConfigShared projectConfig) (projectConfigBuildOnly projectConfig)
+
+rebuildInstallPlanFromSourcePackageDb :: Verbosity
+                   -> DistDirLayout -> CabalDirLayout
+                   -> ProjectConfig
+                   -> SourcePackageDb
+                   -> [PackageSpecifier UnresolvedSourcePackage]
+                   -> Rebuild ( ElaboratedInstallPlan  -- with store packages
+                         , ElaboratedInstallPlan  -- with source packages
+                         , ElaboratedSharedConfig
+                         )
                       -- ^ @(improvedPlan, elaboratedPlan, _, _, _)@
-rebuildInstallPlan verbosity
+rebuildInstallPlanFromSourcePackageDb verbosity
                    distDirLayout@DistDirLayout {
-                     distProjectRootDirectory,
                      distProjectCacheFile
                    }
                    CabalDirLayout {
                      cabalStoreDirLayout
-                   } = \projectConfig localPackages ->
-    runRebuild distProjectRootDirectory $ do
-    progsearchpath <- liftIO $ getSystemSearchPath
+                   }
+                   projectConfig
+                   sourcePkgDb
+                   localPackages = do
+
+    progsearchpath <- liftIO getSystemSearchPath
     let projectConfigMonitored = projectConfig { projectConfigBuildOnly = mempty }
 
     -- The overall improved plan is cached
@@ -489,16 +517,17 @@ rebuildInstallPlan verbosity
                    (projectConfigMonitored, localPackages, progsearchpath) $ do
 
       -- And so is the elaborated plan that the improved plan based on
-      (elaboratedPlan, elaboratedShared, totalIndexState, activeRepos) <-
+      (elaboratedPlan, elaboratedShared) <-
         rerunIfChanged verbosity fileMonitorElaboratedPlan
                        (projectConfigMonitored, localPackages,
                         progsearchpath) $ do
 
           compilerEtc   <- phaseConfigureCompiler projectConfig
           _             <- phaseConfigurePrograms projectConfig compilerEtc
-          (solverPlan, pkgConfigDB, totalIndexState, activeRepos)
+          (solverPlan, pkgConfigDB)
                         <- phaseRunSolver         projectConfig
                                                   compilerEtc
+                                                  sourcePkgDb
                                                   localPackages
           (elaboratedPlan,
            elaboratedShared) <- phaseElaboratePlan projectConfig
@@ -507,14 +536,14 @@ rebuildInstallPlan verbosity
                                                    localPackages
 
           phaseMaintainPlanOutputs elaboratedPlan elaboratedShared
-          return (elaboratedPlan, elaboratedShared, totalIndexState, activeRepos)
+          return (elaboratedPlan, elaboratedShared)
 
       -- The improved plan changes each time we install something, whereas
       -- the underlying elaborated plan only changes when input config
       -- changes, so it's worth caching them separately.
       improvedPlan <- phaseImprovePlan elaboratedPlan elaboratedShared
 
-      return (improvedPlan, elaboratedPlan, elaboratedShared, totalIndexState, activeRepos)
+      return (improvedPlan, elaboratedPlan, elaboratedShared)
 
   where
     fileMonitorSolverPlan     = newFileMonitorInCacheDir "solver-plan"
@@ -572,15 +601,18 @@ rebuildInstallPlan verbosity
     phaseRunSolver
         :: ProjectConfig
         -> (Compiler, Platform, ProgramDb)
+        -> SourcePackageDb
         -> [PackageSpecifier UnresolvedSourcePackage]
-        -> Rebuild (SolverInstallPlan, PkgConfigDb, IndexUtils.TotalIndexState, IndexUtils.ActiveRepos)
+        -> Rebuild (SolverInstallPlan, PkgConfigDb)
     phaseRunSolver projectConfig@ProjectConfig {
                      projectConfigShared,
                      projectConfigBuildOnly
                    }
                    (compiler, platform, progdb)
-                   localPackages =
-        rerunIfChanged verbosity fileMonitorSolverPlan
+                   sourcePkgDb
+                   localPackages = do
+       let solverSettings = resolveSolverSettings projectConfig
+       rerunIfChanged verbosity fileMonitorSolverPlan
                        (solverSettings,
                         localPackages, localPackagesEnabledStanzas,
                         compiler, platform, programDbSignature progdb) $ do
@@ -588,9 +620,6 @@ rebuildInstallPlan verbosity
           installedPkgIndex <- getInstalledPackages verbosity
                                                     compiler progdb platform
                                                     corePackageDbs
-          (sourcePkgDb, tis, ar) <- getSourcePackages verbosity withRepoCtx
-              (solverSettingIndexState solverSettings)
-              (solverSettingActiveRepos solverSettings)
           pkgConfigDB       <- getPkgConfigDb verbosity progdb
 
           --TODO: [code cleanup] it'd be better if the Compiler contained the
@@ -611,16 +640,12 @@ rebuildInstallPlan verbosity
             case planOrError of
               Left msg -> do reportPlanningFailure projectConfig compiler platform localPackages
                              die' verbosity msg
-              Right plan -> return (plan, pkgConfigDB, tis, ar)
+              Right plan -> return (plan, pkgConfigDB)
       where
         corePackageDbs :: [PackageDB]
         corePackageDbs = applyPackageDbFlags [GlobalPackageDB]
                                              (projectConfigPackageDBs projectConfigShared)
 
-        withRepoCtx    = projectConfigWithSolverRepoContext verbosity
-                           projectConfigShared
-                           projectConfigBuildOnly
-        solverSettings = resolveSolverSettings projectConfig
         logMsg message rest = debugNoWrap verbosity message >> rest
 
         localPackagesEnabledStanzas =
