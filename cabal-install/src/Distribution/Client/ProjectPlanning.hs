@@ -535,8 +535,8 @@ rebuildInstallPlan verbosity distDirLayout cabalDirLayout projectConfig localPac
         (flagToMaybe $ projectConfigActiveRepos $ projectConfigShared projectConfig)
 
     let packageLocationsSignature =
-              [ (packageId pkg, srcpkgSource pkg)
-              | pkg <- PackageIndex.allPackages $ packageIndex sourcePkgDb ]
+          [ (packageId pkg, srcpkgSource pkg)
+          | pkg <- PackageIndex.allPackages $ packageIndex sourcePkgDb ]
 
     sourcePackageHashes <-
       rerunIfChanged verbosity fileMonitorSourceHashes packageLocationsSignature $
@@ -631,11 +631,10 @@ rebuildInstallPlanFromSourcePackageDb verbosity
             (configuredPrograms programDb)
             (getMapMappend (projectConfigSpecificPackage projectConfig))
 
-          (solverPlan, pkgConfigDB) <-
-            phaseRunSolver projectConfig compilerEtc sourcePkgDb localPackages
+          (solverPlan, pkgConfigDB) <- phaseRunSolver compilerEtc
 
           (elaboratedPlan, elaboratedShared) <-
-            phaseElaboratePlan projectConfig compilerEtc pkgConfigDB solverPlan sourcePackageHashes localPackages
+            phaseElaboratePlan projectConfig compilerEtc pkgConfigDB solverPlan
 
           -- Update the files we maintain that reflect our current build environment.
           -- In particular we maintain a JSON representation of the elaborated
@@ -673,44 +672,20 @@ rebuildInstallPlanFromSourcePackageDb verbosity
     -- This is expensive so we cache it independently.
     --
     phaseRunSolver
-        :: ProjectConfig
-        -> (Compiler, Platform, ProgramDb)
-        -> SourcePackageDb
-        -> [PackageSpecifier UnresolvedSourcePackage]
+        :: (Compiler, Platform, ProgramDb)
         -> Rebuild (SolverInstallPlan, PkgConfigDb)
-      phaseRunSolver
-        projectConfig@ProjectConfig
-          { projectConfigShared
-          , projectConfigBuildOnly
-          }
-        (compiler, platform, progdb)
-        sourcePkgDb
-        localPackages = do
-          let solverSettings = resolveSolverSettings projectConfig
-          rerunIfChanged
-            verbosity
-            fileMonitorSolverPlan
-            ( solverSettings
-            , localPackages
-            , localPackagesEnabledStanzas
-            , compiler
-            , platform
-            , programDbSignature progdb
-            )
-            $ do
-              installedPkgIndex <-
-                getInstalledPackages
-                  verbosity
-                  compiler
-                  progdb
-                  platform
-                  corePackageDbs
-              pkgConfigDB <- getPkgConfigDb verbosity progdb
+    phaseRunSolver (compiler, platform, progdb) = do
+       let solverSettings = resolveSolverSettings projectConfig
+       rerunIfChanged verbosity fileMonitorSolverPlan
+                       (solverSettings,
+                        localPackages, localPackagesEnabledStanzas,
+                        compiler, platform, programDbSignature progdb) $ do
 
-              -- TODO: [code cleanup] it'd be better if the Compiler contained the
-              -- ConfiguredPrograms that it needs, rather than relying on the progdb
-              -- since we don't need to depend on all the programs here, just the
-              -- ones relevant for the compiler.
+          installedPkgIndex <- getInstalledPackages verbosity
+                                                    compiler progdb platform
+                                                    corePackageDbs
+
+          pkgConfigDB       <- getPkgConfigDb verbosity progdb
 
               liftIO $ do
                 solver <-
@@ -745,7 +720,19 @@ rebuildInstallPlanFromSourcePackageDb verbosity
                 [GlobalPackageDB]
                 (projectConfigPackageDBs projectConfigShared)
 
-            logMsg message rest = debugNoWrap verbosity message >> rest
+            notice verbosity "Resolving dependencies..."
+            planOrError <- foldProgress logMsg (pure . Left) (pure . Right) $
+              planPackages verbosity compiler platform solver solverSettings
+                           installedPkgIndex sourcePkgDb pkgConfigDB
+                           localPackages localPackagesEnabledStanzas
+            case planOrError of
+              Left msg -> do reportPlanningFailure projectConfig compiler platform localPackages
+                             die' verbosity msg
+              Right plan -> return (plan, pkgConfigDB)
+      where
+        corePackageDbs :: [PackageDB]
+        corePackageDbs = applyPackageDbFlags [GlobalPackageDB]
+                                             (projectConfigPackageDBs $ projectConfigShared projectConfig)
 
             localPackagesEnabledStanzas =
               Map.fromList
@@ -813,19 +800,16 @@ rebuildInstallPlanFromSourcePackageDb verbosity
                        -> (Compiler, Platform, ProgramDb)
                        -> PkgConfigDb
                        -> SolverInstallPlan
-                       -> Map PackageId PackageSourceHash
-                       -> [PackageSpecifier (SourcePackage (PackageLocation loc))]
                        -> Rebuild ( ElaboratedInstallPlan
                                   , ElaboratedSharedConfig )
     phaseElaboratePlan ProjectConfig {
                          projectConfigShared,
                          projectConfigAllPackages,
                          projectConfigLocalPackages,
-                         projectConfigSpecificPackage,
-                         projectConfigBuildOnly
+                         projectConfigSpecificPackage
                        }
                        (compiler, platform, progdb) pkgConfigDB
-                       solverPlan sourcePackageHashes localPackages = do
+                       solverPlan = do
 
         liftIO $ debug verbosity "Elaborating the install plan..."
 
