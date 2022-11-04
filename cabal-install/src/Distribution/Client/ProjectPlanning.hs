@@ -176,6 +176,7 @@ import           Control.Exception (assert)
 import           Data.List (groupBy, deleteBy)
 import qualified Data.List.NonEmpty as NE
 import           System.FilePath
+import qualified Distribution.Solver.Types.PackageIndex as PackageIndex
 
 ------------------------------------------------------------------------------
 -- * Elaborated install plan
@@ -473,23 +474,34 @@ rebuildInstallPlan verbosity distDirLayout cabalDirLayout projectConfig localPac
   runRebuild (distProjectRootDirectory distDirLayout) $ do
 
     (sourcePkgDb, tis, ar) <-
-        getSourcePackages verbosity withRepoCtx
-            (flagToMaybe $ projectConfigIndexState $ projectConfigShared projectConfig)
-            (flagToMaybe $ projectConfigActiveRepos $ projectConfigShared projectConfig)
+      getSourcePackages verbosity withRepoCtx
+        (flagToMaybe $ projectConfigIndexState $ projectConfigShared projectConfig)
+        (flagToMaybe $ projectConfigActiveRepos $ projectConfigShared projectConfig)
+
+    let packageLocationsSignature =
+              [ (packageId pkg, srcpkgSource pkg)
+              | pkg <- PackageIndex.allPackages $ packageIndex sourcePkgDb ]
+
+    sourcePackageHashes <-
+      rerunIfChanged verbosity fileMonitorSourceHashes packageLocationsSignature $
+        getPackageSourceHashes verbosity withRepoCtx sourcePkgDb
 
     (improvedPlan, elaboratedPlan, elaboratedShared) <-
       rebuildInstallPlanFromSourcePackageDb
-        verbosity distDirLayout cabalDirLayout projectConfig sourcePkgDb localPackages
+        verbosity distDirLayout cabalDirLayout projectConfig sourcePkgDb sourcePackageHashes localPackages
 
     return (improvedPlan, elaboratedPlan, elaboratedShared, tis, ar)
 
   where
-    withRepoCtx = projectConfigWithSolverRepoContext verbosity (projectConfigShared projectConfig) (projectConfigBuildOnly projectConfig)
+    withRepoCtx              = projectConfigWithSolverRepoContext verbosity (projectConfigShared projectConfig) (projectConfigBuildOnly projectConfig)
+    fileMonitorSourceHashes  = newFileMonitorInCacheDir "source-hashes"
+    newFileMonitorInCacheDir = newFileMonitor . distProjectCacheFile distDirLayout
 
 rebuildInstallPlanFromSourcePackageDb :: Verbosity
                    -> DistDirLayout -> CabalDirLayout
                    -> ProjectConfig
                    -> SourcePackageDb
+                   -> Map PackageId PackageSourceHash
                    -> [PackageSpecifier UnresolvedSourcePackage]
                    -> Rebuild
                          ( ElaboratedInstallPlan  -- with store packages
@@ -505,6 +517,7 @@ rebuildInstallPlanFromSourcePackageDb verbosity
                    }
                    projectConfig
                    sourcePkgDb
+                   sourcePackageHashes
                    localPackages = do
 
     progsearchpath <- liftIO getSystemSearchPath
@@ -537,7 +550,7 @@ rebuildInstallPlanFromSourcePackageDb verbosity
             phaseRunSolver projectConfig compilerEtc sourcePkgDb localPackages
 
           (elaboratedPlan, elaboratedShared) <-
-            phaseElaboratePlan projectConfig compilerEtc pkgConfigDB solverPlan localPackages
+            phaseElaboratePlan projectConfig compilerEtc pkgConfigDB solverPlan sourcePackageHashes localPackages
 
           -- Update the files we maintain that reflect our current build environment.
           -- In particular we maintain a JSON representation of the elaborated
@@ -559,7 +572,6 @@ rebuildInstallPlanFromSourcePackageDb verbosity
 
   where
     fileMonitorSolverPlan     = newFileMonitorInCacheDir "solver-plan"
-    fileMonitorSourceHashes   = newFileMonitorInCacheDir "source-hashes"
     fileMonitorElaboratedPlan = newFileMonitorInCacheDir "elaborated-plan"
     fileMonitorImprovedPlan   = newFileMonitorInCacheDir "improved-plan"
 
@@ -651,6 +663,7 @@ rebuildInstallPlanFromSourcePackageDb verbosity
                        -> (Compiler, Platform, ProgramDb)
                        -> PkgConfigDb
                        -> SolverInstallPlan
+                       -> Map PackageId PackageSourceHash
                        -> [PackageSpecifier (SourcePackage (PackageLocation loc))]
                        -> Rebuild ( ElaboratedInstallPlan
                                   , ElaboratedSharedConfig )
@@ -662,14 +675,9 @@ rebuildInstallPlanFromSourcePackageDb verbosity
                          projectConfigBuildOnly
                        }
                        (compiler, platform, progdb) pkgConfigDB
-                       solverPlan localPackages = do
+                       solverPlan sourcePackageHashes localPackages = do
 
         liftIO $ debug verbosity "Elaborating the install plan..."
-
-        sourcePackageHashes <-
-          rerunIfChanged verbosity fileMonitorSourceHashes
-                         (packageLocationsSignature solverPlan) $
-            getPackageSourceHashes verbosity withRepoCtx solverPlan
 
         defaultInstallDirs <- liftIO $ userInstallDirTemplates compiler
         (elaboratedPlan, elaboratedShared)
@@ -695,10 +703,6 @@ rebuildInstallPlanFromSourcePackageDb verbosity
                   elaboratedPlan
         liftIO $ debugNoWrap verbosity (InstallPlan.showInstallPlan instantiatedPlan)
         return (instantiatedPlan, elaboratedShared)
-      where
-        withRepoCtx = projectConfigWithSolverRepoContext verbosity
-                        projectConfigShared
-                        projectConfigBuildOnly
 
     -- Improve the elaborated install plan. The elaborated plan consists
     -- mostly of source packages (with full nix-style hashed ids). Where
@@ -842,17 +846,6 @@ getPkgConfigDb verbosity progdb = do
     traverse_ monitorDirectoryStatus dirs
     liftIO $ readPkgConfigDb verbosity progdb
 
-
--- | Select the config values to monitor for changes package source hashes.
-packageLocationsSignature :: SolverInstallPlan
-                          -> [(PackageId, PackageLocation (Maybe FilePath))]
-packageLocationsSignature solverPlan =
-    [ (packageId pkg, srcpkgSource pkg)
-    | SolverInstallPlan.Configured SolverPackage { solverPkgSource = pkg}
-        <- SolverInstallPlan.toList solverPlan
-    ]
-
-
 -- | Get the 'HashValue' for all the source packages where we use hashes,
 -- and download any packages required to do so.
 --
@@ -860,17 +853,16 @@ packageLocationsSignature solverPlan =
 --
 getPackageSourceHashes :: Verbosity
                        -> (forall a. (RepoContext -> IO a) -> IO a)
-                       -> SolverInstallPlan
+                       -> SourcePackageDb
                        -> Rebuild (Map PackageId PackageSourceHash)
-getPackageSourceHashes verbosity withRepoCtx solverPlan = do
+getPackageSourceHashes verbosity withRepoCtx sourcePkgDb = do
 
     -- Determine if and where to get the package's source hash from.
     --
     let allPkgLocations :: [(PackageId, PackageLocation (Maybe FilePath))]
         allPkgLocations =
           [ (packageId pkg, srcpkgSource pkg)
-          | SolverInstallPlan.Configured SolverPackage { solverPkgSource = pkg}
-              <- SolverInstallPlan.toList solverPlan ]
+          | pkg <- PackageIndex.allPackages $ packageIndex sourcePkgDb ]
 
         -- Tarballs that were local in the first place.
         -- We'll hash these tarball files directly.
