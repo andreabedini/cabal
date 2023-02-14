@@ -129,15 +129,14 @@ import GHC.IO.Handle.Lock (hUnlock)
 -- | Check if a particular 'UnitId' exists in the store.
 --
 doesStoreEntryExist :: StoreDirLayout -> CompilerId -> UnitId -> IO Bool
-doesStoreEntryExist StoreDirLayout{storePackageDirectory} compid unitid =
-    doesDirectoryExist (storePackageDirectory compid unitid)
+doesStoreEntryExist = undefined
 
 
 -- | Return the 'UnitId's of all packages\/components already installed in the
 -- store.
 --
-getStoreEntries :: StoreDirLayout -> CompilerId -> Rebuild (Set UnitId)
-getStoreEntries StoreDirLayout{storeDirectory} compid = do
+getLocalStoreEntries :: StoreDirLayout -> CompilerId -> Rebuild (Set UnitId)
+getLocalStoreEntries StoreDirLayout{storeDirectory} compid = do
     paths <- getDirectoryContentsMonitored (storeDirectory compid)
     return $! mkEntries paths
   where
@@ -194,7 +193,7 @@ newStoreEntry verbosity storeDirLayout@StoreDirLayout{..}
       withIncomingUnitIdLock verbosity storeDirLayout compid unitid $ do
 
         -- Check for the existence of the final store entry directory.
-        exists <- doesStoreEntryExist storeDirLayout compid unitid
+        exists <- doesDirectoryExist finalEntryDir
 
         if exists
           -- If the entry exists then we lost the race and we must abandon,
