@@ -83,7 +83,7 @@ ipiFieldGrammar = mkInstalledPackageInfo
     <@> optionalFieldDef    "id"                                                 L.installedUnitId (mkUnitId "")
     <@> optionalFieldDefAla "instantiated-with"    InstWith                      L.instantiatedWith []
     <@> optionalFieldDefAla "key"                  CompatPackageKey              L.compatPackageKey ""
-    <@> optionalFieldDefAla "license"              SpecLicenseLenient            L.license (Left SPDX.NONE)
+    <@> optionalFieldDefAla "license"              SpecLicense                   L.license SPDX.NONE
     <@> freeTextFieldDefST  "copyright"                                          L.copyright
     <@> freeTextFieldDefST  "maintainer"                                         L.maintainer
     <@> freeTextFieldDefST  "author"                                             L.author

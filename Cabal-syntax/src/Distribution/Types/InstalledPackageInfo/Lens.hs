@@ -8,7 +8,6 @@ import Distribution.Compat.Prelude
 import Prelude ()
 
 import Distribution.Backpack                   (OpenModule)
-import Distribution.License                    (License)
 import Distribution.ModuleName                 (ModuleName)
 import Distribution.Package                    (AbiHash, ComponentId, PackageIdentifier, UnitId)
 import Distribution.Types.InstalledPackageInfo (AbiDependency, ExposedModule, InstalledPackageInfo)
@@ -44,7 +43,7 @@ compatPackageKey :: Lens' InstalledPackageInfo String
 compatPackageKey f s = fmap (\x -> s { T.compatPackageKey = x }) (f (T.compatPackageKey s))
 {-# INLINE compatPackageKey #-}
 
-license :: Lens' InstalledPackageInfo (Either SPDX.License License)
+license :: Lens' InstalledPackageInfo SPDX.License
 license f s = fmap (\x -> s { T.license = x }) (f (T.license s))
 {-# INLINE license #-}
 

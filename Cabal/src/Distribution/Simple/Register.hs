@@ -402,10 +402,7 @@ generalInstalledPackageInfo adjustRelIncDirs pkg abi_hash lib lbi clbi installDi
     IPI.sourceLibName      = libName lib,
     IPI.compatPackageKey   = componentCompatPackageKey clbi,
     -- If GHC >= 8.4 we register with SDPX, otherwise with legacy license
-    IPI.license            =
-        if ghc84
-        then Left $ either id licenseToSPDX $ licenseRaw pkg
-        else Right $ either licenseFromSPDX id $ licenseRaw pkg,
+    IPI.license            = license     pkg,
     IPI.copyright          = copyright   pkg,
     IPI.maintainer         = maintainer  pkg,
     IPI.author             = author      pkg,
@@ -452,10 +449,6 @@ generalInstalledPackageInfo adjustRelIncDirs pkg abi_hash lib lbi clbi installDi
     IPI.libVisibility      = libVisibility lib
   }
   where
-    ghc84 = case compilerId $ compiler lbi of
-        CompilerId GHC v -> v >= mkVersion [8, 4]
-        _                -> False
-
     bi = libBuildInfo lib
     --TODO: unclear what the root cause of the
     -- duplication is, but we nub it here for now:

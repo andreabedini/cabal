@@ -16,7 +16,6 @@ import Prelude ()
 
 import Distribution.Backpack
 import Distribution.Compat.Graph            (IsNode (..))
-import Distribution.License
 import Distribution.ModuleName
 import Distribution.Package                 hiding (installedUnitId)
 import Distribution.Types.AbiDependency
@@ -51,7 +50,7 @@ data InstalledPackageInfo
         -- with the same ModuleName as the key.
         instantiatedWith  :: [(ModuleName, OpenModule)],
         compatPackageKey  :: String,
-        license           :: Either SPDX.License License,
+        license           :: SPDX.License,
         copyright         :: !ShortText,
         maintainer        :: !ShortText,
         author            :: !ShortText,
@@ -136,7 +135,7 @@ emptyInstalledPackageInfo
         installedUnitId   = mkUnitId "",
         instantiatedWith  = [],
         compatPackageKey  = "",
-        license           = Left SPDX.NONE,
+        license           = SPDX.NONE,
         copyright         = "",
         maintainer        = "",
         author            = "",
