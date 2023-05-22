@@ -792,8 +792,6 @@ showComponentTarget pkgid =
     toBuildTarget (ComponentTarget cname subtarget) =
       case subtarget of
         WholeComponent     -> Cabal.BuildTargetComponent cname
-        ModuleTarget mname -> Cabal.BuildTargetModule    cname mname
-        FileTarget   fname -> Cabal.BuildTargetFile      cname fname
 
 showTestComponentTarget :: PackageId -> ComponentTarget -> Maybe String
 showTestComponentTarget _ (ComponentTarget (CTestName n) _) = Just $ prettyShow n

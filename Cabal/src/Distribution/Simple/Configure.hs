@@ -332,7 +332,6 @@ configure (pkg_descr0, pbi) cfg = do
     (mb_cname :: Maybe ComponentName) <- do
         let flat_pkg_descr = flattenPackageDescription pkg_descr0
         targets <- readBuildTargets verbosity flat_pkg_descr (configArgs cfg)
-        -- TODO: bleat if you use the module/file syntax
         let targets' = [ cname | BuildTargetComponent cname <- targets ]
         case targets' of
             _ | null (configArgs cfg) -> return Nothing
