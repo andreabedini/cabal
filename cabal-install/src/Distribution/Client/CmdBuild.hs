@@ -188,8 +188,7 @@ selectPackageTargets targetSelector targets
 --
 -- For the @build@ command we just need the basic checks on being buildable etc.
 --
-selectComponentTarget :: SubComponentTarget
-                      -> AvailableTarget k -> Either TargetProblem' k
+selectComponentTarget :: AvailableTarget k -> Either TargetProblem' k
 selectComponentTarget = selectComponentTargetBasic
 
 reportBuildTargetProblems :: Verbosity -> [TargetProblem'] -> IO a

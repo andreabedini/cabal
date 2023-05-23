@@ -8,7 +8,6 @@ module Distribution.Client.CmdTest (
     testAction,
 
     -- * Internals exposed for testing
-    isSubComponentProblem,
     notTestProblem,
     noTestsProblem,
     selectPackageTargets,
@@ -183,22 +182,14 @@ selectPackageTargets targetSelector targets
 -- For the @test@ command we just need to check it is a test-suite, in addition
 -- to the basic checks on being buildable etc.
 --
-selectComponentTarget :: SubComponentTarget
-                      -> AvailableTarget k -> Either TestTargetProblem k
-selectComponentTarget subtarget@WholeComponent t
+selectComponentTarget :: AvailableTarget k -> Either TestTargetProblem k
+selectComponentTarget t
   | CTestName _ <- availableTargetComponentName t
-  = either Left return $
-           selectComponentTargetBasic subtarget t
+  = either Left return $ selectComponentTargetBasic t
   | otherwise
   = Left (notTestProblem
            (availableTargetPackageId t)
            (availableTargetComponentName t))
-
-selectComponentTarget subtarget t
-  = Left (isSubComponentProblem
-           (availableTargetPackageId t)
-           (availableTargetComponentName t)
-           subtarget)
 
 -- | The various error conditions that can occur when matching a
 -- 'TargetSelector' against 'AvailableTarget's for the @test@ command.
@@ -209,9 +200,6 @@ data TestProblem =
 
      -- | The 'TargetSelector' refers to a component that is not a test-suite
    | TargetProblemComponentNotTest PackageId ComponentName
-
-     -- | Asking to test an individual file or module is not supported
-   | TargetProblemIsSubComponent   PackageId ComponentName SubComponentTarget
   deriving (Eq, Show)
 
 
@@ -223,14 +211,6 @@ noTestsProblem = CustomTargetProblem . TargetProblemNoTests
 
 notTestProblem :: PackageId -> ComponentName -> TargetProblem TestProblem
 notTestProblem pkgid name = CustomTargetProblem $ TargetProblemComponentNotTest pkgid name
-
-isSubComponentProblem
-  :: PackageId
-  -> ComponentName
-  -> SubComponentTarget
-  -> TargetProblem TestProblem
-isSubComponentProblem pkgid name subcomponent = CustomTargetProblem $
-  TargetProblemIsSubComponent pkgid name subcomponent
 
 reportTargetProblems :: Verbosity -> Flag Bool -> [TestTargetProblem] -> IO a
 reportTargetProblems verbosity failWhenNoTestSuites problems =
@@ -280,12 +260,4 @@ renderTestProblem (TargetProblemComponentNotTest pkgid cname) =
  ++ renderTargetSelector targetSelector ++ " from the package "
  ++ prettyShow pkgid ++ "."
   where
-    targetSelector = TargetComponent pkgid cname WholeComponent
-
-renderTestProblem (TargetProblemIsSubComponent pkgid cname subtarget) =
-    "The test command can only run test suites as a whole, "
- ++ "not files or modules within them, but the target '"
- ++ showTargetSelector targetSelector ++ "' refers to "
- ++ renderTargetSelector targetSelector ++ "."
-  where
-    targetSelector = TargetComponent pkgid cname subtarget
+    targetSelector = TargetComponent pkgid cname

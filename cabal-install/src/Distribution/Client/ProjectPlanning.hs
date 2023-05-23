@@ -27,9 +27,7 @@ module Distribution.Client.ProjectPlanning (
     AvailableTargetStatus(..),
     TargetRequested(..),
     ComponentTarget(..),
-    SubComponentTarget(..),
     showComponentTarget,
-    nubComponentTargets,
 
     -- * Selecting a plan subset
     pruneInstallPlanToTargets,
@@ -174,7 +172,6 @@ import           Control.Monad (sequence, forM)
 import           Control.Monad.IO.Class (liftIO)
 import           Control.Monad.State as State (State, execState, runState, state)
 import           Control.Exception (assert)
-import           Data.List (groupBy, deleteBy)
 import qualified Data.List.NonEmpty as NE
 import           System.FilePath
 
@@ -2686,69 +2683,24 @@ availableSourceTargets elab =
                            --TODO: what about sub-libs and foreign libs?
                            _          -> False
 
--- | Merge component targets that overlap each other. Specially when we have
--- multiple targets for the same component and one of them refers to the whole
--- component (rather than a module or file within) then all the other targets
--- for that component are subsumed.
---
--- We also allow for information associated with each component target, and
--- whenever we targets subsume each other we aggregate their associated info.
---
-nubComponentTargets :: [(ComponentTarget, a)] -> [(ComponentTarget, NonEmpty a)]
-nubComponentTargets =
-    concatMap (wholeComponentOverrides . map snd)
-  . groupBy ((==)    `on` fst)
-  . sortBy  (compare `on` fst)
-  . map (\t@((ComponentTarget cname _, _)) -> (cname, t))
-  . map compatSubComponentTargets
-  where
-    -- If we're building the whole component then that the only target all we
-    -- need, otherwise we can have several targets within the component.
-    wholeComponentOverrides :: [(ComponentTarget,  a )]
-                            -> [(ComponentTarget, NonEmpty a)]
-    wholeComponentOverrides ts =
-      case [ ta | ta@(ComponentTarget _ WholeComponent, _) <- ts ] of
-        ((t, x):_) ->
-                let
-                    -- Delete tuple (t, x) from original list to avoid duplicates.
-                    -- Use 'deleteBy', to avoid additional Class constraint on 'nubComponentTargets'.
-                    ts' = deleteBy (\(t1, _) (t2, _) -> t1 == t2) (t, x) ts
-                in
-                    [ (t, x :| map snd ts') ]
-        []    -> [ (t, x :| []) | (t,x) <- ts ]
-
-    -- Not all Cabal Setup.hs versions support sub-component targets, so switch
-    -- them over to the whole component
-    compatSubComponentTargets :: (ComponentTarget, a) -> (ComponentTarget, a)
-    compatSubComponentTargets target@(ComponentTarget cname _subtarget, x)
-      | not setupHsSupportsSubComponentTargets
-                  = (ComponentTarget cname WholeComponent, x)
-      | otherwise = target
-
-    -- Actually the reality is that no current version of Cabal's Setup.hs
-    -- build command actually support building specific files or modules.
-    setupHsSupportsSubComponentTargets = False
-    -- TODO: when that changes, adjust this test, e.g.
-    -- | pkgSetupScriptCliVersion >= Version [x,y] []
-
 pkgHasEphemeralBuildTargets :: ElaboratedConfiguredPackage -> Bool
 pkgHasEphemeralBuildTargets elab =
     isJust (elabReplTarget elab)
  || (not . null) (elabTestTargets elab)
  || (not . null) (elabBenchTargets elab)
  || (not . null) (elabHaddockTargets elab)
- || (not . null) [ () | ComponentTarget _ subtarget <- elabBuildTargets elab
-                      , subtarget /= WholeComponent ]
+-- FIXME: Andrea 2023-05-23 remove-file-and-module-targets
+ || (not . null) [ () | ComponentTarget _ <- elabBuildTargets elab ]
 
 -- | The components that we'll build all of, meaning that after they're built
--- we can skip building them again (unlike with building just some modules or
--- other files within a component).
+-- we can skip building them again.
 --
+-- FIXME: Andrea 2023-05-23 remove-file-and-module-targets
 elabBuildTargetWholeComponents :: ElaboratedConfiguredPackage
                               -> Set ComponentName
 elabBuildTargetWholeComponents elab =
     Set.fromList
-      [ cname | ComponentTarget cname WholeComponent <- elabBuildTargets elab ]
+      [ cname | ComponentTarget cname <- elabBuildTargets elab ]
 
 
 
@@ -2978,11 +2930,11 @@ pruneInstallPlanPass1 pkgs =
     optionalStanzasRequiredByTargets pkg =
       optStanzaSetFromList
         [ stanza
-        | ComponentTarget cname _ <- elabBuildTargets pkg
-                                  ++ elabTestTargets pkg
-                                  ++ elabBenchTargets pkg
-                                  ++ maybeToList (elabReplTarget pkg)
-                                  ++ elabHaddockTargets pkg
+        | ComponentTarget cname <- elabBuildTargets pkg
+                                ++ elabTestTargets pkg
+                                ++ elabBenchTargets pkg
+                                ++ maybeToList (elabReplTarget pkg)
+                                ++ elabHaddockTargets pkg
         , stanza <- maybeToList $
                     componentOptionalStanza $
                     CD.componentNameToComponent cname
@@ -3076,7 +3028,7 @@ pruneInstallPlanPass2 pkgs =
         }
       where
         libTargetsRequiredForRevDeps =
-          [ ComponentTarget (CLibName Cabal.defaultLibName) WholeComponent
+          [ ComponentTarget (CLibName Cabal.defaultLibName)
           | installedUnitId elab `Set.member` hasReverseLibDeps
           ]
         exeTargetsRequiredForRevDeps =
@@ -3085,7 +3037,6 @@ pruneInstallPlanPass2 pkgs =
           [ ComponentTarget (Cabal.CExeName
                              $ packageNameToUnqualComponentName
                              $ packageName $ elabPkgSourceId elab)
-                            WholeComponent
           | installedUnitId elab `Set.member` hasReverseExeDeps
           ]
 
@@ -3634,7 +3585,7 @@ setupHsConfigureArgs :: ElaboratedConfiguredPackage
                      -> [String]
 setupHsConfigureArgs (ElaboratedConfiguredPackage { elabPkgOrComp = ElabPackage _ }) = []
 setupHsConfigureArgs elab@(ElaboratedConfiguredPackage { elabPkgOrComp = ElabComponent comp }) =
-    [showComponentTarget (packageId elab) (ComponentTarget cname WholeComponent)]
+    [showComponentTarget (packageId elab) (ComponentTarget cname)]
   where
     cname = fromMaybe (error "setupHsConfigureArgs: trying to configure setup")
                       (compComponentName comp)

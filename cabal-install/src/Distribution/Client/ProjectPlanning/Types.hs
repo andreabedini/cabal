@@ -46,7 +46,6 @@ module Distribution.Client.ProjectPlanning.Types (
     showComponentTarget,
     showTestComponentTarget,
     showBenchComponentTarget,
-    SubComponentTarget(..),
 
     isSubLibComponentTarget,
     isForeignLibComponentTarget,
@@ -63,8 +62,6 @@ module Distribution.Client.ProjectPlanning.Types (
 import           Distribution.Client.Compat.Prelude
 import           Prelude ()
 
-import           Distribution.Client.TargetSelector
-                   ( SubComponentTarget(..) )
 import           Distribution.Client.PackageHash
 
 import           Distribution.Client.Types
@@ -400,7 +397,7 @@ elabRequiresRegistration elab =
             -- redundant anymore.
                          || any (depends_on_lib pkg) (elabBuildTargets elab)
   where
-    depends_on_lib pkg (ComponentTarget cn _) =
+    depends_on_lib pkg (ComponentTarget cn) =
         not (null (CD.select (== CD.componentNameToComponent cn)
                              (pkgDependsOnSelfLib pkg)))
     build_target =
@@ -412,8 +409,7 @@ elabRequiresRegistration elab =
             else Cabal.hasLibs (elabPkgDescription elab)
     -- NB: this means we DO NOT reregister if you just built a
     -- single file
-    is_lib_target (ComponentTarget cn WholeComponent) = is_lib cn
-    is_lib_target _ = False
+    is_lib_target (ComponentTarget cn) = is_lib cn
     is_lib (CLibName _) = True
     is_lib _ = False
 
@@ -776,7 +772,7 @@ type ElaboratedReadyPackage = GenericReadyPackage ElaboratedConfiguredPackage
 -- | Specific targets within a package or component to act on e.g. to build,
 -- haddock or open a repl.
 --
-data ComponentTarget = ComponentTarget ComponentName SubComponentTarget
+data ComponentTarget = ComponentTarget ComponentName
   deriving (Eq, Ord, Show, Generic)
 
 instance Binary ComponentTarget
@@ -789,36 +785,34 @@ showComponentTarget pkgid =
     Cabal.showBuildTarget pkgid . toBuildTarget
   where
     toBuildTarget :: ComponentTarget -> Cabal.BuildTarget
-    toBuildTarget (ComponentTarget cname subtarget) =
-      case subtarget of
-        WholeComponent     -> Cabal.BuildTargetComponent cname
+    toBuildTarget (ComponentTarget cname) = Cabal.BuildTargetComponent cname
 
 showTestComponentTarget :: PackageId -> ComponentTarget -> Maybe String
-showTestComponentTarget _ (ComponentTarget (CTestName n) _) = Just $ prettyShow n
+showTestComponentTarget _ (ComponentTarget (CTestName n)) = Just $ prettyShow n
 showTestComponentTarget _ _ = Nothing
 
 isTestComponentTarget :: ComponentTarget -> Bool
-isTestComponentTarget (ComponentTarget (CTestName _) _) = True
+isTestComponentTarget (ComponentTarget (CTestName _)) = True
 isTestComponentTarget _                                 = False
 
 showBenchComponentTarget :: PackageId -> ComponentTarget -> Maybe String
-showBenchComponentTarget _ (ComponentTarget (CBenchName n) _) = Just $ prettyShow n
+showBenchComponentTarget _ (ComponentTarget (CBenchName n)) = Just $ prettyShow n
 showBenchComponentTarget _ _ = Nothing
 
 isBenchComponentTarget :: ComponentTarget -> Bool
-isBenchComponentTarget (ComponentTarget (CBenchName _) _) = True
+isBenchComponentTarget (ComponentTarget (CBenchName _)) = True
 isBenchComponentTarget _                                  = False
 
 isForeignLibComponentTarget :: ComponentTarget -> Bool
-isForeignLibComponentTarget (ComponentTarget (CFLibName _) _) = True
+isForeignLibComponentTarget (ComponentTarget (CFLibName _)) = True
 isForeignLibComponentTarget _                                 = False
 
 isExeComponentTarget :: ComponentTarget -> Bool
-isExeComponentTarget (ComponentTarget (CExeName _) _ ) = True
+isExeComponentTarget (ComponentTarget (CExeName _)) = True
 isExeComponentTarget _                                 = False
 
 isSubLibComponentTarget :: ComponentTarget -> Bool
-isSubLibComponentTarget (ComponentTarget (CLibName (LSubLibName _)) _) = True
+isSubLibComponentTarget (ComponentTarget (CLibName (LSubLibName _))) = True
 isSubLibComponentTarget _                                              = False
 
 componentOptionalStanza :: CD.Component -> Maybe OptionalStanza

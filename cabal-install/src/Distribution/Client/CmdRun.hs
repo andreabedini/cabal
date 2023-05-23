@@ -355,9 +355,8 @@ selectPackageTargets targetSelector targets
 -- (an executable, a test, or a benchmark), in addition
 -- to the basic checks on being buildable etc.
 --
-selectComponentTarget :: SubComponentTarget
-                      -> AvailableTarget k -> Either RunTargetProblem  k
-selectComponentTarget subtarget@WholeComponent t
+selectComponentTarget :: AvailableTarget k -> Either RunTargetProblem  k
+selectComponentTarget t
   = case availableTargetComponentName t
     of CExeName _ -> component
        CTestName _ -> component
@@ -365,12 +364,7 @@ selectComponentTarget subtarget@WholeComponent t
        _ -> Left (componentNotExeProblem pkgid cname)
     where pkgid = availableTargetPackageId t
           cname = availableTargetComponentName t
-          component = selectComponentTargetBasic subtarget t
-
-selectComponentTarget subtarget t
-  = Left (isSubComponentProblem (availableTargetPackageId t)
-           (availableTargetComponentName t)
-           subtarget)
+          component = selectComponentTargetBasic t
 
 -- | The various error conditions that can occur when matching a
 -- 'TargetSelector' against 'AvailableTarget's for the @run@ command.
@@ -387,9 +381,6 @@ data RunProblem =
 
      -- | The 'TargetSelector' refers to a component that is not an executable
    | TargetProblemComponentNotExe PackageId ComponentName
-
-     -- | Asking to run an individual file or module is not supported
-   | TargetProblemIsSubComponent  PackageId ComponentName SubComponentTarget
   deriving (Eq, Show)
 
 type RunTargetProblem = TargetProblem RunProblem
@@ -407,14 +398,6 @@ multipleTargetsProblem = CustomTargetProblem . TargetProblemMultipleTargets
 componentNotExeProblem :: PackageId -> ComponentName -> TargetProblem RunProblem
 componentNotExeProblem pkgid name = CustomTargetProblem $
     TargetProblemComponentNotExe pkgid name
-
-isSubComponentProblem
-  :: PackageId
-  -> ComponentName
-  -> SubComponentTarget
-  -> TargetProblem RunProblem
-isSubComponentProblem pkgid name subcomponent = CustomTargetProblem $
-    TargetProblemIsSubComponent pkgid name subcomponent
 
 reportTargetProblems :: Verbosity -> [RunTargetProblem] -> IO a
 reportTargetProblems verbosity =
@@ -456,15 +439,7 @@ renderRunProblem (TargetProblemComponentNotExe pkgid cname) =
  ++ renderTargetSelector targetSelector ++ " from the package "
  ++ prettyShow pkgid ++ "."
   where
-    targetSelector = TargetComponent pkgid cname WholeComponent
-
-renderRunProblem (TargetProblemIsSubComponent pkgid cname subtarget) =
-    "The run command can only run an executable as a whole, "
- ++ "not files or modules within them, but the target '"
- ++ showTargetSelector targetSelector ++ "' refers to "
- ++ renderTargetSelector targetSelector ++ "."
-  where
-    targetSelector = TargetComponent pkgid cname subtarget
+    targetSelector = TargetComponent pkgid cname
 
 renderRunProblem (TargetProblemNoExes targetSelector) =
     "Cannot run the target '" ++ showTargetSelector targetSelector

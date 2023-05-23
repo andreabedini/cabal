@@ -16,8 +16,6 @@ import Prelude ()
 import Distribution.Client.ProjectPlanning
          ( AvailableTarget(..), AvailableTargetStatus(..),
            CannotPruneDependencies(..), TargetRequested(..) )
-import Distribution.Client.TargetSelector
-         ( SubComponentTarget(..) )
 import Distribution.Client.TargetProblem
          ( TargetProblem(..), TargetProblem' )
 import Distribution.Client.TargetSelector
@@ -128,25 +126,14 @@ renderTargetSelector (TargetAllPackages (Just kfilter)) =
     "all the " ++ renderComponentKind Plural kfilter
  ++ " in the project"
 
-renderTargetSelector (TargetComponent pkgid cname subtarget) =
-    renderSubComponentTarget subtarget ++ "the "
- ++ renderComponentName (packageName pkgid) cname
+renderTargetSelector (TargetComponent pkgid cname) =
+    "the " ++ renderComponentName (packageName pkgid) cname
 
-renderTargetSelector (TargetComponentUnknown pkgname (Left ucname) subtarget) =
-    renderSubComponentTarget subtarget ++ "the component " ++ prettyShow ucname
- ++ " in the package " ++ prettyShow pkgname
+renderTargetSelector (TargetComponentUnknown pkgname (Left ucname)) =
+    "the component " ++ prettyShow ucname ++ " in the package " ++ prettyShow pkgname
 
-renderTargetSelector (TargetComponentUnknown pkgname (Right cname) subtarget) =
-    renderSubComponentTarget subtarget ++ "the "
- ++ renderComponentName pkgname cname
-
-renderSubComponentTarget :: SubComponentTarget -> String
-renderSubComponentTarget WholeComponent         = ""
-renderSubComponentTarget (FileTarget filename)  =
-  "the file " ++ filename ++ " in "
-renderSubComponentTarget (ModuleTarget modname) =
-  "the module " ++ prettyShow modname ++ " in "
-
+renderTargetSelector (TargetComponentUnknown pkgname (Right cname)) =
+    "the " ++ renderComponentName pkgname cname
 
 renderOptionalStanza :: Plural -> OptionalStanza -> String
 renderOptionalStanza Singular TestStanzas  = "test suite"
@@ -239,7 +226,7 @@ renderTargetProblem verb _ (TargetAvailableInIndex pkgname) =
  ++ "package index. If you want to add it to the project then edit the "
  ++ "cabal.project file."
 
-renderTargetProblem verb _ (TargetComponentNotProjectLocal pkgid cname _) =
+renderTargetProblem verb _ (TargetComponentNotProjectLocal pkgid cname) =
     "Cannot " ++ verb ++ " the " ++ showComponentName cname ++ " because the "
  ++ "package " ++ prettyShow pkgid ++ " is not local to the project, and cabal "
  ++ "does not currently support building test suites or benchmarks of "
@@ -247,7 +234,7 @@ renderTargetProblem verb _ (TargetComponentNotProjectLocal pkgid cname _) =
  ++ "dependencies you can unpack the package locally and adjust the "
  ++ "cabal.project file to include that package directory."
 
-renderTargetProblem verb _ (TargetComponentNotBuildable pkgid cname _) =
+renderTargetProblem verb _ (TargetComponentNotBuildable pkgid cname) =
     "Cannot " ++ verb ++ " the " ++ showComponentName cname ++ " because it is "
  ++ "marked as 'buildable: False' within the '" ++ prettyShow (packageName pkgid)
  ++ ".cabal' file (at least for the current configuration). If you believe it "
@@ -256,7 +243,7 @@ renderTargetProblem verb _ (TargetComponentNotBuildable pkgid cname _) =
  ++ "edit the .cabal file to declare it as buildable and fix any resulting "
  ++ "build problems."
 
-renderTargetProblem verb _ (TargetOptionalStanzaDisabledByUser _ cname _) =
+renderTargetProblem verb _ (TargetOptionalStanzaDisabledByUser _ cname) =
     "Cannot " ++ verb ++ " the " ++ showComponentName cname ++ " because "
  ++ "building " ++ compkinds ++ " has been explicitly disabled in the "
  ++ "configuration. You can adjust this configuration in the "
@@ -269,7 +256,7 @@ renderTargetProblem verb _ (TargetOptionalStanzaDisabledByUser _ cname _) =
    where
      compkinds = renderComponentKind Plural (componentKind cname)
 
-renderTargetProblem verb _ (TargetOptionalStanzaDisabledBySolver pkgid cname _) =
+renderTargetProblem verb _ (TargetOptionalStanzaDisabledBySolver pkgid cname) =
     "Cannot " ++ verb ++ " the " ++ showComponentName cname ++ " because the "
  ++ "solver did not find a plan that included the " ++ compkinds
  ++ " for " ++ prettyShow pkgid ++ ". It is probably worth trying again with "

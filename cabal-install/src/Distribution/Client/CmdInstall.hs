@@ -570,7 +570,7 @@ partitionToKnownTargetsAndHackagePackages verbosity pkgDb elaboratedPlan targetS
 
       let
         targetSelectors' = flip filter targetSelectors $ \case
-          TargetComponentUnknown name _ _
+          TargetComponentUnknown name _
             | name `elem` hackageNames -> False
           TargetPackageNamed name _
             | name `elem` hackageNames -> False
@@ -754,7 +754,7 @@ warnIfNoExes verbosity buildCtx =
     selectors  = concatMap (NE.toList . snd) targets
     noExes     = null $ catMaybes $ exeMaybe <$> components
 
-    exeMaybe (ComponentTarget (CExeName exe) _) = Just exe
+    exeMaybe (ComponentTarget (CExeName exe)) = Just exe
     exeMaybe _                                  = Nothing
 
 -- | Return the package specifiers and non-global environment file entries.
@@ -813,7 +813,7 @@ installUnitExes verbosity overwritePolicy
   traverse_ installAndWarn exes
   where
     exes = catMaybes $ (exeMaybe . fst) <$> components
-    exeMaybe (ComponentTarget (CExeName exe) _) = Just exe
+    exeMaybe (ComponentTarget (CExeName exe)) = Just exe
     exeMaybe _ = Nothing
     installAndWarn exe = do
       success <- installBuiltExe
@@ -887,8 +887,8 @@ entriesForLibraryComponents :: TargetsMap -> [GhcEnvironmentFileEntry]
 entriesForLibraryComponents = Map.foldrWithKey' (\k v -> mappend (go k v)) []
   where
     hasLib :: (ComponentTarget, NonEmpty TargetSelector) -> Bool
-    hasLib (ComponentTarget (CLibName _) _, _) = True
-    hasLib _                                   = False
+    hasLib (ComponentTarget (CLibName _), _) = True
+    hasLib _                                 = False
 
     go :: UnitId
        -> [(ComponentTarget, NonEmpty TargetSelector)]
@@ -1007,8 +1007,7 @@ selectPackageTargets targetSelector targets
 -- For the @build@ command we just need the basic checks on being buildable etc.
 --
 selectComponentTarget
-  :: SubComponentTarget
-  -> AvailableTarget k -> Either TargetProblem' k
+  :: AvailableTarget k -> Either TargetProblem' k
 selectComponentTarget = selectComponentTargetBasic
 
 reportBuildTargetProblems :: Verbosity -> [TargetProblem'] -> IO a

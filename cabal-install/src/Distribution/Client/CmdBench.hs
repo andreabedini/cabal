@@ -9,7 +9,6 @@ module Distribution.Client.CmdBench (
 
     -- * Internals exposed for testing
     componentNotBenchmarkProblem,
-    isSubComponentProblem,
     noBenchmarksProblem,
     selectPackageTargets,
     selectComponentTarget
@@ -172,21 +171,14 @@ selectPackageTargets targetSelector targets
 -- For the @bench@ command we just need to check it is a benchmark, in addition
 -- to the basic checks on being buildable etc.
 --
-selectComponentTarget :: SubComponentTarget
-                      -> AvailableTarget k -> Either BenchTargetProblem k
-selectComponentTarget subtarget@WholeComponent t
+selectComponentTarget :: AvailableTarget k -> Either BenchTargetProblem k
+selectComponentTarget t
   | CBenchName _ <- availableTargetComponentName t
-  = selectComponentTargetBasic subtarget t
+  = selectComponentTargetBasic t
   | otherwise
   = Left (componentNotBenchmarkProblem
            (availableTargetPackageId t)
            (availableTargetComponentName t))
-
-selectComponentTarget subtarget t
-  = Left (isSubComponentProblem
-           (availableTargetPackageId t)
-           (availableTargetComponentName t)
-           subtarget)
 
 -- | The various error conditions that can occur when matching a
 -- 'TargetSelector' against 'AvailableTarget's for the @bench@ command.
@@ -197,9 +189,6 @@ data BenchProblem =
 
      -- | The 'TargetSelector' refers to a component that is not a benchmark
    | TargetProblemComponentNotBenchmark PackageId ComponentName
-
-     -- | Asking to benchmark an individual file or module is not supported
-   | TargetProblemIsSubComponent   PackageId ComponentName SubComponentTarget
   deriving (Eq, Show)
 
 
@@ -211,14 +200,6 @@ noBenchmarksProblem = CustomTargetProblem . TargetProblemNoBenchmarks
 componentNotBenchmarkProblem :: PackageId -> ComponentName -> TargetProblem BenchProblem
 componentNotBenchmarkProblem pkgid name = CustomTargetProblem $
   TargetProblemComponentNotBenchmark pkgid name
-
-isSubComponentProblem
-  :: PackageId
-  -> ComponentName
-  -> SubComponentTarget
-  -> TargetProblem BenchProblem
-isSubComponentProblem pkgid name subcomponent = CustomTargetProblem $
-    TargetProblemIsSubComponent pkgid name subcomponent
 
 reportTargetProblems :: Verbosity -> [BenchTargetProblem] -> IO a
 reportTargetProblems verbosity =
@@ -250,12 +231,4 @@ renderBenchProblem (TargetProblemComponentNotBenchmark pkgid cname) =
  ++ renderTargetSelector targetSelector ++ " from the package "
  ++ prettyShow pkgid ++ "."
   where
-    targetSelector = TargetComponent pkgid cname WholeComponent
-
-renderBenchProblem (TargetProblemIsSubComponent pkgid cname subtarget) =
-    "The bench command can only run benchmarks as a whole, "
- ++ "not files or modules within them, but the target '"
- ++ showTargetSelector targetSelector ++ "' refers to "
- ++ renderTargetSelector targetSelector ++ "."
-  where
-    targetSelector = TargetComponent pkgid cname subtarget
+    targetSelector = TargetComponent pkgid cname

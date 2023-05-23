@@ -8,7 +8,7 @@ import Distribution.Client.Compat.Prelude
 import Prelude ()
 
 import Distribution.Client.ProjectPlanning    (AvailableTarget)
-import Distribution.Client.TargetSelector     (SubComponentTarget, TargetSelector)
+import Distribution.Client.TargetSelector     (TargetSelector)
 import Distribution.Package                   (PackageId, PackageName)
 import Distribution.Simple.LocalBuildInfo     (ComponentName (..))
 import Distribution.Types.UnqualComponentName (UnqualComponentName)
@@ -19,16 +19,16 @@ data TargetProblem a
     | TargetAvailableInIndex               PackageName
 
     | TargetComponentNotProjectLocal
-      PackageId ComponentName SubComponentTarget
+      PackageId ComponentName
 
     | TargetComponentNotBuildable
-      PackageId ComponentName SubComponentTarget
+      PackageId ComponentName
 
     | TargetOptionalStanzaDisabledByUser
-      PackageId ComponentName SubComponentTarget
+      PackageId ComponentName
 
     | TargetOptionalStanzaDisabledBySolver
-      PackageId ComponentName SubComponentTarget
+      PackageId ComponentName
 
     | TargetProblemUnknownComponent
       PackageName (Either UnqualComponentName ComponentName)
