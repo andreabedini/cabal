@@ -118,16 +118,20 @@ readUserBuildTargets = partitionEithers . map readUserBuildTarget
 -- |
 --
 -- >>> readUserBuildTarget "comp"
--- Right (UserBuildTargetSingle "comp")
+-- WAS Right (UserBuildTargetSingle "comp")
+-- NOW Right (UserBuildTargetUnqualifiedComponent (UnqualComponentName "comp"))
 --
 -- >>> readUserBuildTarget "lib:comp"
--- Right (UserBuildTargetDouble "lib" "comp")
+-- WAS Right (UserBuildTargetDouble "lib" "comp")
+-- NOW Right (UserBuildTargetComponent (CLibName (LSubLibName (UnqualComponentName "comp"))))
 --
 -- >>> readUserBuildTarget "\"comp\""
--- Right (UserBuildTargetSingle "comp")
+-- WAS Right (UserBuildTargetSingle "comp")
+-- NOW Left (UserBuildTargetUnrecognised "\"comp\"")
 --
 -- >>> readUserBuildTarget "lib:\"comp\""
--- Right (UserBuildTargetDouble "lib" "comp")
+-- WAS Right (UserBuildTargetDouble "lib" "comp")
+-- NOW Left (UserBuildTargetUnrecognised "lib:\"comp\"")
 --
 -- >>> readUserBuildTarget "lib:comp:more"
 -- Left (UserBuildTargetUnrecognised "lib:comp:more")
@@ -173,6 +177,12 @@ showBuildTarget pkgid (BuildTargetComponent cn) =
 -- * Resolving user targets to build targets
 -- ------------------------------------------------------------
 
+-- TODO: Andrea
+-- lib:bla is qualified by a kind
+-- make that clear in UserBuildTarget (now it says qualified but
+-- I am afraid there is a distintion between a component name and
+-- a name qualified by kind)
+
 -- | Given a bunch of user-specified targets, try to resolve what it is they
 -- refer to.
 --
@@ -185,9 +195,15 @@ resolveBuildTargets pkg = partitionEithers
 resolveBuildTarget :: PackageDescription -> UserBuildTarget
                    -> Either BuildTargetProblem BuildTarget
 resolveBuildTarget pkg ubt@(UserBuildTargetComponent cn) =
-  case lookupComponent pkg cn of
+  case lookupComponent pkg (fixup cn) of
     Nothing -> Left  $ BuildTargetNoSuch ubt []
-    Just _  -> Right $ BuildTargetComponent cn
+    Just c -> Right $ BuildTargetComponent (componentName c)
+  where
+    -- We allow the main library to be specified as a sublibrary with the same name as the package
+    fixup (CLibName (LSubLibName ucn))
+      | ucn == packageNameToUnqualComponentName (packageName pkg)
+      = CLibName LMainLibName
+    fixup cn' = cn'
 resolveBuildTarget pkg ubt@(UserBuildTargetUnqualifiedComponent ucn) =
   let matches = [cn | cn <- map componentName (pkgComponents pkg), componentNameString cn == Just ucn]
   in case matches of
@@ -222,12 +238,9 @@ reportBuildTargetProblems verbosity problems = do
         die' verbosity $ unlines
           [    "Unknown build target '" ++ showUserBuildTarget target
             ++ "'.\nThere is no "
-            ++ intercalate " or " [ mungeThing thing ++ " '" ++ got ++ "'"
+            ++ intercalate " or " [ thing ++ " '" ++ got ++ "'"
                                   | (thing, got) <- nosuch ] ++ "."
           | (target, nosuch) <- targets ]
-        where
-          mungeThing "file" = "file target"
-          mungeThing thing  = thing
 
     case [ (t, ts) | BuildTargetAmbiguous t ts <- problems ] of
       []      -> return ()
