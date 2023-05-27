@@ -165,7 +165,7 @@ instance HC.Pretty UnexpectedResponse where
   pretty (UnexpectedResponse uri code) = "Unexpected response " ++ show code
                                       ++ " for " ++ show uri
 
-#if MIN_VERSION_base(4,8,0)
+#if True
 deriving instance Show UnexpectedResponse
 instance Exception UnexpectedResponse where displayException = HC.pretty
 #else

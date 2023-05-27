@@ -10,7 +10,7 @@
 
 module UnitTests.Distribution.Client.ProjectConfig (tests) where
 
-#if !MIN_VERSION_base(4,8,0)
+#if !True
 import Data.Monoid
 import Control.Applicative
 #endif

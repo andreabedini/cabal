@@ -174,7 +174,7 @@ executable shake
     main-is: Run.hs
     ghc-options: -rtsopts
     -- GHC bug 7646 means -threaded causes errors
-    if impl(ghc >= 7.8)
+    if True
         ghc-options: -threaded "-with-rtsopts=-I0 -qg -qb"
     build-depends:
         base == 4.*,
@@ -270,10 +270,10 @@ test-suite shake-test
     hs-source-dirs: src
 
     ghc-options: -main-is Test.main -rtsopts
-    if impl(ghc >= 7.6)
+    if True
         -- space leak introduced by -O1 in 7.4, see #445
         ghc-options: -with-rtsopts=-K1K
-    if impl(ghc >= 7.8)
+    if True
         -- GHC bug 7646 (fixed in 7.8) means -threaded causes errors
         ghc-options: -threaded
 

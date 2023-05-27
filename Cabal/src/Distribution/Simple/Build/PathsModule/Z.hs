@@ -84,7 +84,7 @@ render z_root = execWriter $ do
   then do
     tell "#if defined(VERSION_base)\n"
     tell "\n"
-    tell "#if MIN_VERSION_base(4,0,0)\n"
+    tell "#if True\n"
     tell "catchIO :: IO a -> (Exception.IOException -> IO a) -> IO a\n"
     tell "#else\n"
     tell "catchIO :: IO a -> (Exception.Exception -> IO a) -> IO a\n"

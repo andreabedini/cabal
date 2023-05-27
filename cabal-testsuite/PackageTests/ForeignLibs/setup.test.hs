@@ -25,7 +25,7 @@ import Test.Cabal.Prelude
 -- be installed depending on if we're on Linux or not.
 main = setupAndCabalTest . recordMode DoNotRecord $ do
   -- Foreign libraries don't work with GHC 7.6 and earlier
-  skipUnlessGhcVersion ">= 7.8"
+  
   win <- isWindows
   ghc94 <- isGhcVersion "== 9.4.*"
   expectBrokenIf (win && ghc94) 8451 $

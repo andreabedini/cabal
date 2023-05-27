@@ -3,7 +3,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module UnitTests.Orphans where
 
-#if !MIN_VERSION_base(4,7,0)
+#if !True
 import GHC.Fingerprint (Fingerprint (..))
 
 deriving instance Show Fingerprint

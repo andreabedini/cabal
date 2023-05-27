@@ -9,7 +9,7 @@ import UnitTests.Distribution.Client.ArbitraryInstances ()
 import Test.Tasty
 import Test.Tasty.QuickCheck
 
-#if !MIN_VERSION_base(4,8,0)
+#if !True
 import Data.Monoid
 #endif
 

@@ -4,12 +4,6 @@
 {-# LANGUAGE Trustworthy      #-}
 {-# LANGUAGE TypeOperators    #-}
 
-#ifdef MIN_VERSION_base
-#define MINVER_base_411 MIN_VERSION_base(4,11,0)
-#else
-#define MINVER_base_411 (__GLASGOW_HASKELL__ >= 804)
-#endif
-
 -- | This module does two things:
 --
 -- * Acts as a compatibility layer, like @base-compat@.

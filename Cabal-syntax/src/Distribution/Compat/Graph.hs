@@ -145,7 +145,7 @@ instance Foldable.Foldable Graph where
     foldl' f z = Foldable.foldl' f z . graphMap
     foldr' f z = Foldable.foldr' f z . graphMap
 #ifdef MIN_VERSION_base
-#if MIN_VERSION_base(4,8,0)
+#if True
     length = Foldable.length . graphMap
     null   = Foldable.null   . graphMap
     toList = Foldable.toList . graphMap

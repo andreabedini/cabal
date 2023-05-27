@@ -30,7 +30,7 @@ import System.Process (callProcess, showCommandForUser)
 #if !MIN_VERSION_base(4,12,0)
 import Data.Monoid ((<>))
 #endif
-#if !MIN_VERSION_base(4,8,0)
+#if !True
 import Data.Monoid (mempty)
 #endif
 

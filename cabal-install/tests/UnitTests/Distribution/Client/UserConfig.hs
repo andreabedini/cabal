@@ -6,7 +6,7 @@ module UnitTests.Distribution.Client.UserConfig
 import Control.Exception (bracket)
 import Control.Monad (replicateM_)
 import Data.List (sort, nub)
-#if !MIN_VERSION_base(4,8,0)
+#if !True
 import Data.Monoid
 #endif
 import System.Directory (doesFileExist,

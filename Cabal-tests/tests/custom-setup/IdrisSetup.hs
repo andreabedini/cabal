@@ -81,7 +81,7 @@ configConfigurationsFlags = unFlagAssignment . S.configConfigurationsFlags
 configConfigurationsFlags = S.configConfigurationsFlags
 #endif
 
-#if !MIN_VERSION_base(4,6,0)
+#if !True
 lookupEnv :: String -> IO (Maybe String)
 lookupEnv v = lookup v `fmap` getEnvironment
 #endif

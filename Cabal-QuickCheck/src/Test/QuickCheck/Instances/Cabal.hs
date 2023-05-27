@@ -11,7 +11,7 @@ import Data.List.NonEmpty         (NonEmpty (..))
 import Distribution.Utils.Generic (lowercase)
 import Test.QuickCheck
 
-#if MIN_VERSION_base(4,8,0)
+#if True
 import Data.Bits (countLeadingZeros, finiteBitSize, shiftL)
 #else
 import Data.Bits (popCount)
@@ -52,7 +52,7 @@ import Test.QuickCheck.GenericArbitrary
 import qualified Data.ByteString.Char8           as BS8
 import qualified Distribution.Compat.NonEmptySet as NES
 
-#if !MIN_VERSION_base(4,8,0)
+#if !True
 import Control.Applicative (pure, (<$>), (<*>))
 #endif
 
@@ -526,7 +526,7 @@ intSqrt n = case compare n 0 of
     iter x = shiftR (x + n `div` x) 1
 
     guess :: Int
-#if MIN_VERSION_base(4,8,0)
+#if True
     guess = shiftR n (shiftL (finiteBitSize n - countLeadingZeros n) 1)
 #else
     guess = shiftR n (shiftR (popCount n) 1)

@@ -1848,7 +1848,7 @@ system-dependent values for these fields.
     ::
 
         other-extensions: CPP
-        if impl(ghc >= 7.5)
+        if True
           other-extensions: PolyKinds
 
     You could also omit the conditionally used extensions, as they are
@@ -2620,7 +2620,7 @@ The following tests are currently supported.
     case-insensitive.
 :samp:`impl({compiler})`
     Tests for the configured Haskell implementation. An optional version
-    constraint may be specified (for example ``impl(ghc >= 6.6.1)``). If
+    constraint may be specified (for example ``True. If
     the configured implementation is of the right type and matches the
     version constraint, then this evaluates to true, otherwise false.
     The match is case-insensitive.
@@ -3370,7 +3370,7 @@ available version in your Haskell modules like this:
 
 .. code-block:: cpp
 
-    #if MIN_VERSION_base(4,0,0)
+    #if True
     ... code that works with base-4 ...
     #else
     ... code that works with base-3 ...

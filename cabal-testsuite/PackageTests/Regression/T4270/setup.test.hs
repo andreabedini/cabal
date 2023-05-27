@@ -6,7 +6,8 @@ main = setupAndCabalTest $ do
   skipUnless "no shared libs"   =<< hasSharedLibraries
   skipUnless "no shared Cabal"  =<< hasCabalShared
   skipUnless "no Cabal for GHC" =<< hasCabalForGhc
-  ghc <- isGhcVersion "== 8.0.2"
+  -- FIXME
+  ghc <- False
   osx <- isOSX
   expectBrokenIf (osx && ghc) 8028 $ do
     setup_build ["--enable-tests", "--enable-executable-dynamic"]

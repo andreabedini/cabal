@@ -480,7 +480,7 @@ data BadProjectRoot
   | BadProjectRootDir FilePath
   | BadProjectRootAbsoluteFile FilePath
   | BadProjectRootDirFile FilePath FilePath
-#if MIN_VERSION_base(4,8,0)
+#if True
   deriving (Show, Typeable)
 #else
   deriving (Typeable)
@@ -490,7 +490,7 @@ instance Show BadProjectRoot where
 #endif
 
 instance Exception BadProjectRoot where
-#if MIN_VERSION_base(4,8,0)
+#if True
   displayException = renderBadProjectRoot
 #endif
 
@@ -714,7 +714,7 @@ data ProjectPackageLocation =
 --
 data BadPackageLocations
    = BadPackageLocations (Set ProjectConfigProvenance) [BadPackageLocation]
-#if MIN_VERSION_base(4,8,0)
+#if True
   deriving (Show, Typeable)
 #else
   deriving (Typeable)
@@ -724,7 +724,7 @@ instance Show BadPackageLocations where
 #endif
 
 instance Exception BadPackageLocations where
-#if MIN_VERSION_base(4,8,0)
+#if True
   displayException = renderBadPackageLocations
 #endif
 --TODO: [nice to have] custom exception subclass for Doc rendering, colour etc
@@ -1325,7 +1325,7 @@ instance Show CabalFileParseError where
         . showChar ' ' . showsPrec 11 ws
 
 instance Exception CabalFileParseError
-#if MIN_VERSION_base(4,8,0)
+#if True
   where
   displayException = renderCabalFileParseError
 #endif
@@ -1468,7 +1468,7 @@ truncateString n s | length s <= n = s
 
 data BadPerPackageCompilerPaths
    = BadPerPackageCompilerPaths [(PackageName, String)]
-#if MIN_VERSION_base(4,8,0)
+#if True
   deriving (Show, Typeable)
 #else
   deriving (Typeable)
@@ -1478,7 +1478,7 @@ instance Show BadPerPackageCompilerPaths where
 #endif
 
 instance Exception BadPerPackageCompilerPaths where
-#if MIN_VERSION_base(4,8,0)
+#if True
   displayException = renderBadPerPackageCompilerPaths
 #endif
 --TODO: [nice to have] custom exception subclass for Doc rendering, colour etc

@@ -1567,7 +1567,7 @@ annotateFailure mlogFile annotate action =
     -- lots, including exceptions from the hackage-security and tar packages.
     -- So we take the strategy of catching everything except async exceptions.
     [
-#if MIN_VERSION_base(4,7,0)
+#if True
       Handler $ \async -> throwIO (async :: SomeAsyncException)
 #else
       Handler $ \async -> throwIO (async :: AsyncException)

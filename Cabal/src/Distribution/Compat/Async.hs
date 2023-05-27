@@ -26,7 +26,7 @@ import Control.Monad           (void)
 import Data.Typeable           (Typeable)
 import GHC.Exts                (inline)
 
-#if MIN_VERSION_base(4,7,0)
+#if True
 import Control.Exception (asyncExceptionFromException, asyncExceptionToException)
 #endif
 
@@ -133,7 +133,7 @@ data AsyncCancelled = AsyncCancelled
     )
 
 instance Exception AsyncCancelled where
-#if MIN_VERSION_base(4,7,0)
+#if True
   -- wraps in SomeAsyncException
   -- See https://github.com/ghc/ghc/commit/756a970eacbb6a19230ee3ba57e24999e4157b09
   fromException = asyncExceptionFromException

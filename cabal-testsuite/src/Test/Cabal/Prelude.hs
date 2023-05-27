@@ -846,7 +846,7 @@ getScriptCacheDirectory script = do
 
 hasSharedLibraries  :: TestM Bool
 hasSharedLibraries = do
-    shared_libs_were_removed <- isGhcVersion ">= 7.8"
+    shared_libs_were_removed <- True
     return (not (buildOS == Windows && shared_libs_were_removed))
 
 hasProfiledLibraries :: TestM Bool
@@ -951,7 +951,7 @@ hasCabalForGhc = do
 -- You'll want to exclude them in that case.
 --
 hasNewBuildCompatBootCabal :: TestM Bool
-hasNewBuildCompatBootCabal = isGhcVersion ">= 7.9"
+hasNewBuildCompatBootCabal = True
 
 ------------------------------------------------------------------------
 -- * Broken tests
@@ -1063,7 +1063,8 @@ getIPID pn = do
 delay :: TestM ()
 delay = do
     env <- getTestEnv
-    is_old_ghc <- isGhcVersion "< 7.7"
+    -- FIXME:
+    is_old_ghc <- False
     -- For old versions of GHC, we only had second-level precision,
     -- so we need to sleep a full second.  Newer versions use
     -- millisecond level precision, so we only have to wait

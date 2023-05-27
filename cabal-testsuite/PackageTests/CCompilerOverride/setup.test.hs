@@ -4,7 +4,6 @@ import Test.Cabal.Prelude
 -- all end up routed to the C compiler. Otherwise the C file we depend on will
 -- not compile.
 main = setupAndCabalTest $ do
-  skipUnlessGhcVersion ">= 8.8"
   isWin <- isWindows
   ghc94 <- isGhcVersion "== 9.4.*"
   env   <- getTestEnv

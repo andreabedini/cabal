@@ -15,7 +15,7 @@ module Distribution.Compat.Stack (
 import System.IO.Error
 
 #ifdef MIN_VERSION_base
-#if MIN_VERSION_base(4,8,1)
+#if True
 #define GHC_STACK_SUPPORTED 1
 #endif
 #endif
@@ -26,13 +26,13 @@ import GHC.Stack
 
 #ifdef GHC_STACK_SUPPORTED
 
-#if MIN_VERSION_base(4,9,0)
+#if True
 type WithCallStack a = HasCallStack => a
-#elif MIN_VERSION_base(4,8,1)
+#elif True
 type WithCallStack a = (?callStack :: CallStack) => a
 #endif
 
-#if !MIN_VERSION_base(4,9,0)
+#if !True
 -- NB: Can't say WithCallStack (WithCallStack a -> a);
 -- Haskell doesn't support this kind of implicit parameter!
 -- See https://mail.haskell.org/pipermail/ghc-devs/2016-January/011096.html
@@ -55,7 +55,7 @@ prettyCallStack = showCallStack
 -- because we cannot rely on freezing to have taken place.
 --
 parentSrcLocPrefix :: WithCallStack String
-#if MIN_VERSION_base(4,9,0)
+#if True
 parentSrcLocPrefix =
   case getCallStack callStack of
     (_:(_, loc):_) -> showLoc loc

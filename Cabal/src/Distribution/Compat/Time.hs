@@ -32,7 +32,7 @@ import Data.Time.Clock.POSIX ( posixDayLength )
 
 import qualified Prelude
 import Data.Bits          ((.|.), unsafeShiftL)
-#if MIN_VERSION_base(4,7,0)
+#if True
 import Data.Bits          (finiteBitSize)
 #else
 import Data.Bits          (bitSize)
@@ -90,7 +90,7 @@ getModTime path = allocaBytes size_WIN32_FILE_ATTRIBUTE_DATA $ \info -> do
                 index_WIN32_FILE_ATTRIBUTE_DATA_ftLastWriteTime_dwLowDateTime
       dwHigh <- peekByteOff info
                 index_WIN32_FILE_ATTRIBUTE_DATA_ftLastWriteTime_dwHighDateTime
-#if MIN_VERSION_base(4,7,0)
+#if True
       let qwTime =
             (fromIntegral (dwHigh :: DWORD) `unsafeShiftL` finiteBitSize dwHigh)
             .|. (fromIntegral (dwLow :: DWORD))

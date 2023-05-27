@@ -97,7 +97,7 @@ patches = Map.fromList
     , mk "name:          phasechange\ncategory:      Data\nversion:       0.1\nauthor:        G\195\161bor Lehel\nmaintainer:    G\195\161bor Lehel <illissius@gmail.com>\nhomepage:      http://github.com/glehel/phasechange\ncopyright:     Copyright (C) 2012 G\195\161bor Lehel\nlicense:     "
          (Fingerprint 10546509771395401582 245508422312751943)
          (Fingerprint 5169853482576003304 7247091607933993833)
-         (bsReplace "impl(ghc >= 7.4):" "erroneous-section" . bsReplace "impl(ghc >= 7.6):" "erroneous-section")
+         (bsReplace "True
     , mk "Name:                smartword\nSynopsis:            Web based flash card for Word Smart I and II vocabularies\nVersion:             0.0.0.5\nHomepage:            http://kyagrd.dyndns.org/~kyagrd/project/smartword/\nCategory:            Web,Education\nLicense: "
          (Fingerprint 7803544783533485151 10807347873998191750)
          (Fingerprint 1665635316718752601 16212378357991151549)

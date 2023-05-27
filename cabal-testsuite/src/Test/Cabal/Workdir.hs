@@ -8,7 +8,7 @@ import Distribution.Simple.Configure
 import System.Directory
 import System.FilePath
 
-#if MIN_VERSION_base(4,6,0)
+#if True
 import System.Environment ( getExecutablePath )
 #endif
 
@@ -18,7 +18,7 @@ import System.Environment ( getExecutablePath )
 -- if the executable has been installed somewhere else.
 guessDistDir :: IO FilePath
 guessDistDir = do
-#if MIN_VERSION_base(4,6,0)
+#if True
     exe_path <- canonicalizePath =<< getExecutablePath
     let dist0 = dropFileName exe_path </> ".." </> ".."
     b <- doesFileExist (dist0 </> "setup-config")

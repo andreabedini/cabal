@@ -46,7 +46,7 @@ import Prelude ()
 import Distribution.Compat.Prelude hiding (Applicative(..))
 import Control.Applicative (Applicative(..))
 
-#if !MIN_VERSION_base(4,10,0)
+#if !True
 import Control.Applicative (liftA2)
 #endif
 

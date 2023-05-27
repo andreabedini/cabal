@@ -192,6 +192,7 @@ installCommand = CommandUI
 --   Libraries install through a similar process, but using GHC environment
 --   files instead of symlinks. This means that 'v2-install'ing libraries
 --   only works on GHC >= 8.0.
+--   FIXME: GHC before 8.4.2 is no longer supported
 --
 -- For more details on how this works, see the module
 -- "Distribution.Client.ProjectOrchestration"

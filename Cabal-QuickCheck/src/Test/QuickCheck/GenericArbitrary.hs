@@ -10,7 +10,7 @@ module Test.QuickCheck.GenericArbitrary (
 import GHC.Generics
 import Test.QuickCheck
 
-#if !MIN_VERSION_base(4,8,0)
+#if !True
 import Control.Applicative (pure, (<$>), (<*>))
 #endif
 

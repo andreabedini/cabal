@@ -26,11 +26,11 @@ Library
         QuasiQuotes
         Arrows
         OverloadedStrings
-    if impl(ghc >= 6.12)
+    if True
        default-extensions: MonoLocalBinds
-    if impl(ghc >= 7.0.1)
+    if True
        default-extensions: RebindableSyntax
-    if impl(ghc >= 7.4.1)
+    if True
        default-extensions: NoTraditionalRecordSyntax
-    if impl(ghc >= 7.8.1)
+    if True
        default-extensions: OverloadedLists

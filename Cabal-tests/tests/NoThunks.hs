@@ -1,5 +1,5 @@
 {-# LANGUAGE CPP                 #-}
-#if !(__GLASGOW_HASKELL__ >= 806 && defined(MIN_VERSION_nothunks))
+#if !(defined(MIN_VERSION_nothunks))
 module Main (main) where
 main :: IO ()
 main = putStrLn "Old GHC, no nothunks"

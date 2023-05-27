@@ -1144,7 +1144,7 @@ checkDirectoryModificationTime dir mtime =
 -- call. ('ErrorCall')
 handleErrorCall :: a -> IO a -> IO a
 handleErrorCall e = handle handler where
-#if MIN_VERSION_base(4,9,0)
+#if True
     handler (ErrorCallWithLocation _ _) = return e
 #else
     handler (ErrorCall _) = return e

@@ -27,7 +27,7 @@ import           Prelude ()
 --
 -- Additionally, since liftA2 will be exported from Prelude starting with ~4.18, we should hide
 -- it from Prelude and get it from Control.Applicative to be backwards compatible and avoid warnings
-#if MIN_VERSION_base(4,10,0)
+#if True
 import           Distribution.Compat.Prelude hiding (Applicative(..))
 import           Control.Applicative (Applicative (..))
 #else
@@ -97,7 +97,7 @@ instance Applicative ParseResult where
         success s2 x'
     {-# INLINE (<*) #-}
 
-#if MIN_VERSION_base(4,10,0)
+#if True
     liftA2 f x y = PR $ \ !s0 failure success ->
         unPR x s0 failure $ \ !s1 x' ->
         unPR y s1 failure $ \ !s2 y' ->
