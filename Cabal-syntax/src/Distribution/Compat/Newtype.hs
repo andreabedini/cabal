@@ -1,26 +1,23 @@
-{-# LANGUAGE CPP                    #-}
-{-# LANGUAGE DefaultSignatures      #-}
-{-# LANGUAGE FlexibleInstances      #-}
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
+
 -- | Per Conor McBride, the 'Newtype' typeclass represents the packing and
 -- unpacking of a newtype, and allows you to operate under that newtype with
 -- functions such as 'ala'.
-module Distribution.Compat.Newtype (
-    Newtype (..),
-    ala,
-    alaf,
-    pack',
-    unpack',
-    ) where
+module Distribution.Compat.Newtype
+  ( Newtype (..)
+  , ala
+  , alaf
+  , pack'
+  , unpack'
+  ) where
 
 import Data.Functor.Identity (Identity (..))
-import Data.Monoid (Sum (..), Product (..), Endo (..))
+import Data.Monoid (Endo (..), Product (..), Sum (..))
 
-#if MIN_VERSION_base(4,7,0)
-import Data.Coerce (coerce, Coercible)
-#else
-import Unsafe.Coerce (unsafeCoerce)
-#endif
+import Data.Coerce (Coercible, coerce)
 
 -- | The @FunctionalDependencies@ version of 'Newtype' type-class.
 --
@@ -36,25 +33,14 @@ import Unsafe.Coerce (unsafeCoerce)
 -- Another approach would be to use @TypeFamilies@ (and possibly
 -- compute inner type using "GHC.Generics"), but we think @FunctionalDependencies@
 -- version gives cleaner type signatures.
---
 class Newtype o n | n -> o where
-    pack   :: o -> n
-#if MIN_VERSION_base(4,7,0)
-    default pack :: Coercible o n => o -> n
-    pack = coerce
-#else
-    default pack :: o -> n
-    pack = unsafeCoerce
-#endif
+  pack :: o -> n
+  default pack :: Coercible o n => o -> n
+  pack = coerce
 
-    unpack :: n -> o
-#if MIN_VERSION_base(4,7,0)
-    default unpack :: Coercible n o => n -> o
-    unpack = coerce
-#else
-    default unpack :: n -> o
-    unpack = unsafeCoerce
-#endif
+  unpack :: n -> o
+  default unpack :: Coercible n o => n -> o
+  unpack = coerce
 
 instance Newtype a (Identity a)
 instance Newtype a (Sum a)

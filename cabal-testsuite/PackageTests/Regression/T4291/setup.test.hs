@@ -5,7 +5,7 @@ import Test.Cabal.Prelude
 -- contains '..'
 main = setupAndCabalTest $ withPackageDb $ do
   skipIfWindows
-  skipUnlessGhcVersion ">= 7.6"
+  
   env <- getTestEnv
   let pkgroot = takeDirectory $ testPackageDbDir env
       prefix = testTmpDir env </> "prefix"

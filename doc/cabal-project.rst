@@ -925,13 +925,9 @@ Object code options
 
     :default: False
 
-    If the compiler (e.g., GHC 7.10 and later) supports outputting OS
-    native debug info (e.g., DWARF), setting ``debug-info: True`` will
-    instruct it to do so. See the GHC wiki page on :ghc-wiki:`DWARF`
-    for more information about this feature.
-
-    (This field also accepts numeric syntax, but until GHC 8.2 this didn't
-    do anything.)
+    If the compiler supports outputting OS native debug info (e.g., DWARF),
+    setting ``debug-info: True`` will instruct it to do so. See the GHC wiki
+    page on :ghc-wiki:`DWARF` for more information about this feature.
 
     The command line variant of this flag is ``--enable-debug-info`` and
     ``--disable-debug-info``.
@@ -949,8 +945,6 @@ Object code options
     allowing them to link with only the bits that they use rather than
     the entire library. The downside is that building the library takes
     longer and uses a bit more memory.
-
-    This feature is supported by GHC 8.0 and later.
 
     The command line variant of this flag is ``--enable-split-sections`` and
     ``--disable-split-sections``.

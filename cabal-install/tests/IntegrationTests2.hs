@@ -51,7 +51,6 @@ import Distribution.InstalledPackageInfo (InstalledPackageInfo)
 import Distribution.Simple.Setup (toFlag, HaddockFlags(..), defaultHaddockFlags)
 import Distribution.Client.Setup (globalCommand)
 import Distribution.Client.Config (loadConfig, SavedConfig(savedGlobalFlags), createDefaultConfigFile)
-import Distribution.Simple.Compiler
 import Distribution.Simple.Command
 import qualified Distribution.Simple.Flag as Flag
 import Distribution.System
@@ -1424,37 +1423,21 @@ testSetupScriptStyles config reportSubCase = do
 
   reportSubCase (show SetupCustomExplicitDeps)
 
-  plan0@(_,_,sharedConfig) <- planProject testdir1 config
+  plan0 <- planProject testdir1 config
 
-  let isOSX (Platform _ OSX) = True
-      isOSX _ = False
-  -- Skip the Custom tests when the shipped Cabal library is buggy
-  unless (isOSX (pkgConfigPlatform sharedConfig)
-       && compilerVersion (pkgConfigCompiler sharedConfig) < mkVersion [7,10]) $ do
+  (plan1, res1) <- executePlan plan0
+  pkg1          <- expectPackageInstalled plan1 res1 pkgidA
+  elabSetupScriptStyle pkg1 @?= SetupCustomExplicitDeps
+  hasDefaultSetupDeps pkg1 @?= Just False
+  marker1 <- readFile (basedir </> testdir1 </> "marker")
+  marker1 @?= "ok"
+  removeFile (basedir </> testdir1 </> "marker")
 
-    (plan1, res1) <- executePlan plan0
-    pkg1          <- expectPackageInstalled plan1 res1 pkgidA
-    elabSetupScriptStyle pkg1 @?= SetupCustomExplicitDeps
-    hasDefaultSetupDeps pkg1 @?= Just False
-    marker1 <- readFile (basedir </> testdir1 </> "marker")
-    marker1 @?= "ok"
-    removeFile (basedir </> testdir1 </> "marker")
+  reportSubCase (show SetupNonCustomInternalLib)
+  (plan3, res3) <- executePlan =<< planProject testdir3 config
+  pkg3          <- expectPackageInstalled plan3 res3 pkgidA
+  elabSetupScriptStyle pkg3 @?= SetupNonCustomInternalLib
 
-    -- implicit deps implies 'Cabal < 2' which conflicts w/ GHC 8.2 or later
-    when (compilerVersion (pkgConfigCompiler sharedConfig) < mkVersion [8,2]) $ do
-      reportSubCase (show SetupCustomImplicitDeps)
-      (plan2, res2) <- executePlan =<< planProject testdir2 config
-      pkg2          <- expectPackageInstalled plan2 res2 pkgidA
-      elabSetupScriptStyle pkg2 @?= SetupCustomImplicitDeps
-      hasDefaultSetupDeps pkg2 @?= Just True
-      marker2 <- readFile (basedir </> testdir2 </> "marker")
-      marker2 @?= "ok"
-      removeFile (basedir </> testdir2 </> "marker")
-
-    reportSubCase (show SetupNonCustomInternalLib)
-    (plan3, res3) <- executePlan =<< planProject testdir3 config
-    pkg3          <- expectPackageInstalled plan3 res3 pkgidA
-    elabSetupScriptStyle pkg3 @?= SetupNonCustomInternalLib
 {-
     --TODO: the SetupNonCustomExternalLib case is hard to test since it
     -- requires a version of Cabal that's later than the one we're testing
@@ -1468,7 +1451,6 @@ testSetupScriptStyles config reportSubCase = do
 -}
   where
     testdir1 = "build/setup-custom1"
-    testdir2 = "build/setup-custom2"
     testdir3 = "build/setup-simple"
     pkgidA   = PackageIdentifier "a" (mkVersion [0,1])
     -- The solver fills in default setup deps explicitly, but marks them as such

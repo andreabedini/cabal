@@ -50,11 +50,9 @@ import qualified Distribution.Types.PackageDescription.Lens        as L
 -- import Distribution.Types.BuildInfo                (BuildInfo (cppOptions))
 -- import qualified Distribution.Types.BuildInfo.Lens                 as L
 
-#ifdef MIN_VERSION_tree_diff
 import Data.TreeDiff                 (ediff)
 import Data.TreeDiff.Instances.Cabal ()
 import Data.TreeDiff.Pretty          (ansiWlEditExprCompact)
-#endif
 
 -------------------------------------------------------------------------------
 -- parseIndex: Index traversal
@@ -283,16 +281,8 @@ roundtripTest testFieldsTransform fpath bs = do
 
     assertEqual' bs' x y = unless (x == y || fpath == "ixset/1.0.4/ixset.cabal") $ do
         putStrLn fpath
-#ifdef MIN_VERSION_tree_diff
         putStrLn "====== tree-diff:"
         print $ ansiWlEditExprCompact $ ediff x y
-#else
-        putStrLn "<<<<<<"
-        print x
-        putStrLn "======"
-        print y
-        putStrLn ">>>>>>"
-#endif
         putStrLn "====== contents:"
         putStrLn bs'
         exitFailure

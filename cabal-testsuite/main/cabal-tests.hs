@@ -27,13 +27,6 @@ import System.FilePath
 import System.Exit
 import System.Process (callProcess, showCommandForUser)
 
-#if !MIN_VERSION_base(4,12,0)
-import Data.Monoid ((<>))
-#endif
-#if !MIN_VERSION_base(4,8,0)
-import Data.Monoid (mempty)
-#endif
-
 -- | Record for arguments that can be passed to @cabal-tests@ executable.
 data MainArgs = MainArgs {
         mainArgThreads :: Int,
