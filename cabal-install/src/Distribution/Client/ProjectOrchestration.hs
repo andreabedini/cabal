@@ -1287,11 +1287,8 @@ dieOnBuildFailures verbosity currentCommand plan buildOutcomes
         " The build process terminated with exit code " ++ show n
 
       _ -> " The exception was:\n  "
-#if MIN_VERSION_base(4,8,0)
              ++ displayException e
-#else
              ++ show e
-#endif
 
     buildFailureException :: BuildFailureReason -> Maybe SomeException
     buildFailureException reason =

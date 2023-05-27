@@ -458,12 +458,12 @@ configureOptions showOrParseArgs =
          (boolOpt [] [])
 
       ,option "" ["split-sections"]
-         "compile library code such that unneeded definitions can be dropped from the final executable (GHC 7.8+)"
+         "compile library code such that unneeded definitions can be dropped from the final executable"
          configSplitSections (\v flags -> flags { configSplitSections = v })
          (boolOpt [] [])
 
       ,option "" ["split-objs"]
-         "split library into smaller objects to reduce binary sizes (GHC 6.6+)"
+         "split library into smaller objects to reduce binary sizes"
          configSplitObjs (\v flags -> flags { configSplitObjs = v })
          (boolOpt [] [])
 

@@ -118,9 +118,7 @@ instance Monad (P s) where
   (Result x p) >>= k = k x `mplus` (p >>= k)
   (Final r)    >>= k = final [ys' | (x,s) <- r, ys' <- run (k x) s]
 
-#if !(MIN_VERSION_base(4,9,0))
-  fail _ = Fail
-#elif !(MIN_VERSION_base(4,13,0))
+#if !(MIN_VERSION_base(4,13,0))
   fail = Fail.fail
 #endif
 
@@ -183,9 +181,7 @@ instance Monad (Parser r s) where
   return = pure
   R m >>= f = R (\k -> m (\a -> let R m' = f a in m' k))
 
-#if !(MIN_VERSION_base(4,9,0))
-  fail _ = R (const Fail)
-#elif !(MIN_VERSION_base(4,13,0))
+#if !(MIN_VERSION_base(4,13,0))
   fail = Fail.fail
 #endif
 

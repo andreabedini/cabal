@@ -235,6 +235,7 @@ toLinkedComponent verbosity db this_pid pkg_map ConfiguredComponent {
     -- won't allow it (since someone could directly synthesize
     -- an 'InstalledPackageInfo' that violates abstraction.)
     -- Though, maybe it should be relaxed?
+    -- FIXME: GHC 7.10 is not suported anymore
     let src_hidden_set = Set.fromList src_hidden
         linked_shape = linked_shape0 {
             modScopeProvides =

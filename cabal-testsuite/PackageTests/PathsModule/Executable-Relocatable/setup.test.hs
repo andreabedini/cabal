@@ -3,5 +3,6 @@ import Test.Cabal.Prelude
 
 main = setupAndCabalTest $ do
   skipIfWindows
-  skipUnlessGhcVersion ">= 8.0"
+  -- FIXME: remove
+  
   setup_build ["--enable-relocatable"]

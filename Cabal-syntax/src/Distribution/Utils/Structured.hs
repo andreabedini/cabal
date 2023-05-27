@@ -98,10 +98,6 @@ import qualified Data.Text.Lazy               as LT
 import qualified Data.Time                    as Time
 import qualified Distribution.Compat.Binary   as Binary
 
-#ifdef MIN_VERSION_aeson
-import qualified Data.Aeson as Aeson
-#endif
-
 import Data.Kind (Type)
 
 import Distribution.Compat.Typeable (Typeable, TypeRep, typeRep)

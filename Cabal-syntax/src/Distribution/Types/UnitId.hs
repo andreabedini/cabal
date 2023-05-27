@@ -123,8 +123,6 @@ newtype DefUnitId = DefUnitId { unDefUnitId :: UnitId }
 
 instance Structured DefUnitId
 
--- Workaround for a GHC 8.0.1 bug, see
--- https://github.com/haskell/cabal/issues/4793#issuecomment-334258288
 instance Parsec DefUnitId where
   parsec = DefUnitId <$> parsec
 

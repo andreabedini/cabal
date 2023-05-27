@@ -144,8 +144,6 @@ instance Foldable.Foldable Graph where
     foldMap f = Foldable.foldMap f . graphMap
     foldl' f z = Foldable.foldl' f z . graphMap
     foldr' f z = Foldable.foldr' f z . graphMap
-#ifdef MIN_VERSION_base
-#if MIN_VERSION_base(4,8,0)
     length = Foldable.length . graphMap
     null   = Foldable.null   . graphMap
     toList = Foldable.toList . graphMap
@@ -154,8 +152,6 @@ instance Foldable.Foldable Graph where
     minimum = Foldable.minimum . graphMap
     sum     = Foldable.sum     . graphMap
     product = Foldable.product . graphMap
-#endif
-#endif
 
 instance (NFData a, NFData (Key a)) => NFData (Graph a) where
     rnf Graph {

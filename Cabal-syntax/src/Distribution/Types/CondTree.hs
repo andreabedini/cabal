@@ -84,14 +84,7 @@ data CondBranch v c a = CondBranch
     , condBranchIfTrue    :: CondTree v c a
     , condBranchIfFalse   :: Maybe (CondTree v c a)
     }
-    deriving (Show, Eq, Typeable, Data, Generic, Functor, Traversable)
-
--- This instance is written by hand because GHC 8.0.1/8.0.2 infinite
--- loops when trying to derive it with optimizations.  See
--- https://gitlab.haskell.org/ghc/ghc/-/issues/13056
-instance Foldable (CondBranch v c) where
-    foldMap f (CondBranch _ c Nothing) = foldMap f c
-    foldMap f (CondBranch _ c (Just a)) = foldMap f c `mappend` foldMap f a
+    deriving (Show, Eq, Typeable, Data, Generic, Functor, Foldable, Traversable)
 
 instance (Binary v, Binary c, Binary a) => Binary (CondBranch v c a)
 instance (Structured v, Structured c, Structured a) => Structured (CondBranch v c a)

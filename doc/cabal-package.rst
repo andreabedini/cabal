@@ -866,14 +866,12 @@ The library section should contain the following fields:
 .. pkg-field:: reexported-modules: exportlist
     :since: 1.22
 
-    Supported only in GHC 7.10 and later. A list of modules to
-    *reexport* from this package. The syntax of this field is
-    ``orig-pkg:Name as NewName`` to reexport module ``Name`` from
-    ``orig-pkg`` with the new name ``NewName``. We also support
-    abbreviated versions of the syntax: if you omit ``as NewName``,
-    we'll reexport without renaming; if you omit ``orig-pkg``, then we
-    will automatically figure out which package to reexport from, if
-    it's unambiguous.
+    A list of modules to *reexport* from this package. The syntax of this field
+    is ``orig-pkg:Name as NewName`` to reexport module ``Name`` from
+    ``orig-pkg`` with the new name ``NewName``. We also support abbreviated
+    versions of the syntax: if you omit ``as NewName``, we'll reexport without
+    renaming; if you omit ``orig-pkg``, then we will automatically figure out
+    which package to reexport from, if it's unambiguous.
 
     Reexported modules are useful for compatibility shims when a package
     has been split into multiple packages, and they have the useful
@@ -885,7 +883,7 @@ The library section should contain the following fields:
 .. pkg-field:: signatures: signature list
     :since: 2.0
 
-    Supported only in GHC 8.2 and later. A list of `module signatures <https://downloads.haskell.org/~ghc/master/users-guide/separate_compilation.html#module-signatures>`__ required by this package.
+    A list of `module signatures <https://downloads.haskell.org/~ghc/master/users-guide/separate_compilation.html#module-signatures>`__ required by this package.
 
     Module signatures are part of the Backpack_ extension to
     the Haskell module system.
@@ -1472,8 +1470,6 @@ executables when the executable is run (or even lazily during
 execution), while static libraries (``.a`` files on Linux/OSX, ``.lib``
 files on Windows) get linked against the executable at compile time.
 
-Foreign libraries only work with GHC 7.8 and later.
-
 A typical stanza for a foreign library looks like
 
 ::
@@ -1848,8 +1844,8 @@ system-dependent values for these fields.
     ::
 
         other-extensions: CPP
-        if impl(ghc >= 7.5)
-          other-extensions: PolyKinds
+        if impl(ghc >= 9.2.1)
+          other-extensions: ImpredicativeTypes
 
     You could also omit the conditionally used extensions, as they are
     for information only, but it is recommended to replicate them in
@@ -2620,7 +2616,7 @@ The following tests are currently supported.
     case-insensitive.
 :samp:`impl({compiler})`
     Tests for the configured Haskell implementation. An optional version
-    constraint may be specified (for example ``impl(ghc >= 6.6.1)``). If
+    constraint may be specified (for example ``True. If
     the configured implementation is of the right type and matches the
     version constraint, then this evaluates to true, otherwise false.
     The match is case-insensitive.
@@ -3370,10 +3366,10 @@ available version in your Haskell modules like this:
 
 .. code-block:: cpp
 
-    #if MIN_VERSION_base(4,0,0)
-    ... code that works with base-4 ...
+    #if MIN_VERSION_base(4,17,0)
+    ... code that works with base >= 4.17 ...
     #else
-    ... code that works with base-3 ...
+    ... code that works with base < 4.17 ...
     #endif
 
 In general, Cabal supplies a macro

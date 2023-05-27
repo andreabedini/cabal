@@ -48,21 +48,16 @@ import qualified Data.Set as Set
 
 normaliseGhcArgs :: Maybe Version -> PackageDescription -> [String] -> [String]
 normaliseGhcArgs (Just ghcVersion) PackageDescription{..} ghcArgs
-   | ghcVersion `withinRange` supportedGHCVersions
    = argumentFilters . filter simpleFilters . filterRtsOpts $ ghcArgs
   where
-    supportedGHCVersions :: VersionRange
-    supportedGHCVersions = orLaterVersion (mkVersion [8,0])
-      -- we (weakly) support unknown future GHC versions for the purpose
-      -- of filtering GHC arguments
-
     from :: Monoid m => [Int] -> m -> m
     from version flags
       | ghcVersion `withinRange` orLaterVersion (mkVersion version) = flags
       | otherwise = mempty
 
-    to :: Monoid m => [Int] -> m -> m
-    to version flags
+    -- Keeping this around in case new versions of GHC are going to need it
+    _to :: Monoid m => [Int] -> m -> m
+    _to version flags
       | ghcVersion `withinRange` earlierVersion (mkVersion version) = flags
       | otherwise = mempty
 
@@ -100,18 +95,18 @@ normaliseGhcArgs (Just ghcVersion) PackageDescription{..} ghcArgs
         alter flag = appEndo $ mconcat
             [ \s -> Endo $ if s == "-Werror" then Set.insert s else id
             , \s -> Endo $ if s == "-Wwarn" then const Set.empty else id
-            , \s -> from [8,6] . Endo $
+            , \s -> Endo $
                     if s == "-Werror=compat"
                     then Set.union compatWarningSet else id
-            , \s -> from [8,6] . Endo $
+            , \s -> Endo $
                     if s == "-Wno-error=compat"
                     then (`Set.difference` compatWarningSet) else id
-            , \s -> from [8,6] . Endo $
+            , \s -> Endo $
                     if s == "-Wwarn=compat"
                     then (`Set.difference` compatWarningSet) else id
-            , from [8,4] $ markFlag "-Werror=" Set.insert
-            , from [8,4] $ markFlag "-Wwarn=" Set.delete
-            , from [8,4] $ markFlag "-Wno-error=" Set.delete
+            , markFlag "-Werror=" Set.insert
+            , markFlag "-Wwarn=" Set.delete
+            , markFlag "-Wno-error=" Set.delete
             ] flag
 
         markFlag
@@ -170,27 +165,21 @@ normaliseGhcArgs (Just ghcVersion) PackageDescription{..} ghcArgs
               , "break-on-exception", "print-bind-result"
               , "print-bind-contents", "print-evld-with-show"
               , "implicit-import-qualified", "error-spans"
-              ]
-            , from [7,8]
-              [ "print-explicit-foralls" -- maybe also earlier, but GHC-7.6 doesn't have --show-options
+              , "print-explicit-foralls"
               , "print-explicit-kinds"
-              ]
-            , from [8,0]
-              [ "print-explicit-coercions"
+              , "print-explicit-coercions"
               , "print-explicit-runtime-reps"
               , "print-equality-relations"
               , "print-unicode-syntax"
               , "print-expanded-synonyms"
               , "print-potential-instances"
               , "print-typechecker-elaboration"
+              , "diagnostics-show-caret", "local-ghci-history"
+              , "show-warning-groups", "hide-source-paths"
+              , "show-hole-constraints"
+              , "show-loaded-modules"
+              , "ghci-leak-check", "no-it"
               ]
-            , from [8,2]
-                [ "diagnostics-show-caret", "local-ghci-history"
-                , "show-warning-groups", "hide-source-paths"
-                , "show-hole-constraints"
-                ]
-            , from [8,4] ["show-loaded-modules"]
-            , from [8,6] [ "ghci-leak-check", "no-it" ]
             , from [8,10]
                 [ "defer-diagnostics"      -- affects printing of diagnostics
                 , "keep-going"             -- try harder, the build will still fail if it's erroneous
@@ -203,8 +192,7 @@ normaliseGhcArgs (Just ghcVersion) PackageDescription{..} ghcArgs
       , if safeToFilterWarnings
            then isWarning <> (Any . ("-w"==))
            else mempty
-      , from [8,6] $
-        if safeToFilterHoles
+      , if safeToFilterHoles
            then isTypedHoleFlag
            else mempty
       ]
@@ -224,17 +212,12 @@ normaliseGhcArgs (Just ghcVersion) PackageDescription{..} ghcArgs
         , "-dasm-lint", "-dannot-lint", "-dshow-passes", "-dfaststring-stats"
         , "-fno-max-relevant-binds", "-recomp", "-no-recomp", "-fforce-recomp"
         , "-fno-force-recomp"
-        ]
-
-      , from [8,2]
-          [ "-fno-max-errors", "-fdiagnostics-color=auto"
-          , "-fdiagnostics-color=always", "-fdiagnostics-color=never"
-          , "-dppr-debug", "-dno-debug-output"
-          ]
-
-      , from [8,4] [ "-ddebug-output" ]
-      , from [8,4] $ to [8,6] [ "-fno-max-valid-substitutions" ]
-      , from [8,6] [ "-dhex-word-literals" ]
+        ,  "-fno-max-errors", "-fdiagnostics-color=auto"
+        , "-fdiagnostics-color=always", "-fdiagnostics-color=never"
+        , "-dppr-debug", "-dno-debug-output"
+        ,  "-ddebug-output" 
+        ,  "-dhex-word-literals"
+      ]
       , from [8,8] [ "-fshow-docs-of-hole-fits", "-fno-show-docs-of-hole-fits" ]
       , from [9,0] [ "-dlinear-core-lint" ]
       ]
@@ -245,9 +228,8 @@ normaliseGhcArgs (Just ghcVersion) PackageDescription{..} ghcArgs
     isIntFlag :: String -> Any
     isIntFlag = mconcat . map (dropIntFlag False) . mconcat $
         [ [ "-fmax-relevant-binds", "-ddpr-user-length", "-ddpr-cols"
-          , "-dtrace-level", "-fghci-hist-size" ]
-        , from [8,2] ["-fmax-uncovered-patterns", "-fmax-errors"]
-        , from [8,4] $ to [8,6] ["-fmax-valid-substitutions"]
+          , "-dtrace-level", "-fghci-hist-size"
+          , "-fmax-uncovered-patterns", "-fmax-errors"]
         ]
 
     dropIntFlag :: Bool -> String -> String -> Any
@@ -822,7 +804,7 @@ verbosityOpts verbosity
 packageDbArgsConf :: PackageDBStack -> [String]
 packageDbArgsConf dbstack = case dbstack of
   (GlobalPackageDB:UserPackageDB:dbs) -> concatMap specific dbs
-  (GlobalPackageDB:dbs)               -> ("-no-user-package-conf")
+  (GlobalPackageDB:dbs)               -> "-no-user-package-conf"
                                        : concatMap specific dbs
   _ -> ierror
   where

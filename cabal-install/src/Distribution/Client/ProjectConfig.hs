@@ -480,19 +480,10 @@ data BadProjectRoot
   | BadProjectRootDir FilePath
   | BadProjectRootAbsoluteFile FilePath
   | BadProjectRootDirFile FilePath FilePath
-#if MIN_VERSION_base(4,8,0)
   deriving (Show, Typeable)
-#else
-  deriving (Typeable)
-
-instance Show BadProjectRoot where
-  show = renderBadProjectRoot
-#endif
 
 instance Exception BadProjectRoot where
-#if MIN_VERSION_base(4,8,0)
   displayException = renderBadProjectRoot
-#endif
 
 renderBadProjectRoot :: BadProjectRoot -> String
 renderBadProjectRoot = \case
@@ -714,19 +705,11 @@ data ProjectPackageLocation =
 --
 data BadPackageLocations
    = BadPackageLocations (Set ProjectConfigProvenance) [BadPackageLocation]
-#if MIN_VERSION_base(4,8,0)
   deriving (Show, Typeable)
-#else
-  deriving (Typeable)
-
-instance Show BadPackageLocations where
-  show = renderBadPackageLocations
-#endif
 
 instance Exception BadPackageLocations where
-#if MIN_VERSION_base(4,8,0)
   displayException = renderBadPackageLocations
-#endif
+
 --TODO: [nice to have] custom exception subclass for Doc rendering, colour etc
 
 data BadPackageLocation
@@ -1325,10 +1308,8 @@ instance Show CabalFileParseError where
         . showChar ' ' . showsPrec 11 ws
 
 instance Exception CabalFileParseError
-#if MIN_VERSION_base(4,8,0)
   where
   displayException = renderCabalFileParseError
-#endif
 
 renderCabalFileParseError :: CabalFileParseError -> String
 renderCabalFileParseError (CabalFileParseError filePath contents errors _ warnings) =
@@ -1468,19 +1449,11 @@ truncateString n s | length s <= n = s
 
 data BadPerPackageCompilerPaths
    = BadPerPackageCompilerPaths [(PackageName, String)]
-#if MIN_VERSION_base(4,8,0)
   deriving (Show, Typeable)
-#else
-  deriving (Typeable)
-
-instance Show BadPerPackageCompilerPaths where
-  show = renderBadPerPackageCompilerPaths
-#endif
 
 instance Exception BadPerPackageCompilerPaths where
-#if MIN_VERSION_base(4,8,0)
   displayException = renderBadPerPackageCompilerPaths
-#endif
+
 --TODO: [nice to have] custom exception subclass for Doc rendering, colour etc
 
 renderBadPerPackageCompilerPaths :: BadPerPackageCompilerPaths -> String

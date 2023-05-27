@@ -10,12 +10,8 @@ import Test.Tasty.HUnit              (testCase, (@?=), Assertion)
 import Distribution.SPDX.License       (License)
 import Distribution.Types.VersionRange (VersionRange)
 
-#if MIN_VERSION_base(4,7,0)
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
 import Distribution.Types.LocalBuildInfo            (LocalBuildInfo)
-#endif
-
-import UnitTests.Orphans ()
 
 tests :: TestTree
 tests = testGroup "Distribution.Utils.Structured"
@@ -25,12 +21,10 @@ tests = testGroup "Distribution.Utils.Structured"
     , testCase "SPDX.License" $
       md5Check (Proxy :: Proxy License) 0xd3d4a09f517f9f75bc3d16370d5a853a
     -- The difference is in encoding of newtypes
-#if MIN_VERSION_base(4,7,0)
     , testCase "GenericPackageDescription" $
       md5Check (Proxy :: Proxy GenericPackageDescription) 0xa3e9433662ecf0c7a3c26f6d75a53ba1
     , testCase "LocalBuildInfo" $
       md5Check (Proxy :: Proxy LocalBuildInfo) 0x91ffcd61bbd83525e8edba877435a031
-#endif
     ]
 
 -- -------------------------------------------------------------------- --

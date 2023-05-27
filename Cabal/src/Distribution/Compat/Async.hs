@@ -26,9 +26,7 @@ import Control.Monad           (void)
 import Data.Typeable           (Typeable)
 import GHC.Exts                (inline)
 
-#if MIN_VERSION_base(4,7,0)
 import Control.Exception (asyncExceptionFromException, asyncExceptionToException)
-#endif
 
 -- | Async, but based on 'MVar', as we don't depend on @stm@.
 data AsyncM a = Async
@@ -133,12 +131,10 @@ data AsyncCancelled = AsyncCancelled
     )
 
 instance Exception AsyncCancelled where
-#if MIN_VERSION_base(4,7,0)
   -- wraps in SomeAsyncException
   -- See https://github.com/ghc/ghc/commit/756a970eacbb6a19230ee3ba57e24999e4157b09
   fromException = asyncExceptionFromException
   toException = asyncExceptionToException
-#endif
 
 -- | Cancel an asynchronous action
 --

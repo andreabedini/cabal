@@ -188,8 +188,6 @@ type IsUnit a = (IsNode a, Key a ~ UnitId)
 depends :: IsUnit a => a -> [UnitId]
 depends = nodeNeighbors
 
--- NB: Expanded constraint synonym here to avoid undecidable
--- instance errors in GHC 7.8 and earlier.
 instance (IsNode ipkg, IsNode srcpkg, Key ipkg ~ UnitId, Key srcpkg ~ UnitId)
          => IsNode (GenericPlanPackage ipkg srcpkg) where
     type Key (GenericPlanPackage ipkg srcpkg) = UnitId

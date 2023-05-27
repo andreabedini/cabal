@@ -19,8 +19,6 @@ module Distribution.Simple.Program.Hpc
 import Prelude ()
 import Distribution.Compat.Prelude
 
-import System.Directory (makeRelativeToCurrentDirectory)
-
 import Distribution.ModuleName
 import Distribution.Simple.Program.Run
 import Distribution.Simple.Program.Types
@@ -31,11 +29,11 @@ import Distribution.Version
 
 -- | Invoke hpc with the given parameters.
 --
--- Prior to HPC version 0.7 (packaged with GHC 7.8), hpc did not handle
--- multiple .mix paths correctly, so we print a warning, and only pass it the
--- first path in the list. This means that e.g. test suites that import their
--- library as a dependency can still work, but those that include the library
--- modules directly (in other-modules) don't.
+-- Prior to HPC version 0.7, hpc did not handle multiple .mix paths correctly,
+-- so we print a warning, and only pass it the first path in the list. This
+-- means that e.g. test suites that import their library as a dependency can
+-- still work, but those that include the library modules directly (in
+-- other-modules) don't.
 markup :: ConfiguredProgram
        -> Version
        -> Verbosity
@@ -59,11 +57,8 @@ markup hpc hpcVer verbosity tixFile hpcDirs destDir included = do
                         ++ show droppedDirs
             return passedDirs
 
-    -- Prior to GHC 8.0, hpc assumes all .mix paths are relative.
-    hpcDirs'' <- traverse makeRelativeToCurrentDirectory hpcDirs'
-
     runProgramInvocation verbosity
-      (markupInvocation hpc tixFile hpcDirs'' destDir included)
+      (markupInvocation hpc tixFile hpcDirs' destDir included)
   where
     version07 = mkVersion [0, 7]
     (passedDirs, droppedDirs) = splitAt 1 hpcDirs

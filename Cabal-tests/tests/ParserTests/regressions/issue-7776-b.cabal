@@ -21,7 +21,4 @@ benchmark benchmarks
     other-modules:
         Data.Hashable.RandomSource
     type: exitcode-stdio-1.0
-    if impl(ghc >= 6.8)
-        Ghc-options: -fwarn-tabs
-    else
-        other-modules: Data.Hashable.RandomSource
+    ghc-options: -fwarn-tabs

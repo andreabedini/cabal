@@ -5,7 +5,7 @@ import           Control.Monad.Trans.Reader
 
 main = setupTest $ do
   -- No cabal test because per-component is broken with it
-  skipUnlessGhcVersion ">= 8.1"
+  
   withPackageDb $ do
     setup_build ["--enable-build-info"]
     env <- ask

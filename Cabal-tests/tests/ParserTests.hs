@@ -30,11 +30,9 @@ import qualified Data.List.NonEmpty    as NE
 
 import qualified Distribution.InstalledPackageInfo as IPI
 
-#ifdef MIN_VERSION_tree_diff
 import Data.TreeDiff                 (ansiWlEditExpr, ediff, toExpr)
 import Data.TreeDiff.Golden          (ediffGolden)
 import Data.TreeDiff.Instances.Cabal ()
-#endif
 
 tests :: TestTree
 tests = testGroup "parsec tests"
@@ -202,9 +200,7 @@ regressionTest :: FilePath -> TestTree
 regressionTest fp = testGroup fp
     [ formatGoldenTest fp
     , formatRoundTripTest fp
-#ifdef MIN_VERSION_tree_diff
     , treeDiffGoldenTest fp
-#endif
     ]
 
 formatGoldenTest :: FilePath -> TestTree
@@ -226,7 +222,6 @@ formatGoldenTest fp = cabalGoldenTest "format" correct $ do
     input = "tests" </> "ParserTests" </> "regressions" </> fp
     correct = replaceExtension input "format"
 
-#ifdef MIN_VERSION_tree_diff
 treeDiffGoldenTest :: FilePath -> TestTree
 treeDiffGoldenTest fp = ediffGolden goldenTest "expr" exprFile $ do
     contents <- BS.readFile input
@@ -238,7 +233,6 @@ treeDiffGoldenTest fp = ediffGolden goldenTest "expr" exprFile $ do
   where
     input = "tests" </> "ParserTests" </> "regressions" </> fp
     exprFile = replaceExtension input "expr"
-#endif
 
 formatRoundTripTest :: FilePath -> TestTree
 formatRoundTripTest fp = testCase "roundtrip" $ do
@@ -249,20 +243,10 @@ formatRoundTripTest fp = testCase "roundtrip" $ do
     -- previously we mangled licenses a bit
     let y' = y
     unless (x == y') $
-#ifdef MIN_VERSION_tree_diff
         assertFailure $ unlines
             [ "re-parsed doesn't match"
             , show $ ansiWlEditExpr $ ediff x y
             ]
-#else
-        assertFailure $ unlines
-            [ "re-parsed doesn't match"
-            , "expected"
-            , show x
-            , "actual"
-            , show y
-            ]
-#endif
   where
     parse :: BS.ByteString -> IO GenericPackageDescription
     parse c = do
@@ -288,10 +272,8 @@ ipiTests = testGroup "ipis"
 
 ipiTest :: FilePath -> TestTree
 ipiTest fp = testGroup fp $
-#ifdef MIN_VERSION_tree_diff
-    [ ipiTreeDiffGoldenTest fp ] ++
-#endif
-    [ ipiFormatGoldenTest fp
+    [ ipiTreeDiffGoldenTest fp
+    , ipiFormatGoldenTest fp
     , ipiFormatRoundTripTest fp
     ]
 
@@ -307,7 +289,6 @@ ipiFormatGoldenTest fp = cabalGoldenTest "format" correct $ do
     input = "tests" </> "ParserTests" </> "ipi" </> fp
     correct = replaceExtension input "format"
 
-#ifdef MIN_VERSION_tree_diff
 ipiTreeDiffGoldenTest :: FilePath -> TestTree
 ipiTreeDiffGoldenTest fp = ediffGolden goldenTest "expr" exprFile $ do
     contents <- BS.readFile input
@@ -318,7 +299,6 @@ ipiTreeDiffGoldenTest fp = ediffGolden goldenTest "expr" exprFile $ do
   where
     input = "tests" </> "ParserTests" </> "ipi" </> fp
     exprFile = replaceExtension input "expr"
-#endif
 
 ipiFormatRoundTripTest :: FilePath -> TestTree
 ipiFormatRoundTripTest fp = testCase "roundtrip" $ do

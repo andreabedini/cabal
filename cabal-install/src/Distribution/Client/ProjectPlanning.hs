@@ -1190,13 +1190,6 @@ planPackages verbosity comp platform solver SolverSettings{..}
     -- versions), we have problems talking to some older versions that
     -- don't support certain features.
     --
-    -- For example, Cabal-1.16 and older do not know about build targets.
-    -- Even worse, 1.18 and older only supported the --constraint flag
-    -- with source package ids, not --dependency with installed package
-    -- ids. That is bad because we cannot reliably select the right
-    -- dependencies in the presence of multiple instances (i.e. the
-    -- store). See issue #3932. So we require Cabal 1.20 as a minimum.
-    --
     -- Moreover, lib:Cabal generally only supports the interface of
     -- current and past compilers; in fact recent lib:Cabal versions
     -- will warn when they encounter a too new or unknown GHC compiler
@@ -1211,13 +1204,6 @@ planPackages verbosity comp platform solver SolverSettings{..}
     -- GHC 8.10  needs  Cabal >= 3.2
     -- GHC 8.8   needs  Cabal >= 3.0
     -- GHC 8.6   needs  Cabal >= 2.4
-    -- GHC 8.4   needs  Cabal >= 2.2
-    -- GHC 8.2   needs  Cabal >= 2.0
-    -- GHC 8.0   needs  Cabal >= 1.24
-    -- GHC 7.10  needs  Cabal >= 1.22
-    --
-    -- (NB: we don't need to consider older GHCs as Cabal >= 1.20 is
-    -- the absolute lower bound)
     --
     -- TODO: long-term, this compatibility matrix should be
     --       stored as a field inside 'Distribution.Compiler.Compiler'
@@ -1228,12 +1214,7 @@ planPackages verbosity comp platform solver SolverSettings{..}
       | isGHC, compVer >= mkVersion [9,0]  = mkVersion [3,4]
       | isGHC, compVer >= mkVersion [8,10] = mkVersion [3,2]
       | isGHC, compVer >= mkVersion [8,8]  = mkVersion [3,0]
-      | isGHC, compVer >= mkVersion [8,6]  = mkVersion [2,4]
-      | isGHC, compVer >= mkVersion [8,4]  = mkVersion [2,2]
-      | isGHC, compVer >= mkVersion [8,2]  = mkVersion [2,0]
-      | isGHC, compVer >= mkVersion [8,0]  = mkVersion [1,24]
-      | isGHC, compVer >= mkVersion [7,10] = mkVersion [1,22]
-      | otherwise                          = mkVersion [1,20]
+      | otherwise                          = mkVersion [2,4]
       where
         isGHC    = compFlav `elem` [GHC,GHCJS]
         compFlav = compilerFlavor comp

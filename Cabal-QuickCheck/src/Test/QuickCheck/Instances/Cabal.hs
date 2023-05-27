@@ -11,11 +11,7 @@ import Data.List.NonEmpty         (NonEmpty (..))
 import Distribution.Utils.Generic (lowercase)
 import Test.QuickCheck
 
-#if MIN_VERSION_base(4,8,0)
 import Data.Bits (countLeadingZeros, finiteBitSize, shiftL)
-#else
-import Data.Bits (popCount)
-#endif
 
 import Distribution.CabalSpecVersion
 import Distribution.Compat.NonEmptySet             (NonEmptySet)
@@ -51,10 +47,6 @@ import Test.QuickCheck.GenericArbitrary
 
 import qualified Data.ByteString.Char8           as BS8
 import qualified Distribution.Compat.NonEmptySet as NES
-
-#if !MIN_VERSION_base(4,8,0)
-import Control.Applicative (pure, (<$>), (<*>))
-#endif
 
 -------------------------------------------------------------------------------
 -- CabalSpecVersion
@@ -526,8 +518,4 @@ intSqrt n = case compare n 0 of
     iter x = shiftR (x + n `div` x) 1
 
     guess :: Int
-#if MIN_VERSION_base(4,8,0)
     guess = shiftR n (shiftL (finiteBitSize n - countLeadingZeros n) 1)
-#else
-    guess = shiftR n (shiftR (popCount n) 1)
-#endif

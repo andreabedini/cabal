@@ -401,11 +401,8 @@ generalInstalledPackageInfo adjustRelIncDirs pkg abi_hash lib lbi clbi installDi
     IPI.instantiatedWith   = componentInstantiatedWith clbi,
     IPI.sourceLibName      = libName lib,
     IPI.compatPackageKey   = componentCompatPackageKey clbi,
-    -- If GHC >= 8.4 we register with SDPX, otherwise with legacy license
-    IPI.license            =
-        if ghc84
-        then Left $ either id licenseToSPDX $ licenseRaw pkg
-        else Right $ either licenseFromSPDX id $ licenseRaw pkg,
+    -- FIXME: only SPDX are supported
+    IPI.license            = Left $ either id licenseToSPDX $ licenseRaw pkg,
     IPI.copyright          = copyright   pkg,
     IPI.maintainer         = maintainer  pkg,
     IPI.author             = author      pkg,

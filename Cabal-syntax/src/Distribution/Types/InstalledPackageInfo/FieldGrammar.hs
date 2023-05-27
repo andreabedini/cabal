@@ -304,6 +304,7 @@ basicFieldGrammar = mkBasic
     mkBasic n v pn ln lv = Basic n v pn ln' lv'
       where
         ln' = maybe LMainLibName LSubLibName ln
+        -- FIXME: GHCs <8.8 are not supported anymore
         -- Older GHCs (<8.8) always report installed libraries as private
         -- because their ghc-pkg builds with an older Cabal.
         -- So we always set LibraryVisibilityPublic for main (unnamed) libs.

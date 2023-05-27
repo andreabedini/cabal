@@ -73,9 +73,6 @@ import Distribution.Text
 import Distribution.Verbosity
 import Distribution.Version
 
-#if !MIN_VERSION_base(4,11,0)
-import Data.Monoid ((<>))
-#endif
 import Data.Monoid (mempty)
 import qualified Control.Exception as E
 import Control.Monad

@@ -846,8 +846,7 @@ getScriptCacheDirectory script = do
 
 hasSharedLibraries  :: TestM Bool
 hasSharedLibraries = do
-    shared_libs_were_removed <- isGhcVersion ">= 7.8"
-    return (not (buildOS == Windows && shared_libs_were_removed))
+    return (not (buildOS == Windows))
 
 hasProfiledLibraries :: TestM Bool
 hasProfiledLibraries = do
@@ -941,17 +940,6 @@ hasCabalForGhc = do
     -- liftIO $ putStrLn $ "runner_ghc_program: " ++ show runner_ghc_program
 
     return (programPath ghc_program == programPath runner_ghc_program)
-
--- | If you want to use a Custom setup with new-build, it needs to
--- be 1.20 or later.  Ordinarily, Cabal can go off and build a
--- sufficiently recent Cabal if necessary, but in our test suite,
--- by default, we try to avoid doing so (since that involves a
--- rather lengthy build process), instead using the boot Cabal if
--- possible.  But some GHCs don't have a recent enough boot Cabal!
--- You'll want to exclude them in that case.
---
-hasNewBuildCompatBootCabal :: TestM Bool
-hasNewBuildCompatBootCabal = isGhcVersion ">= 7.9"
 
 ------------------------------------------------------------------------
 -- * Broken tests
@@ -1063,17 +1051,9 @@ getIPID pn = do
 delay :: TestM ()
 delay = do
     env <- getTestEnv
-    is_old_ghc <- isGhcVersion "< 7.7"
-    -- For old versions of GHC, we only had second-level precision,
-    -- so we need to sleep a full second.  Newer versions use
-    -- millisecond level precision, so we only have to wait
-    -- the granularity of the underlying filesystem.
-    -- TODO: cite commit when GHC got better precision; this
     -- version bound was empirically generated.
     liftIO . threadDelay $
-        if is_old_ghc
-            then 1000000
-            else fromMaybe
+            fromMaybe
                     (error "Delay must be enclosed by withDelay")
                     (testMtimeChangeDelay env)
 

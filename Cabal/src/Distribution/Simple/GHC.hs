@@ -1,7 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE CPP #-}
 
 -----------------------------------------------------------------------------
@@ -137,11 +136,11 @@ configure verbosity hcPath hcPkgPath conf0 = do
 
   (ghcProg, ghcVersion, progdb1) <-
     requireProgramVersion verbosity ghcProgram
-      (orLaterVersion (mkVersion [7,0,1]))
+      (orLaterVersion (mkVersion [8,6,1]))
       (userMaybeSpecifyPath "ghc" hcPath conf0)
   let implInfo = ghcVersionImplInfo ghcVersion
 
-  -- Cabal currently supports ghc >= 7.0.1 && < 9.8
+  -- Cabal currently supports ghc >= 8.6.1 && < 9.8
   -- ... and the following odd development version
   unless (ghcVersion < mkVersion [9,8]) $
     warn verbosity $
@@ -186,20 +185,8 @@ configure verbosity hcPath hcPkgPath conf0 = do
 
   ghcInfo <- Internal.getGhcInfo verbosity implInfo ghcProg
   let ghcInfoMap = Map.fromList ghcInfo
-      extensions = -- workaround https://gitlab.haskell.org/ghc/ghc/-/issues/11214
-                   filterExt JavaScriptFFI $
-                   -- see 'filterExtTH' comment below
-                   filterExtTH $ extensions0
-
-      -- starting with GHC 8.0, `TemplateHaskell` will be omitted from
-      -- `--supported-extensions` when it's not available.
-      -- for older GHCs we can use the "Have interpreter" property to
-      -- filter out `TemplateHaskell`
-      filterExtTH | ghcVersion < mkVersion [8]
-                   , Just "NO" <- Map.lookup "Have interpreter" ghcInfoMap
-                   = filterExt TemplateHaskell
-                  | otherwise = id
-
+      -- workaround https://gitlab.haskell.org/ghc/ghc/-/issues/11214
+      extensions = filterExt JavaScriptFFI extensions0
       filterExt ext = filter ((/= EnableExtension ext) . fst)
 
   let comp = Compiler {
@@ -341,15 +328,7 @@ getInstalledPackages verbosity comp packagedbs progdb = do
   checkPackageDbStack verbosity comp packagedbs
   pkgss <- getInstalledPackages' verbosity packagedbs progdb
   index <- toPackageIndex verbosity pkgss progdb
-  return $! hackRtsPackage index
-
-  where
-    hackRtsPackage index =
-      case PackageIndex.lookupPackageName index (mkPackageName "rts") of
-        [(_,[rts])]
-           -> PackageIndex.insert (removeMingwIncludeDir rts) index
-        _  -> index -- No (or multiple) ghc rts package is registered!!
-                    -- Feh, whatever, the ghc test suite does some crazy stuff.
+  return $! index
 
 -- | Given a list of @(PackageDB, InstalledPackageInfo)@ pairs, produce a
 -- @PackageIndex@. Helper function used by 'getPackageDBContents' and
@@ -414,42 +393,13 @@ checkPackageDbEnvVar verbosity =
     Internal.checkPackageDbEnvVar verbosity "GHC" "GHC_PACKAGE_PATH"
 
 checkPackageDbStack :: Verbosity -> Compiler -> PackageDBStack -> IO ()
-checkPackageDbStack verbosity comp =
-    if flagPackageConf implInfo
-      then checkPackageDbStackPre76 verbosity
-      else checkPackageDbStackPost76 verbosity
-  where implInfo = ghcVersionImplInfo (compilerVersion comp)
-
-checkPackageDbStackPost76 :: Verbosity -> PackageDBStack -> IO ()
-checkPackageDbStackPost76 _ (GlobalPackageDB:rest)
+checkPackageDbStack _ _ (GlobalPackageDB:rest)
   | GlobalPackageDB `notElem` rest = return ()
-checkPackageDbStackPost76 verbosity rest
+checkPackageDbStack verbosity _ rest
   | GlobalPackageDB `elem` rest =
   die' verbosity $ "If the global package db is specified, it must be "
      ++ "specified first and cannot be specified multiple times"
-checkPackageDbStackPost76 _ _ = return ()
-
-checkPackageDbStackPre76 :: Verbosity -> PackageDBStack -> IO ()
-checkPackageDbStackPre76 _ (GlobalPackageDB:rest)
-  | GlobalPackageDB `notElem` rest = return ()
-checkPackageDbStackPre76 verbosity rest
-  | GlobalPackageDB `notElem` rest =
-  die' verbosity $
-        "With current ghc versions the global package db is always used "
-     ++ "and must be listed first. This ghc limitation is lifted in GHC 7.6,"
-     ++ "see https://gitlab.haskell.org/ghc/ghc/-/issues/5977"
-checkPackageDbStackPre76 verbosity _ =
-  die' verbosity $ "If the global package db is specified, it must be "
-     ++ "specified first and cannot be specified multiple times"
-
--- GHC < 6.10 put "$topdir/include/mingw" in rts's installDirs. This
--- breaks when you want to use a different gcc, so we need to filter
--- it out.
-removeMingwIncludeDir :: InstalledPackageInfo -> InstalledPackageInfo
-removeMingwIncludeDir pkg =
-    let ids = InstalledPackageInfo.includeDirs pkg
-        ids' = filter (not . ("mingw" `isSuffixOf`)) ids
-    in pkg { InstalledPackageInfo.includeDirs = ids' }
+checkPackageDbStack _ _ _ = return ()
 
 -- | Get the packages from specific PackageDBs, not cumulative.
 --
@@ -522,9 +472,8 @@ buildOrReplLib mReplFlags verbosity numJobs pkg_descr lbi lib clbi = do
       whenReplLib = when forRepl
       replFlags = fromMaybe mempty mReplFlags
       comp = compiler lbi
-      ghcVersion = compilerVersion comp
       implInfo  = getImplInfo comp
-      platform@(Platform hostArch hostOS) = hostPlatform lbi
+      platform@(Platform hostArch _hostOS) = hostPlatform lbi
       hasJsSupport = hostArch == JavaScript
       has_code = not (componentIsIndefinite clbi)
 
@@ -837,27 +786,6 @@ buildOrReplLib mReplFlags verbosity numJobs pkg_descr lbi lib clbi = do
                                mkStaticLibName (hostPlatform lbi) compiler_id uid
         ghciLibFilePath      = relLibTargetDir </> Internal.mkGHCiLibName uid
         ghciProfLibFilePath  = relLibTargetDir </> Internal.mkGHCiProfLibName uid
-        libInstallPath       = libdir $
-                               absoluteComponentInstallDirs
-                               pkg_descr lbi uid NoCopyDest
-        sharedLibInstallPath = libInstallPath </>
-                               mkSharedLibName (hostPlatform lbi) compiler_id uid
-
-    stubObjs <- catMaybes <$> sequenceA
-      [ findFileWithExtension [objExtension] [libTargetDir]
-          (ModuleName.toFilePath x ++"_stub")
-      | ghcVersion < mkVersion [7,2] -- ghc-7.2+ does not make _stub.o files
-      , x <- allLibModules lib clbi ]
-    stubProfObjs <- catMaybes <$> sequenceA
-      [ findFileWithExtension ["p_" ++ objExtension] [libTargetDir]
-          (ModuleName.toFilePath x ++"_stub")
-      | ghcVersion < mkVersion [7,2] -- ghc-7.2+ does not make _stub.o files
-      , x <- allLibModules lib clbi ]
-    stubSharedObjs <- catMaybes <$> sequenceA
-      [ findFileWithExtension ["dyn_" ++ objExtension] [libTargetDir]
-          (ModuleName.toFilePath x ++"_stub")
-      | ghcVersion < mkVersion [7,2] -- ghc-7.2+ does not make _stub.o files
-      , x <- allLibModules lib clbi ]
 
     hObjs     <- Internal.getHaskellObjects implInfo lib lbi clbi
                       relLibTargetDir objExtension True
@@ -872,21 +800,18 @@ buildOrReplLib mReplFlags verbosity numJobs pkg_descr lbi lib clbi = do
                       relLibTargetDir ("dyn_" ++ objExtension) False
               else return []
 
-    unless (null hObjs && null cLikeObjs && null stubObjs) $ do
+    unless (null hObjs && null cLikeObjs) $ do
       rpaths <- getRPaths lbi clbi
 
       let staticObjectFiles =
                  hObjs
               ++ map (relLibTargetDir </>) cLikeObjs
-              ++ stubObjs
           profObjectFiles =
                  hProfObjs
               ++ map (relLibTargetDir </>) cLikeProfObjs
-              ++ stubProfObjs
           dynamicObjectFiles =
                  hSharedObjs
               ++ map (relLibTargetDir </>) cLikeSharedObjs
-              ++ stubSharedObjs
           -- After the relocation lib is created we invoke ghc -shared
           -- with the dependencies spelled out as -package arguments
           -- and ghc invokes the linker with the proper library paths
@@ -897,13 +822,6 @@ buildOrReplLib mReplFlags verbosity numJobs pkg_descr lbi lib clbi = do
                 ghcOptInputFiles         = toNubListR dynamicObjectFiles,
                 ghcOptOutputFile         = toFlag sharedLibFilePath,
                 ghcOptExtra              = hcSharedOptions GHC libBi,
-                -- For dynamic libs, Mac OS/X needs to know the install location
-                -- at build time. This only applies to GHC < 7.8 - see the
-                -- discussion in #1660.
-                ghcOptDylibName          = if hostOS == OSX
-                                              && ghcVersion < mkVersion [7,8]
-                                            then toFlag sharedLibInstallPath
-                                            else mempty,
                 ghcOptHideAllPackages    = toFlag True,
                 ghcOptNoAutoLinkPackages = toFlag True,
                 ghcOptPackageDBs         = withPackageDB lbi,
@@ -926,7 +844,7 @@ buildOrReplLib mReplFlags verbosity numJobs pkg_descr lbi lib clbi = do
                 ghcOptPackages           = toNubListR $
                                            Internal.mkGhcOptPackages clbi ,
                 ghcOptLinkLibs           = extraLibs libBi,
-                ghcOptLinkLibPath        = toNubListR $ cleanedExtraLibDirs,
+                ghcOptLinkLibPath        = toNubListR cleanedExtraLibDirs,
                 ghcOptLinkFrameworks     = toNubListR $ PD.frameworks libBi,
                 ghcOptLinkFrameworkDirs  =
                   toNubListR $ PD.extraFrameworkDirs libBi,
@@ -960,7 +878,7 @@ buildOrReplLib mReplFlags verbosity numJobs pkg_descr lbi lib clbi = do
                 ghcOptPackages           = toNubListR $
                                            Internal.mkGhcOptPackages clbi ,
                 ghcOptLinkLibs           = extraLibs libBi,
-                ghcOptLinkLibPath        = toNubListR $ cleanedExtraLibDirs
+                ghcOptLinkLibPath        = toNubListR cleanedExtraLibDirs
               }
 
       info verbosity (show (ghcOptPackages ghcSharedLinkArgs))
@@ -1332,7 +1250,7 @@ gbuild verbosity numJobs pkg_descr lbi bm clbi = do
 
   -- the name that GHC really uses (e.g., with .exe on Windows for executables)
   let targetName = gbuildTargetName lbi bm
-  let targetDir  = buildDir lbi </> (gbuildName bm)
+  let targetDir  = buildDir lbi </> gbuildName bm
   let tmpDir     = targetDir    </> (gbuildName bm ++ "-tmp")
   createDirectoryIfMissingVerbose verbosity True targetDir
   createDirectoryIfMissingVerbose verbosity True tmpDir
@@ -1369,7 +1287,7 @@ gbuild verbosity numJobs pkg_descr lbi bm clbi = do
       needProfiling       = withProfExe lbi
 
   -- build executables
-      baseOpts   = (componentGhcOptions verbosity lbi bnfo clbi tmpDir)
+      baseOpts   = componentGhcOptions verbosity lbi bnfo clbi tmpDir
                     `mappend` mempty {
                       ghcOptMode         = toFlag GhcModeMake,
                       ghcOptInputFiles   = toNubListR $ if package pkg_descr == fakePackageId
@@ -1857,7 +1775,7 @@ libAbiHash verbosity _pkg_descr lbi lib clbi = do
       comp        = compiler lbi
       platform    = hostPlatform lbi
       vanillaArgs0 =
-        (componentGhcOptions verbosity lbi libBi clbi (componentBuildDir lbi clbi))
+        componentGhcOptions verbosity lbi libBi clbi (componentBuildDir lbi clbi)
         `mappend` mempty {
           ghcOptMode         = toFlag GhcModeAbiHash,
           ghcOptInputModules = toNubListR $ exposedModules lib
@@ -2016,7 +1934,7 @@ installLib verbosity lbi targetDir dynlibTargetDir _builtDir pkg lib clbi = do
                     targetDir
                     (mkGenericStaticLibName (l ++ f))
                 | l <- getHSLibraryName
-                       (componentUnitId clbi):(extraBundledLibs (libBuildInfo lib))
+                       (componentUnitId clbi):extraBundledLibs (libBuildInfo lib)
                 , f <- "":extraLibFlavours (libBuildInfo lib)
                 ]
       whenGHCi $ installOrdinary builtDir targetDir ghciLibName

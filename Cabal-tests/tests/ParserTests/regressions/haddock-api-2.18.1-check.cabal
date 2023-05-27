@@ -40,7 +40,7 @@ library
   -- this package typically supports only single major versions
   build-depends: base            ^>= 4.10.0
                , Cabal           ^>= 2.0.0
-               , ghc             ^>= 8.2
+               , ghc             ^>= 8.4.2
                , ghc-paths       ^>= 0.1.0.9
                , haddock-library == 1.4.4.*
                , xhtml           ^>= 3000.2.2
@@ -61,8 +61,7 @@ library
 
   ghc-options: -funbox-strict-fields -Wall -fwarn-tabs -O2
   ghc-options: -Wall
-  if impl(ghc >= 8.0)
-    ghc-options: -Wcompat -Wnoncanonical-monad-instances -Wnoncanonical-monadfail-instances
+  ghc-options: -Wcompat -Wnoncanonical-monad-instances -Wnoncanonical-monadfail-instances
 
   exposed-modules:
     Documentation.Haddock
@@ -127,7 +126,7 @@ test-suite spec
     Haddock.Backends.Hyperlinker.Types
 
   build-depends:
-      ghc         ^>= 8.2
+      ghc         ^>= 8.4.2
     , hspec       ^>= 2.4.4
     , QuickCheck  ^>= 2.10
 

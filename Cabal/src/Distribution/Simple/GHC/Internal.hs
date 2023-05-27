@@ -147,7 +147,7 @@ configureToolchain _implInfo ghcProg ghcInfo =
     findProg progName extraPath v searchpath =
         findProgramOnSearchPath v searchpath' progName
       where
-        searchpath' = (map ProgramSearchPathDir extraPath) ++ searchpath
+        searchpath' = map ProgramSearchPathDir extraPath ++ searchpath
 
     -- Read tool locations from the 'ghc --info' output. Useful when
     -- cross-compiling.
@@ -157,24 +157,11 @@ configureToolchain _implInfo ghcProg ghcInfo =
     mbStripLocation = Map.lookup "strip command" ghcInfo
 
     ccFlags        = getFlags "C compiler flags"
-    -- GHC 7.8 renamed "Gcc Linker flags" to "C compiler link flags"
-    -- and "Ld Linker flags" to "ld flags" (GHC #4862).
-    gccLinkerFlags = getFlags "Gcc Linker flags" ++ getFlags "C compiler link flags"
-    ldLinkerFlags  = getFlags "Ld Linker flags" ++ getFlags "ld flags"
+    gccLinkerFlags = getFlags "C compiler link flags"
+    ldLinkerFlags  = getFlags "ld flags"
 
-    -- It appears that GHC 7.6 and earlier encode the tokenized flags as a
-    -- [String] in these settings whereas later versions just encode the flags as
-    -- String.
-    --
-    -- We first try to parse as a [String] and if this fails then tokenize the
-    -- flags ourself.
     getFlags :: String -> [String]
-    getFlags key =
-        case Map.lookup key ghcInfo of
-          Nothing -> []
-          Just flags
-            | (flags', ""):_ <- reads flags -> flags'
-            | otherwise -> tokenizeQuotedWords flags
+    getFlags key = maybe [] tokenizeQuotedWords $ Map.lookup key ghcInfo
 
     configureGcc :: Verbosity -> ConfiguredProgram -> IO ConfiguredProgram
     configureGcc _v gccProg = do

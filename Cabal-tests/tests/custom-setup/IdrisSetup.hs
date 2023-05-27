@@ -81,11 +81,6 @@ configConfigurationsFlags = unFlagAssignment . S.configConfigurationsFlags
 configConfigurationsFlags = S.configConfigurationsFlags
 #endif
 
-#if !MIN_VERSION_base(4,6,0)
-lookupEnv :: String -> IO (Maybe String)
-lookupEnv v = lookup v `fmap` getEnvironment
-#endif
-
 -- After Idris is built, we need to check and install the prelude and other libs
 
 -- -----------------------------------------------------------------------------

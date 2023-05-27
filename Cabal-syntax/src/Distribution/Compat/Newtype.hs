@@ -16,11 +16,7 @@ module Distribution.Compat.Newtype (
 import Data.Functor.Identity (Identity (..))
 import Data.Monoid (Sum (..), Product (..), Endo (..))
 
-#if MIN_VERSION_base(4,7,0)
 import Data.Coerce (coerce, Coercible)
-#else
-import Unsafe.Coerce (unsafeCoerce)
-#endif
 
 -- | The @FunctionalDependencies@ version of 'Newtype' type-class.
 --
@@ -39,22 +35,12 @@ import Unsafe.Coerce (unsafeCoerce)
 --
 class Newtype o n | n -> o where
     pack   :: o -> n
-#if MIN_VERSION_base(4,7,0)
     default pack :: Coercible o n => o -> n
     pack = coerce
-#else
-    default pack :: o -> n
-    pack = unsafeCoerce
-#endif
 
     unpack :: n -> o
-#if MIN_VERSION_base(4,7,0)
     default unpack :: Coercible n o => n -> o
     unpack = coerce
-#else
-    default unpack :: n -> o
-    unpack = unsafeCoerce
-#endif
 
 instance Newtype a (Identity a)
 instance Newtype a (Sum a)

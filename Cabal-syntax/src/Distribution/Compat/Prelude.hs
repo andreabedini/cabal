@@ -4,12 +4,6 @@
 {-# LANGUAGE Trustworthy      #-}
 {-# LANGUAGE TypeOperators    #-}
 
-#ifdef MIN_VERSION_base
-#define MINVER_base_411 MIN_VERSION_base(4,11,0)
-#else
-#define MINVER_base_411 (__GLASGOW_HASKELL__ >= 804)
-#endif
-
 -- | This module does two things:
 --
 -- * Acts as a compatibility layer, like @base-compat@.
@@ -133,11 +127,9 @@ import Prelude                       as BasePrelude hiding
     ( mapM, mapM_, sequence, any, all, head, tail, last, init
     -- partial functions
     , read
-#if MINVER_base_411
     -- As of base 4.11.0.0 Prelude exports part of Semigroup(..).
     -- Hide this so we instead rely on Distribution.Compat.Semigroup.
     , Semigroup(..)
-#endif
     , Word
     -- We hide them, as we import only some members
     , Traversable, traverse, sequenceA

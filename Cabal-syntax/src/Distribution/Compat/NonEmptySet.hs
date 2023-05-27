@@ -78,11 +78,9 @@ instance F.Foldable NonEmptySet where
     foldMap f (NES s) = F.foldMap f s
     foldr f z (NES s) = F.foldr f z s
 
-#if MIN_VERSION_base(4,8,0)
     toList         = toList
     null _         = False
     length (NES s) = F.length s
-#endif
 
 -------------------------------------------------------------------------------
 -- Constructors

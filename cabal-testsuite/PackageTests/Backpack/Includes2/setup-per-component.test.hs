@@ -1,7 +1,7 @@
 import Test.Cabal.Prelude
 main = setupTest $ do
   -- No cabal test because per-component is broken with it
-  skipUnlessGhcVersion ">= 8.1"
+  
   ghc <- isGhcVersion "== 9.0.2 || == 9.2.* || == 9.4.* || == 9.6.*"
   expectBrokenIf ghc 7987 $
     withPackageDb $ do

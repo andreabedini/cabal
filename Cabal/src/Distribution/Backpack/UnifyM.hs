@@ -106,7 +106,6 @@ runUnifyM verbosity self_cid db m
                  case mb_r of
                     Just x | null final_errs -> return (Right x)
                     _ -> return (Left (map renderErrMsg (reverse final_errs)))
--- NB: GHC 7.6 throws a hissy fit if you pattern match on 'm'.
 
 type ErrCtx s = MsgDoc
 

@@ -46,10 +46,6 @@ import Prelude ()
 import Distribution.Compat.Prelude hiding (Applicative(..))
 import Control.Applicative (Applicative(..))
 
-#if !MIN_VERSION_base(4,10,0)
-import Control.Applicative (liftA2)
-#endif
-
 import qualified System.Info (os, arch)
 import Distribution.Utils.Generic (lowercase)
 

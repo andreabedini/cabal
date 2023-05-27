@@ -62,18 +62,18 @@ getImplInfo comp =
 
 ghcVersionImplInfo :: Version -> GhcImplInfo
 ghcVersionImplInfo ver = GhcImplInfo
-  { supportsHaskell2010  = v >= [7]
+  { supportsHaskell2010  = True
   , supportsGHC2021      = v >= [9,1]
-  , reportsNoExt         = v >= [7]
-  , alwaysNondecIndent   = v <  [7,1]
-  , flagGhciScript       = v >= [7,2]
-  , flagProfAuto         = v >= [7,4]
+  , reportsNoExt         = True
+  , alwaysNondecIndent   = False
+  , flagGhciScript       = True
+  , flagProfAuto         = True
   , flagProfLate         = v >= [9,4]
-  , flagPackageConf      = v <  [7,5]
-  , flagDebugInfo        = v >= [7,10]
-  , supportsDebugLevels  = v >= [8,0]
-  , supportsPkgEnvFiles  = v >= [8,0,1,20160901] -- broken in 8.0.1, fixed in 8.0.2
-  , flagWarnMissingHomeModules = v >= [8,2]
+  , flagPackageConf      = False
+  , flagDebugInfo        = True
+  , supportsDebugLevels  = True
+  , supportsPkgEnvFiles  = True
+  , flagWarnMissingHomeModules = True
   }
   where
     v = versionNumbers ver

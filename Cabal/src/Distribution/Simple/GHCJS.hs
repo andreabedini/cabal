@@ -588,26 +588,6 @@ buildOrReplLib mReplFlags verbosity numJobs pkg_descr lbi lib clbi = do
         sharedLibFilePath = libTargetDir </> mkSharedLibName (hostPlatform lbi) compiler_id uid
         staticLibFilePath = libTargetDir </> mkStaticLibName (hostPlatform lbi) compiler_id uid
 
-    let stubObjs = []
-        stubSharedObjs = []
-
-{-
-    stubObjs <- catMaybes <$> sequenceA
-      [ findFileWithExtension [objExtension] [libTargetDir]
-          (ModuleName.toFilePath x ++"_stub")
-      | ghcVersion < mkVersion [7,2] -- ghc-7.2+ does not make _stub.o files
-      , x <- allLibModules lib clbi ]
-    stubProfObjs <- catMaybes <$> sequenceA
-      [ findFileWithExtension ["p_" ++ objExtension] [libTargetDir]
-          (ModuleName.toFilePath x ++"_stub")
-      | ghcVersion < mkVersion [7,2] -- ghc-7.2+ does not make _stub.o files
-      , x <- allLibModules lib clbi ]
-    stubSharedObjs <- catMaybes <$> sequenceA
-      [ findFileWithExtension ["dyn_" ++ objExtension] [libTargetDir]
-          (ModuleName.toFilePath x ++"_stub")
-      | ghcVersion < mkVersion [7,2] -- ghc-7.2+ does not make _stub.o files
-      , x <- allLibModules lib clbi ]
--}
     hObjs <- Internal.getHaskellObjects implInfo lib lbi clbi
                libTargetDir objExtension True
     hSharedObjs <-
@@ -616,17 +596,15 @@ buildOrReplLib mReplFlags verbosity numJobs pkg_descr lbi lib clbi = do
                       libTargetDir ("dyn_" ++ objExtension) False
               else return []
 
-    unless (null hObjs && null cObjs && null stubObjs) $ do
+    unless (null hObjs && null cObjs) $ do
       rpaths <- getRPaths lbi clbi
 
       let staticObjectFiles =
                  hObjs
               ++ map (libTargetDir </>) cObjs
-              ++ stubObjs
           dynamicObjectFiles =
                  hSharedObjs
               ++ map (libTargetDir </>) cSharedObjs
-              ++ stubSharedObjs
           -- After the relocation lib is created we invoke ghc -shared
           -- with the dependencies spelled out as -package arguments
           -- and ghc invokes the linker with the proper library paths
@@ -637,14 +615,6 @@ buildOrReplLib mReplFlags verbosity numJobs pkg_descr lbi lib clbi = do
                 ghcOptInputFiles         = toNubListR dynamicObjectFiles,
                 ghcOptOutputFile         = toFlag sharedLibFilePath,
                 ghcOptExtra              = hcSharedOptions GHC libBi,
-                -- For dynamic libs, Mac OS/X needs to know the install location
-                -- at build time. This only applies to GHC < 7.8 - see the
-                -- discussion in #1660.
-            {-
-                ghcOptDylibName          = if hostOS == OSX
-                                              && ghcVersion < mkVersion [7,8]
-                                            then toFlag sharedLibInstallPath
-                                            else mempty, -}
                 ghcOptHideAllPackages    = toFlag True,
                 ghcOptNoAutoLinkPackages = toFlag True,
                 ghcOptPackageDBs         = withPackageDB lbi,

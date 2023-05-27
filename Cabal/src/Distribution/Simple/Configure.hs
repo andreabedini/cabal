@@ -58,7 +58,6 @@ import Prelude ()
 import Distribution.Compat.Prelude
 
 import Distribution.Compiler
-import Distribution.Types.IncludeRenaming
 import Distribution.Utils.NubList
 import Distribution.Simple.Compiler
 import Distribution.Simple.PreProcess
@@ -102,7 +101,8 @@ import qualified Distribution.Simple.HaskellSuite as HaskellSuite
 import Control.Exception
     ( try )
 import Distribution.Utils.Structured ( structuredDecodeOrFailIO, structuredEncode )
-import Distribution.Compat.Directory ( listDirectory )
+import Distribution.Compat.Directory
+    ( listDirectory, doesPathExist )
 import Data.ByteString.Lazy          ( ByteString )
 import qualified Data.ByteString            as BS
 import qualified Data.ByteString.Lazy.Char8 as BLC8
@@ -115,8 +115,6 @@ import System.Directory
     , getTemporaryDirectory, removeFile)
 import System.FilePath
     ( (</>), isAbsolute, takeDirectory )
-import Distribution.Compat.Directory
-    ( doesPathExist )
 import qualified System.Info
     ( compilerName, compilerVersion )
 import System.IO
@@ -476,7 +474,6 @@ configure (pkg_descr0, pbi) cfg = do
 
     let cabalFileDir = maybe "." takeDirectory $
           flagToMaybe (configCabalFilePath cfg)
-    checkCompilerProblems verbosity comp pkg_descr enabled
     checkPackageProblems verbosity cabalFileDir pkg_descr0
         (updatePackageDescription pbi pkg_descr)
 
@@ -1060,30 +1057,6 @@ configureFinalizedPackage verbosity cfg enabled
              , testSuites   = modifyTestsuite  `map`  testSuites   pkg_descr
              , benchmarks   = modifyBenchmark  `map`  benchmarks   pkg_descr
              }
-
--- | Check for use of Cabal features which require compiler support
-checkCompilerProblems
-  :: Verbosity -> Compiler -> PackageDescription -> ComponentRequestedSpec -> IO ()
-checkCompilerProblems verbosity comp pkg_descr enabled = do
-    unless (renamingPackageFlagsSupported comp ||
-             all (all (isDefaultIncludeRenaming . mixinIncludeRenaming) . mixins)
-                         (enabledBuildInfos pkg_descr enabled)) $
-        die' verbosity $
-              "Your compiler does not support thinning and renaming on "
-           ++ "package flags.  To use this feature you must use "
-           ++ "GHC 7.9 or later."
-
-    when (any (not.null.reexportedModules) (allLibraries pkg_descr)
-          && not (reexportedModulesSupported comp)) $
-        die' verbosity $
-             "Your compiler does not support module re-exports. To use "
-          ++ "this feature you must use GHC 7.9 or later."
-
-    when (any (not.null.signatures) (allLibraries pkg_descr)
-          && not (backpackSupported comp)) $
-        die' verbosity $
-               "Your compiler does not support Backpack. To use "
-           ++ "this feature you must use GHC 8.1 or later."
 
 -- | Select dependencies for the package.
 configureDependencies

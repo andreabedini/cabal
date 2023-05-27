@@ -26,8 +26,6 @@ import Distribution.Utils.Structured (Structured)
 import Data.Typeable (Typeable)
 
 import GHC.Generics
--- Data.Semigroup is available since GHC 8.0/base-4.9 in `base`
--- for older GHC/base, it's provided by `semigroups`
 import Data.Semigroup
 import qualified Data.Monoid as Mon
 

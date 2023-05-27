@@ -3,17 +3,8 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
--- simplifier goes nuts otherwise
-#if __GLASGOW_HASKELL__ < 806
-{-# OPTIONS_GHC -funfolding-use-threshold=30 #-}
-#endif
-
 module UnitTests.Distribution.Client.ProjectConfig (tests) where
 
-#if !MIN_VERSION_base(4,8,0)
-import Data.Monoid
-import Control.Applicative
-#endif
 import Control.Monad
 import Data.Either (isRight)
 import Data.Foldable (for_)

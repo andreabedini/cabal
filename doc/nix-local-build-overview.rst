@@ -34,7 +34,6 @@ Nix-style local builds combine the best of non-sandboxed and sandboxed Cabal:
    which can be shared, are shared.
 
 Nix-style local builds were first released as beta in cabal-install 1.24.
-They currently work with all versions of GHC supported by that release: GHC 7.0 and later.
 
 Some features described in this manual are not implemented. If you need
 them, please give us a shout and we'll prioritize accordingly.
