@@ -44,6 +44,7 @@ module Distribution.Simple.InstallDirs
   , platformTemplateEnv
   , compilerTemplateEnv
   , packageTemplateEnv
+  , packageTemplateEnv'
   , abiTemplateEnv
   , installDirsTemplateEnv
   ) where
@@ -428,6 +429,14 @@ packageTemplateEnv pkgId uid =
   , -- Invariant: uid is actually a HashedUnitId.  Hard to enforce because
     -- it's an API change.
     (LibNameVar, PathTemplate [Ordinary $ prettyShow uid])
+  , (PkgIdVar, PathTemplate [Ordinary $ prettyShow pkgId])
+  ]
+
+-- | Same as `packageTemplateEnv` but without a unit-id
+packageTemplateEnv' :: PackageIdentifier -> PathTemplateEnv
+packageTemplateEnv' pkgId =
+  [ (PkgNameVar, PathTemplate [Ordinary $ prettyShow (packageName pkgId)])
+  , (PkgVerVar, PathTemplate [Ordinary $ prettyShow (packageVersion pkgId)])
   , (PkgIdVar, PathTemplate [Ordinary $ prettyShow pkgId])
   ]
 

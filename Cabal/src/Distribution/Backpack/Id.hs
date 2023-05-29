@@ -1,5 +1,4 @@
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE RankNTypes #-}
 
 -- | See <https://github.com/ezyang/ghc-proposals/blob/backpack/proposals/0000-backpack.rst>
@@ -39,48 +38,36 @@ computeComponentId
   -- This is used by cabal-install's legacy codepath
   -> Maybe ([ComponentId], FlagAssignment)
   -> ComponentId
-computeComponentId deterministic mb_ipid mb_cid pid cname mb_details =
-  -- show is found to be faster than intercalate and then replacement of
-  -- special character used in intercalating. We cannot simply hash by
-  -- doubly concatenating list, as it just flatten out the nested list, so
-  -- different sources can produce same hash
-  let hash_suffix
-        | Just (dep_ipids, flags) <- mb_details =
-            "-"
-              ++ hashToBase62
-                -- For safety, include the package + version here
-                -- for GHC 7.10, where just the hash is used as
-                -- the package key
-                ( prettyShow pid
-                    ++ show dep_ipids
-                    ++ show flags
-                )
-        | otherwise = ""
-      generated_base = prettyShow pid ++ hash_suffix
-      explicit_base cid0 =
-        fromPathTemplate
-          ( InstallDirs.substPathTemplate
-              env
-              (toPathTemplate cid0)
-          )
-        where
-          -- Hack to reuse install dirs machinery
-          -- NB: no real IPID available at this point
-          env = packageTemplateEnv pid (mkUnitId "")
-      actual_base = case mb_ipid of
-        Flag ipid0 -> explicit_base ipid0
-        NoFlag
-          | deterministic -> prettyShow pid
-          | otherwise -> generated_base
-   in case mb_cid of
-        Flag cid -> cid
-        NoFlag ->
-          mkComponentId $
-            actual_base
-              ++ ( case componentNameString cname of
-                    Nothing -> ""
-                    Just s -> "-" ++ unUnqualComponentName s
-                 )
+computeComponentId _deterministic _mb_ipid (Flag cid) _pid _cname _mb_details =
+  cid
+computeComponentId _deterministic (Flag ipid) NoFlag pid cname _mb_details =
+  -- reuse the install dirs machinery
+  mkComponentId $
+    fromPathTemplate
+      ( InstallDirs.substPathTemplate
+          (packageTemplateEnv' pid)
+          (toPathTemplate ipid)
+      )
+      ++ maybe "" (\s -> "-" ++ unUnqualComponentName s) (componentNameString cname)
+computeComponentId True NoFlag NoFlag pid cname _mb_details =
+  mkComponentId $
+    prettyShow pid
+      ++ maybe "" (\s -> "-" ++ unUnqualComponentName s) (componentNameString cname)
+computeComponentId False NoFlag NoFlag pid cname mb_details =
+  mkComponentId $
+    prettyShow pid
+      ++ maybe "" (\(dep_ipids, flags) -> "-" ++ hash_suffix dep_ipids flags) mb_details
+      ++ maybe "" (\s -> "-" ++ unUnqualComponentName s) (componentNameString cname)
+  where
+    hash_suffix dep_ipids flags =
+      hashToBase62
+        -- For safety, include the package + version here
+        -- for GHC 7.10, where just the hash is used as
+        -- the package key
+        ( prettyShow pid
+            ++ show dep_ipids
+            ++ show flags
+        )
 
 -- | In GHC 8.0, the string we pass to GHC to use for symbol
 -- names for a package can be an arbitrary, IPID-compatible string.
@@ -128,6 +115,8 @@ computeComponentId deterministic mb_ipid mb_cid pid cname mb_details =
 --
 --      * For sub-components, we rehash the IPID into the correct format
 --        and pass that.
+--
+-- FIXME: should we drop this?
 computeCompatPackageKey
   :: Compiler
   -> MungedPackageName

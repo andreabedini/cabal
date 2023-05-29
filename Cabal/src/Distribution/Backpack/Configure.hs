@@ -387,6 +387,7 @@ mkLinkedComponentsLocalBuildInfo comp rcs = map go rcs
                     ]
 
               compat_name = MungedPackageName (packageName rc) (libName lib)
+              -- FIXME: should we drop this?
               compat_key = computeCompatPackageKey comp compat_name (packageVersion rc) this_uid
            in LibComponentLocalBuildInfo
                 { componentPackageDeps = cpds
