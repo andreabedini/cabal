@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Distribution.Solver.Modular.Message (
     Message(..),
@@ -18,6 +19,7 @@ import Distribution.Pretty (prettyShow) -- from Cabal
 import qualified Distribution.Solver.Modular.ConflictSet as CS
 import Distribution.Solver.Modular.Dependency
 import Distribution.Solver.Modular.Flag
+import Distribution.Solver.Modular.Index (Index)
 import Distribution.Solver.Modular.MessageUtils
          (showUnsupportedExtension, showUnsupportedLanguage)
 import Distribution.Solver.Modular.Package
@@ -29,6 +31,7 @@ import Distribution.Solver.Types.PackagePath
 import Distribution.Solver.Types.Progress
 import Distribution.Types.LibraryName
 import Distribution.Types.UnqualComponentName
+import Data.Either (partitionEithers)
 
 data Message =
     Enter           -- ^ increase indentation level
@@ -46,8 +49,8 @@ data Message =
 -- The log contains level numbers, which are useful for any trace that involves
 -- backtracking, because only the level numbers will allow to keep track of
 -- backjumps.
-showMessages :: Progress Message a b -> Progress String a b
-showMessages = go 0
+showMessages :: Index -> Progress Message a b -> Progress String a b
+showMessages idx = go 0
   where
     -- 'go' increments the level for a recursive call when it encounters
     -- 'TryP', 'TryF', or 'TryS' and decrements the level when it encounters 'Leave'.
@@ -98,7 +101,10 @@ showMessages = go 0
     goPReject l qpn is c fr (Step (TryP qpn' i) (Step Enter (Step (Failure _ fr') (Step Leave ms))))
       | qpn == qpn' && fr == fr' = goPReject l qpn (i : is) c fr ms
     goPReject l qpn is c fr ms =
-        (atLevel l $ "rejecting: " ++ L.intercalate ", " (map (showQPNPOpt qpn) (reverse is)) ++ showFR c fr) (go l ms)
+        let unq (Q _ pn) = pn
+            pnIs = M.keys (idx M.! unq qpn)
+            (pnInstVers, pnSrcVers) = partitionEithers $ map (\case I v (Inst pid) -> Left (v, pid); I v InRepo -> Right v ) pnIs
+        in (atLevel l $ "rejecting: " ++ L.intercalate ", " (map (showQPNPOpt qpn) (reverse is)) ++ showFR c fr) (go l ms)
 
     -- Handle many subsequent skipped package instances.
     goPSkip :: Int
