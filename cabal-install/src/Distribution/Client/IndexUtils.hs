@@ -278,40 +278,40 @@ getSourcePackagesAtIndexState verbosity repoCtxt mb_idxState mb_activeRepos = do
 
     info verbosity ("Reading available packages of " ++ unRepoName rname ++ "...")
 
-    idxState <- case mb_idxState of
-      Just totalIdxState -> do
+    idxState <- case (r, mb_idxState) of
+      (RepoSecure{}, Just totalIdxState) -> do
         let idxState = lookupIndexState rname totalIdxState
         info verbosity $
           "Using "
             ++ describeState idxState
             ++ " as explicitly requested (via command line / project configuration)"
         return idxState
-      Nothing -> do
+      (RepoSecure{}, Nothing) -> do
         mb_idxState' <- readIndexTimestamp verbosity (RepoIndex repoCtxt r)
         case mb_idxState' of
-          Nothing -> do
-            info verbosity "Using most recent state (could not read timestamp file)"
-            return IndexStateHead
           Just idxState -> do
             info verbosity $
               "Using "
                 ++ describeState idxState
                 ++ " specified from most recent cabal update"
             return idxState
+          Nothing -> do
+            info verbosity "Using most recent state (could not read timestamp file)"
+            return IndexStateHead
+      (RepoRemote{}, Just totalIndexState) | lookupIndexState rname totalIndexState /= IndexStateHead -> do
+        warn verbosity ("index-state ignored for old-format (remote repository '" ++ unRepoName rname ++ "')")
+        pure IndexStateHead
+      (RepoRemote{}, _) ->
+        pure IndexStateHead
+      (RepoLocalNoIndex{}, Just totalIndexState) | lookupIndexState rname totalIndexState /= IndexStateHead -> do
+        warn verbosity "index-state ignored for file+noindex repositories"
+        pure IndexStateHead
+      (RepoLocalNoIndex{}, _) ->
+        pure IndexStateHead
 
-    unless (idxState == IndexStateHead) $
-      case r of
-        RepoLocalNoIndex{} -> warn verbosity "index-state ignored for file+noindex repositories"
-        RepoRemote{} -> warn verbosity ("index-state ignored for old-format (remote repository '" ++ unRepoName rname ++ "')")
-        RepoSecure{} -> pure ()
+    (pis, deps, isi) <- readRepoIndex verbosity repoCtxt r idxState
 
-    let idxState' = case r of
-          RepoSecure{} -> idxState
-          _ -> IndexStateHead
-
-    (pis, deps, isi) <- readRepoIndex verbosity repoCtxt r idxState'
-
-    case idxState' of
+    case idxState of
       IndexStateHead -> do
         info verbosity ("index-state(" ++ unRepoName rname ++ ") = " ++ prettyShow (isiHeadTime isi))
         return ()
