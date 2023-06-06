@@ -130,6 +130,8 @@ import Data.Either
 import Data.List (stripPrefix)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import Data.Time (diffUTCTime, getCurrentTime)
+import Data.Time.Clock.POSIX (posixDayLength)
 import Distribution.Client.GZipUtils (maybeDecompress)
 import Distribution.Client.Utils
   ( byteStringToFilePath
@@ -321,37 +323,13 @@ getSourcePackagesAtIndexState verbosity repoCtxt mb_idxState mb_activeRepos = do
         return ()
       IndexStateTime ts0 -> do
         when (isiMaxTime isi /= ts0) $
-          if ts0 > isiMaxTime isi
-            then
-              warn verbosity $
-                "Requested index-state "
-                  ++ prettyShow ts0
-                  ++ " is newer than '"
-                  ++ unRepoName rname
-                  ++ "'!"
-                  ++ " Falling back to older state ("
-                  ++ prettyShow (isiMaxTime isi)
-                  ++ ")."
-            else
-              info verbosity $
-                "Requested index-state "
-                  ++ prettyShow ts0
-                  ++ " does not exist in '"
-                  ++ unRepoName rname
-                  ++ "'!"
-                  ++ " Falling back to older state ("
-                  ++ prettyShow (isiMaxTime isi)
-                  ++ ")."
-        info
-          verbosity
-          ( "index-state("
+          info verbosity $
+            "There is no index-state for '"
               ++ unRepoName rname
-              ++ ") = "
+              ++ "' exactly at the requested timestamp ("
+              ++ prettyShow ts0
+              ++ "). Falling back to the previous index-state that exists: "
               ++ prettyShow (isiMaxTime isi)
-              ++ " (HEAD = "
-              ++ prettyShow (isiHeadTime isi)
-              ++ ")"
-          )
 
     pure
       RepoData
@@ -440,15 +418,19 @@ readRepoIndex
   -> IO (PackageIndex UnresolvedSourcePackage, [Dependency], IndexStateInfo)
 readRepoIndex verbosity repoCtxt repo idxState =
   handleNotFound $ do
-    when (isRepoRemote repo) $ warnIfIndexIsOld =<< getIndexFileAge repo
     -- note that if this step fails due to a bad repo cache, the the procedure can still succeed by reading from the existing cache, which is updated regardless.
     updateRepoIndexCache verbosity (RepoIndex repoCtxt repo)
       `catchIO` (\e -> warn verbosity $ "unable to update the repo index cache -- " ++ displayException e)
-    readPackageIndexCacheFile
-      verbosity
-      mkAvailablePackage
-      (RepoIndex repoCtxt repo)
-      idxState
+    ret@(_, _, isi) <-
+      readPackageIndexCacheFile
+        verbosity
+        mkAvailablePackage
+        (RepoIndex repoCtxt repo)
+        idxState
+    when (isRepoRemote repo) $ do
+      dieIfRequestedIdxIsNewer isi
+      warnIfIndexIsOld isi
+    pure ret
   where
     mkAvailablePackage pkgEntry =
       SourcePackage
@@ -480,12 +462,32 @@ readRepoIndex verbosity repoCtxt repo idxState =
           return (mempty, mempty, emptyStateInfo)
         else ioError e
 
+    isOldThreshold :: Double
     isOldThreshold = 15 -- days
-    warnIfIndexIsOld dt = do
-      when (dt >= isOldThreshold) $ case repo of
-        RepoRemote{..} -> warn verbosity $ errOutdatedPackageList repoRemote dt
-        RepoSecure{..} -> warn verbosity $ errOutdatedPackageList repoRemote dt
-        RepoLocalNoIndex{} -> return ()
+    warnIfIndexIsOld isi = do
+      curTime <- getCurrentTime
+      case timestampToUTCTime (isiHeadTime isi) of
+        Nothing -> pure ()
+        Just ts -> do
+          let timeDiffInDays =
+                realToFrac (curTime `diffUTCTime` ts) / realToFrac posixDayLength
+          when (timeDiffInDays >= isOldThreshold) $ case repo of
+            RepoRemote{..} ->
+              warn verbosity $ errOutdatedPackageList repoRemote timeDiffInDays
+            RepoSecure{..} ->
+              warn verbosity $ errOutdatedPackageList repoRemote timeDiffInDays
+            RepoLocalNoIndex{} -> return ()
+
+    dieIfRequestedIdxIsNewer isi =
+      let latestTime = isiHeadTime isi
+       in case idxState of
+            IndexStateTime t -> when (t > latestTime) $ case repo of
+              RepoRemote{..} ->
+                die' verbosity $ errRequestedIdxIsNewer repoRemote latestTime t
+              RepoSecure{..} ->
+                die' verbosity $ errRequestedIdxIsNewer repoRemote latestTime t
+              RepoLocalNoIndex{} -> return ()
+            IndexStateHead -> pure ()
 
     errMissingPackageList repoRemote =
       "The package list for '"
@@ -497,6 +499,16 @@ readRepoIndex verbosity repoCtxt repo idxState =
         ++ "' is "
         ++ shows (floor dt :: Int) " days old.\nRun "
         ++ "'cabal update' to get the latest list of available packages."
+    errRequestedIdxIsNewer repoRemote maxFound req =
+      "Latest known index-state for '"
+        ++ unRepoName (remoteRepoName repoRemote)
+        ++ "' ("
+        ++ prettyShow maxFound
+        ++ ") is older than the requested index-state ("
+        ++ prettyShow req
+        ++ ").\nRun 'cabal update' or set the index-state to a value at or before "
+        ++ prettyShow maxFound
+        ++ "."
 
 -- | Return the age of the index file in days (as a Double).
 getIndexFileAge :: Repo -> IO Double
