@@ -23,9 +23,11 @@ import Distribution.Client.HttpUtils
 import Distribution.Client.Types
   ( LocalRepo (..)
   , RemoteRepo (..)
+  , RemoteRepoSecure (..)
+  , SomeRemoteRepo (..)
   , Repo (..)
   , localRepoCacheKey
-  , unRepoName
+  , unRepoName,
   )
 import Distribution.Simple.Setup
   ( Flag (..)
@@ -83,7 +85,7 @@ data GlobalFlags = GlobalFlags
   , globalNumericVersion :: Flag Bool
   , globalConfigFile :: Flag FilePath
   , globalConstraintsFile :: Flag FilePath
-  , globalRemoteRepos :: NubList RemoteRepo
+  , globalRemoteRepos :: NubList SomeRemoteRepo
   -- ^ Available Hackage servers.
   , globalCacheDir :: Flag FilePath
   , globalLocalNoIndexRepos :: NubList LocalRepo
@@ -175,7 +177,7 @@ withRepoContext verbosity globalFlags =
 
 withRepoContext'
   :: Verbosity
-  -> [RemoteRepo]
+  -> [SomeRemoteRepo]
   -> [LocalRepo]
   -> FilePath
   -> Maybe String
@@ -213,15 +215,14 @@ withRepoContext'
           }
     where
       secureRemoteRepos =
-        [(remote, cacheDir) | RepoSecure remote cacheDir <- allRemoteRepos]
+        [(remote, cacheDir) | RepoRemoteSecure remote cacheDir <- allRemoteRepos]
 
       allRemoteRepos :: [Repo]
       allRemoteRepos =
-        [ (if isSecure then RepoSecure else RepoRemote) remote cacheDir
-        | remote <- remoteRepos
-        , let cacheDir = sharedCacheDir </> unRepoName (remoteRepoName remote)
-              isSecure = remoteRepoSecure remote == Just True
-        ]
+        [ (case remote of 
+            LegacyRemoteRepo lrr -> RepoRemoteLegacy lrr (sharedCacheDir </> unRepoName (remoteRepoName lrr))
+            SecureRemoteRepo srr -> RepoRemoteSecure srr (sharedCacheDir </> unRepoName (remoteRepoName srr)))
+        | remote <- remoteRepos ]
 
       allLocalNoIndexRepos :: [Repo]
       allLocalNoIndexRepos =
@@ -257,17 +258,17 @@ initSecureRepos
   :: forall a
    . Verbosity
   -> Sec.HTTP.HttpLib
-  -> [(RemoteRepo, FilePath)]
+  -> [(RemoteRepoSecure, FilePath)]
   -> (Map Repo SecureRepo -> IO a)
   -> IO a
 initSecureRepos verbosity httpLib repos callback = go Map.empty repos
   where
-    go :: Map Repo SecureRepo -> [(RemoteRepo, FilePath)] -> IO a
+    go :: Map Repo SecureRepo -> [(RemoteRepoSecure, FilePath)] -> IO a
     go !acc [] = callback acc
     go !acc ((r, cacheDir) : rs) = do
       cachePath <- Sec.makeAbsolute $ Sec.fromFilePath cacheDir
       initSecureRepo verbosity httpLib r cachePath $ \r' ->
-        go (Map.insert (RepoSecure r cacheDir) r' acc) rs
+        go (Map.insert (RepoRemoteSecure r cacheDir) r' acc) rs
 
 -- | Initialize the given secure repo
 --
@@ -278,14 +279,14 @@ initSecureRepos verbosity httpLib repos callback = go Map.empty repos
 initSecureRepo
   :: Verbosity
   -> Sec.HTTP.HttpLib
-  -> RemoteRepo
+  -> RemoteRepoSecure
   -- ^ Secure repo ('remoteRepoSecure' assumed)
   -> Sec.Path Sec.Absolute
   -- ^ Cache dir
   -> (SecureRepo -> IO a)
   -- ^ Callback
   -> IO a
-initSecureRepo verbosity httpLib RemoteRepo{..} cachePath = \callback -> do
+initSecureRepo verbosity httpLib RemoteRepoSecure{..} cachePath = \callback -> do
   requiresBootstrap <- withRepo [] Sec.requiresBootstrap
 
   mirrors <-
@@ -295,10 +296,10 @@ initSecureRepo verbosity httpLib RemoteRepo{..} cachePath = \callback -> do
           "Trying to locate mirrors via DNS for "
             ++ "initial bootstrap of secure "
             ++ "repository '"
-            ++ show remoteRepoURI
+            ++ show rrsURI
             ++ "' ..."
 
-        Sec.DNS.queryBootstrapMirrors verbosity remoteRepoURI
+        Sec.DNS.queryBootstrapMirrors verbosity rrsURI
       else pure []
 
   withRepo mirrors $ \r -> do
@@ -306,14 +307,14 @@ initSecureRepo verbosity httpLib RemoteRepo{..} cachePath = \callback -> do
       Sec.uncheckClientErrors $
         Sec.bootstrap
           r
-          (map Sec.KeyId remoteRepoRootKeys)
-          (Sec.KeyThreshold (fromIntegral remoteRepoKeyThreshold))
+          (map Sec.KeyId rrsRootKeys)
+          (Sec.KeyThreshold (fromIntegral rrsKeyThreshold))
     callback $ SecureRepo r
   where
     -- Initialize local or remote repo depending on the URI
     withRepo :: [URI] -> (forall down. Sec.Repository down -> IO a) -> IO a
-    withRepo _ callback | uriScheme remoteRepoURI == "file:" = do
-      dir <- Sec.makeAbsolute $ Sec.fromFilePath (uriPath remoteRepoURI)
+    withRepo _ callback | uriScheme rrsURI == "file:" = do
+      dir <- Sec.makeAbsolute $ Sec.fromFilePath (uriPath rrsURI)
       Sec.Local.withRepository
         dir
         cache
@@ -324,7 +325,7 @@ initSecureRepo verbosity httpLib RemoteRepo{..} cachePath = \callback -> do
     withRepo mirrors callback =
       Sec.Remote.withRepository
         httpLib
-        (remoteRepoURI : mirrors)
+        (rrsURI : mirrors)
         Sec.Remote.defaultRepoOpts
         cache
         Sec.hackageRepoLayout

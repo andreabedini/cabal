@@ -166,7 +166,7 @@ verifyFetchedTarball verbosity repoCtxt repo pkgid =
           then return True -- if the file does not exist, it vacuously passes validation, since it will be downloaded as necessary with what we will then check is a valid hash.
           else case repo of
             -- a secure repo has hashes we can compare against to confirm this is the correct file.
-            RepoSecure{} ->
+            RepoRemoteSecure{} ->
               repoContextWithSecureRepo repoCtxt repo $ \repoSecure ->
                 Sec.withIndex repoSecure $ \callbacks ->
                   let warnAndFail s = warn verbosity ("Fetched tarball " ++ file ++ " does not match server, will redownload: " ++ s) >> return False
@@ -184,6 +184,7 @@ verifyFetchedTarball verbosity repoCtxt repo pkgid =
                       )
                         `Sec.catchChecked` (\(e :: Sec.InvalidPackageException) -> warnAndFail (show e))
                         `Sec.catchChecked` (\(e :: Sec.VerificationError) -> warnAndFail (show e))
+            -- FIXME: deal with this at the call site
             _ -> pure True
 
 -- | Fetch a package if we don't have it already.
@@ -243,16 +244,16 @@ fetchRepoTarball verbosity' repoCtxt repo pkgid = do
     downloadRepoPackage :: IO FilePath
     downloadRepoPackage = case repo of
       RepoLocalNoIndex{} -> return (packageFile repo pkgid)
-      RepoRemote{..} -> do
+      RepoRemoteLegacy{..} -> do
         transport <- repoContextGetTransport repoCtxt
-        remoteRepoCheckHttps verbosity transport repoRemote
-        let uri = packageURI repoRemote pkgid
+        remoteRepoCheckHttps verbosity transport repoRemoteLegacy
+        let uri = packageURI repoRemoteLegacy pkgid
             dir = packageDir repo pkgid
             path = packageFile repo pkgid
         createDirectoryIfMissing True dir
         _ <- downloadURI transport verbosity uri path
         return path
-      RepoSecure{} -> repoContextWithSecureRepo repoCtxt repo $ \rep -> do
+      RepoRemoteSecure{} -> repoContextWithSecureRepo repoCtxt repo $ \rep -> do
         let dir = packageDir repo pkgid
             path = packageFile repo pkgid
         createDirectoryIfMissing True dir
@@ -264,7 +265,7 @@ fetchRepoTarball verbosity' repoCtxt repo pkgid = do
 -- | Downloads an index file to [config-dir/packages/serv-id] without
 -- hackage-security. You probably don't want to call this directly;
 -- use 'updateRepo' instead.
-downloadIndex :: HttpTransport -> Verbosity -> RemoteRepo -> FilePath -> IO DownloadResult
+downloadIndex :: RemoteRepo r => HttpTransport -> Verbosity -> r -> FilePath -> IO DownloadResult
 downloadIndex transport verbosity remoteRepo cacheDir = do
   remoteRepoCheckHttps verbosity transport remoteRepo
   let uri =
@@ -380,7 +381,7 @@ packageDir repo pkgid =
     </> prettyShow (packageVersion pkgid)
 
 -- | Generate the URI of the tarball for a given package.
-packageURI :: RemoteRepo -> PackageId -> URI
+packageURI :: RemoteRepo r => r -> PackageId -> URI
 packageURI repo pkgid
   | isOldHackageURI (remoteRepoURI repo) =
       (remoteRepoURI repo)

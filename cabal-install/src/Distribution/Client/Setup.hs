@@ -3454,10 +3454,10 @@ usageFlags name pname =
 
 -- ------------------------------------------------------------
 
-showRemoteRepo :: RemoteRepo -> String
+showRemoteRepo :: RemoteRepo r => r -> String
 showRemoteRepo = prettyShow
 
-readRemoteRepo :: String -> Maybe RemoteRepo
+readRemoteRepo :: RemoteRepo r => String -> Maybe r
 readRemoteRepo = simpleParsec
 
 showLocalRepo :: LocalRepo -> String

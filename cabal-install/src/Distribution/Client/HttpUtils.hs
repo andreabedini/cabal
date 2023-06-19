@@ -126,6 +126,7 @@ import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Char8 as LBS8
 import qualified Distribution.Compat.CharParsing as P
+import Distribution.Compat.Lens (over)
 
 ------------------------------------------------------------------------------
 -- Downloading a URI, given an HttpTransport
@@ -261,7 +262,7 @@ downloadURI transport verbosity uri path = do
 -- Utilities for repo url management
 --
 
-remoteRepoCheckHttps :: Verbosity -> HttpTransport -> RemoteRepo -> IO ()
+remoteRepoCheckHttps :: RemoteRepo r => Verbosity -> HttpTransport -> r -> IO ()
 remoteRepoCheckHttps verbosity transport repo
   | uriScheme (remoteRepoURI repo) == "https:"
   , not (transportSupportsHttps transport) =
@@ -295,10 +296,11 @@ requiresHttpsErrorMessage =
     ++ "external program is available, or one can be selected specifically "
     ++ "with the global flag --http-transport="
 
-remoteRepoTryUpgradeToHttps :: Verbosity -> HttpTransport -> RemoteRepo -> IO RemoteRepo
+remoteRepoTryUpgradeToHttps :: RemoteRepo r => Verbosity -> HttpTransport -> r -> IO r
 remoteRepoTryUpgradeToHttps verbosity transport repo
   | remoteRepoShouldTryHttps repo
   , uriScheme (remoteRepoURI repo) == "http:"
+  -- FIXME: this should be dealt with upstream, when we get transport
   , not (transportSupportsHttps transport)
   , not (transportManuallySelected transport) =
       die' verbosity $
@@ -315,10 +317,7 @@ remoteRepoTryUpgradeToHttps verbosity transport repo
   | remoteRepoShouldTryHttps repo
   , uriScheme (remoteRepoURI repo) == "http:"
   , transportSupportsHttps transport =
-      return
-        repo
-          { remoteRepoURI = (remoteRepoURI repo){uriScheme = "https:"}
-          }
+      return $ over remoteRepoURI' (\uri -> uri{uriScheme = "https:"}) repo
   | otherwise =
       return repo
 

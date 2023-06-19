@@ -182,8 +182,8 @@ indexBaseName :: Repo -> FilePath
 indexBaseName repo = repoLocalDir repo </> fn
   where
     fn = case repo of
-      RepoSecure{} -> "01-index"
-      RepoRemote{} -> "00-index"
+      RepoRemoteSecure{} -> "01-index"
+      RepoRemoteLegacy{} -> "00-index"
       RepoLocalNoIndex{} -> "noindex"
 
 ------------------------------------------------------------------------
@@ -304,11 +304,11 @@ getSourcePackagesAtIndexState verbosity repoCtxt mb_idxState mb_activeRepos = do
     unless (idxState == IndexStateHead) $
       case r of
         RepoLocalNoIndex{} -> warn verbosity "index-state ignored for file+noindex repositories"
-        RepoRemote{} -> warn verbosity ("index-state ignored for old-format (remote repository '" ++ unRepoName rname ++ "')")
-        RepoSecure{} -> pure ()
+        RepoRemoteLegacy{} -> warn verbosity ("index-state ignored for old-format (remote repository '" ++ unRepoName rname ++ "')")
+        RepoRemoteSecure{} -> pure ()
 
     let idxState' = case r of
-          RepoSecure{} -> idxState
+          RepoRemoteSecure{} -> idxState
           _ -> IndexStateHead
 
     (pis, deps, isi) <- readRepoIndex verbosity repoCtxt r idxState'
@@ -468,8 +468,8 @@ readRepoIndex verbosity repoCtxt repo idxState =
       if isDoesNotExistError e
         then do
           case repo of
-            RepoRemote{..} -> warn verbosity $ errMissingPackageList repoRemote
-            RepoSecure{..} -> warn verbosity $ errMissingPackageList repoRemote
+            RepoRemoteLegacy{..} -> warn verbosity $ errMissingPackageList repoRemote
+            RepoRemoteSecure{..} -> warn verbosity $ errMissingPackageList repoRemote
             RepoLocalNoIndex local _ ->
               warn verbosity $
                 "Error during construction of local+noindex "
@@ -482,8 +482,8 @@ readRepoIndex verbosity repoCtxt repo idxState =
     isOldThreshold = 15 -- days
     warnIfIndexIsOld dt = do
       when (dt >= isOldThreshold) $ case repo of
-        RepoRemote{..} -> warn verbosity $ errOutdatedPackageList repoRemote dt
-        RepoSecure{..} -> warn verbosity $ errOutdatedPackageList repoRemote dt
+        RepoRemoteLegacy{..} -> warn verbosity $ errOutdatedPackageList repoRemote dt
+        RepoRemoteSecure{..} -> warn verbosity $ errOutdatedPackageList repoRemote dt
         RepoLocalNoIndex{} -> return ()
 
     errMissingPackageList repoRemote =
@@ -765,8 +765,8 @@ timestampFile repo = indexBaseName repo <.> "timestamp"
 -- | Return 'True' if 'Index' uses 01-index format (aka secure repo)
 is01Index :: Repo -> Bool
 is01Index repo = case repo of
-  RepoSecure{} -> True
-  RepoRemote{} -> False
+  RepoRemoteSecure{} -> True
+  RepoRemoteLegacy{} -> False
   RepoLocalNoIndex{} -> True
 
 updatePackageIndexCacheFile :: Verbosity -> RepoContext -> Repo -> IO ()
@@ -819,7 +819,7 @@ withIndexEntries
   -> ([IndexCacheEntry] -> IO a)
   -> ([NoIndexCacheEntry] -> IO a)
   -> IO a
-withIndexEntries _ repoCtxt repo@RepoSecure{} callback _ =
+withIndexEntries _ repoCtxt repo@RepoRemoteSecure{} callback _ =
   repoContextWithSecureRepo repoCtxt repo $ \repoSecure ->
     Sec.withIndex repoSecure $ \Sec.IndexCallbacks{..} -> do
       -- Incrementally (lazily) read all the entries in the tar file in order,
