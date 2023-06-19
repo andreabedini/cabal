@@ -1,10 +1,7 @@
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
-{-# LANGUAGE ViewPatterns #-}
 
 -- | cabal-install CLI command: update
 module Distribution.Client.CmdUpdate
@@ -26,8 +23,7 @@ import Distribution.Client.HttpUtils
   ( DownloadResult (..)
   )
 import Distribution.Client.IndexUtils
-  ( Index (..)
-  , currentIndexTimestamp
+  ( currentIndexTimestamp
   , indexBaseName
   , updatePackageIndexCacheFile
   , updateRepoIndexCache
@@ -241,8 +237,7 @@ updateRepo verbosity _updateFlags repoCtxt (repo, indexState) = do
   transport <- repoContextGetTransport repoCtxt
   case repo of
     RepoLocalNoIndex{} -> do
-      let index = RepoIndex repoCtxt repo
-      updatePackageIndexCacheFile verbosity index
+      updatePackageIndexCacheFile verbosity repoCtxt repo
     RepoRemote{..} -> do
       downloadResult <-
         downloadIndex
@@ -257,14 +252,13 @@ updateRepo verbosity _updateFlags repoCtxt (repo, indexState) = do
         FileDownloaded indexPath -> do
           writeFileAtomic (dropExtension indexPath) . maybeDecompress
             =<< BS.readFile indexPath
-          updateRepoIndexCache verbosity (RepoIndex repoCtxt repo)
+          updateRepoIndexCache verbosity repoCtxt repo
     RepoSecure{} -> repoContextWithSecureRepo repoCtxt repo $ \repoSecure -> do
-      let index = RepoIndex repoCtxt repo
       -- NB: This may be a nullTimestamp if we've never updated before
       current_ts <- currentIndexTimestamp (lessVerbose verbosity) repoCtxt repo
       -- NB: always update the timestamp, even if we didn't actually
       -- download anything
-      writeIndexTimestamp index indexState
+      writeIndexTimestamp repo indexState
       ce <-
         if repoContextIgnoreExpiry repoCtxt
           then Just `fmap` getCurrentTime
@@ -284,7 +278,7 @@ updateRepo verbosity _updateFlags repoCtxt (repo, indexState) = do
           noticeNoWrap verbosity $
             "Package list of " ++ prettyShow rname ++ " is up to date."
         Sec.HasUpdates -> do
-          updateRepoIndexCache verbosity index
+          updateRepoIndexCache verbosity repoCtxt repo
           noticeNoWrap verbosity $
             "Package list of " ++ prettyShow rname ++ " has been updated."
 
