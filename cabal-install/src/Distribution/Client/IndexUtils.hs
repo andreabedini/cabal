@@ -32,7 +32,6 @@ module Distribution.Client.IndexUtils
   , getSourcePackagesAtIndexState
   , ActiveRepos
   , filterSkippedActiveRepos
-  , Index (..)
   , RepoIndexState (..)
   , PackageEntry (..)
   , parsePackageIndex
@@ -290,7 +289,7 @@ getSourcePackagesAtIndexState verbosity repoCtxt mb_idxState mb_activeRepos = do
             ++ " as explicitly requested (via command line / project configuration)"
         return idxState
       Nothing -> do
-        mb_idxState' <- readIndexTimestamp verbosity (RepoIndex repoCtxt r)
+        mb_idxState' <- readIndexTimestamp verbosity r
         case mb_idxState' of
           Nothing -> do
             info verbosity "Using most recent state (could not read timestamp file)"
@@ -441,12 +440,13 @@ readRepoIndex verbosity repoCtxt repo idxState =
   handleNotFound $ do
     when (isRepoRemote repo) $ warnIfIndexIsOld =<< getIndexFileAge repo
     -- note that if this step fails due to a bad repo cache, the the procedure can still succeed by reading from the existing cache, which is updated regardless.
-    updateRepoIndexCache verbosity (RepoIndex repoCtxt repo)
+    updateRepoIndexCache verbosity repoCtxt repo
       `catchIO` (\e -> warn verbosity $ "unable to update the repo index cache -- " ++ displayException e)
     readPackageIndexCacheFile
       verbosity
       mkAvailablePackage
-      (RepoIndex repoCtxt repo)
+      repoCtxt
+      repo
       idxState
   where
     mkAvailablePackage pkgEntry =
@@ -514,25 +514,25 @@ getSourcePackagesMonitorFiles repos =
 
 -- | It is not necessary to call this, as the cache will be updated when the
 -- index is read normally. However you can do the work earlier if you like.
-updateRepoIndexCache :: Verbosity -> Index -> IO ()
-updateRepoIndexCache verbosity index =
-  whenCacheOutOfDate index $ updatePackageIndexCacheFile verbosity index
+updateRepoIndexCache :: Verbosity -> RepoContext -> Repo -> IO ()
+updateRepoIndexCache verbosity repoContext repo =
+  whenCacheOutOfDate repo $ updatePackageIndexCacheFile verbosity repoContext repo
 
-whenCacheOutOfDate :: Index -> IO () -> IO ()
-whenCacheOutOfDate index action = do
-  exists <- doesFileExist $ cacheFile index
+whenCacheOutOfDate :: Repo -> IO () -> IO ()
+whenCacheOutOfDate repo action = do
+  exists <- doesFileExist $ cacheFile repo
   if not exists
     then action
     else
-      if localNoIndex index
+      if localNoIndex repo
         then return () -- TODO: don't update cache for local+noindex repositories
         else do
-          indexTime <- getModTime $ indexFile index
-          cacheTime <- getModTime $ cacheFile index
+          indexTime <- getModTime $ indexFile repo
+          cacheTime <- getModTime $ cacheFile repo
           when (indexTime > cacheTime) action
 
-localNoIndex :: Index -> Bool
-localNoIndex (RepoIndex _ (RepoLocalNoIndex{})) = True
+localNoIndex :: Repo -> Bool
+localNoIndex (RepoLocalNoIndex{}) = True
 localNoIndex _ = False
 
 ------------------------------------------------------------------------
@@ -751,31 +751,26 @@ lazyUnfold step = goLazy . Just
       vs' <- goLazy mk'
       return ((k, v) : vs')
 
--- | Which index do we mean?
-data Index
-  = -- | The main index for the specified repository
-    RepoIndex RepoContext Repo
+indexFile :: Repo -> FilePath
+indexFile repo = indexBaseName repo <.> "tar"
 
-indexFile :: Index -> FilePath
-indexFile (RepoIndex _ctxt repo) = indexBaseName repo <.> "tar"
+cacheFile :: Repo -> FilePath
+cacheFile repo = indexBaseName repo <.> "cache"
 
-cacheFile :: Index -> FilePath
-cacheFile (RepoIndex _ctxt repo) = indexBaseName repo <.> "cache"
-
-timestampFile :: Index -> FilePath
-timestampFile (RepoIndex _ctxt repo) = indexBaseName repo <.> "timestamp"
+timestampFile :: Repo -> FilePath
+timestampFile repo = indexBaseName repo <.> "timestamp"
 
 -- | Return 'True' if 'Index' uses 01-index format (aka secure repo)
-is01Index :: Index -> Bool
-is01Index (RepoIndex _ repo) = case repo of
+is01Index :: Repo -> Bool
+is01Index repo = case repo of
   RepoSecure{} -> True
   RepoRemote{} -> False
   RepoLocalNoIndex{} -> True
 
-updatePackageIndexCacheFile :: Verbosity -> Index -> IO ()
-updatePackageIndexCacheFile verbosity index = do
-  info verbosity ("Updating index cache file " ++ cacheFile index ++ " ...")
-  withIndexEntries verbosity index callback callbackNoIndex
+updatePackageIndexCacheFile :: Verbosity -> RepoContext -> Repo -> IO ()
+updatePackageIndexCacheFile verbosity repoCtxt repo = do
+  info verbosity ("Updating index cache file " ++ cacheFile repo ++ " ...")
+  withIndexEntries verbosity repoCtxt repo callback callbackNoIndex
   where
     callback entries = do
       let !maxTs = maximumTimestamp (map cacheEntryTimestamp entries)
@@ -784,7 +779,7 @@ updatePackageIndexCacheFile verbosity index = do
               { cacheHeadTs = maxTs
               , cacheEntries = entries
               }
-      writeIndexCache index cache
+      writeIndexCache repo cache
       info
         verbosity
         ( "Index cache updated to index-state "
@@ -792,7 +787,7 @@ updatePackageIndexCacheFile verbosity index = do
         )
 
     callbackNoIndex entries = do
-      writeNoIndexCache verbosity index $ NoIndexCache entries
+      writeNoIndexCache verbosity repo $ NoIndexCache entries
       info verbosity "Index cache updated"
 
 -- | Read the index (for the purpose of building a cache)
@@ -817,11 +812,12 @@ updatePackageIndexCacheFile verbosity index = do
 -- would require a change in the cache format.
 withIndexEntries
   :: Verbosity
-  -> Index
+  -> RepoContext
+  -> Repo
   -> ([IndexCacheEntry] -> IO a)
   -> ([NoIndexCacheEntry] -> IO a)
   -> IO a
-withIndexEntries _ (RepoIndex repoCtxt repo@RepoSecure{}) callback _ =
+withIndexEntries _ repoCtxt repo@RepoSecure{} callback _ =
   repoContextWithSecureRepo repoCtxt repo $ \repoSecure ->
     Sec.withIndex repoSecure $ \Sec.IndexCallbacks{..} -> do
       -- Incrementally (lazily) read all the entries in the tar file in order,
@@ -855,7 +851,7 @@ withIndexEntries _ (RepoIndex repoCtxt repo@RepoSecure{}) callback _ =
           fromMaybe (error "withIndexEntries: invalid timestamp") $
             epochTimeToTimestamp $
               Sec.indexEntryTime sie
-withIndexEntries verbosity (RepoIndex _repoCtxt (RepoLocalNoIndex (LocalRepo name localDir _) _cacheDir)) _ callback = do
+withIndexEntries verbosity _repoCtxt (RepoLocalNoIndex (LocalRepo name localDir _) _cacheDir) _ callback = do
   dirContents <- listDirectory localDir
   let contentSet = Set.fromList dirContents
 
@@ -934,9 +930,9 @@ withIndexEntries verbosity (RepoIndex _repoCtxt (RepoLocalNoIndex (LocalRepo nam
       where
         filename = prettyShow pkgId FilePath.Posix.</> prettyShow (packageName pkgId) ++ ".cabal"
     readCabalEntry _ _ x = x
-withIndexEntries verbosity index callback _ = do
+withIndexEntries verbosity _repoCtxt repo callback _ = do
   -- non-secure repositories
-  withFile (indexFile index) ReadMode $ \h -> do
+  withFile (indexFile repo) ReadMode $ \h -> do
     bs <- maybeDecompress `fmap` BS.hGetContents h
     pkgsOrPrefs <- lazySequence $ parsePackageIndex verbosity bs
     callback $ map toCache (catMaybes pkgsOrPrefs)
@@ -950,17 +946,18 @@ readPackageIndexCacheFile
   :: Package pkg
   => Verbosity
   -> (PackageEntry -> pkg)
-  -> Index
+  -> RepoContext
+  -> Repo
   -> RepoIndexState
   -> IO (PackageIndex pkg, [Dependency], IndexStateInfo)
-readPackageIndexCacheFile verbosity mkPkg index idxState
-  | localNoIndex index = do
-      cache0 <- readNoIndexCache verbosity index
+readPackageIndexCacheFile verbosity mkPkg repContext repo idxState
+  | localNoIndex repo = do
+      cache0 <- readNoIndexCache verbosity repContext repo
       (pkgs, prefs) <- packageNoIndexFromCache verbosity mkPkg cache0
       pure (pkgs, prefs, emptyStateInfo)
   | otherwise = do
-      cache0 <- readIndexCache verbosity index
-      indexHnd <- openFile (indexFile index) ReadMode
+      cache0 <- readIndexCache verbosity repContext repo
+      indexHnd <- openFile (indexFile repo) ReadMode
       let (cache, isi) = filterCache idxState cache0
       (pkgs, deps) <- packageIndexFromCache verbosity mkPkg indexHnd cache
       pure (pkgs, deps, isi)
@@ -1096,9 +1093,9 @@ packageListFromCache verbosity mkPkg hnd Cache{..} = accum mempty [] mempty cach
 -- If a corrupted index cache is detected this function regenerates
 -- the index cache and then reattempt to read the index once (and
 -- 'die's if it fails again).
-readIndexCache :: Verbosity -> Index -> IO Cache
-readIndexCache verbosity index = do
-  cacheOrFail <- readIndexCache' index
+readIndexCache :: Verbosity -> RepoContext -> Repo -> IO Cache
+readIndexCache verbosity repoCtxt repo = do
+  cacheOrFail <- readIndexCache' repo
   case cacheOrFail of
     Left msg -> do
       warn verbosity $
@@ -1109,14 +1106,14 @@ readIndexCache verbosity index = do
           , "Trying to regenerate the index cache..."
           ]
 
-      updatePackageIndexCacheFile verbosity index
+      updatePackageIndexCacheFile verbosity repoCtxt repo
 
-      either (die' verbosity) (return . hashConsCache) =<< readIndexCache' index
+      either (die' verbosity) (return . hashConsCache) =<< readIndexCache' repo
     Right res -> return (hashConsCache res)
 
-readNoIndexCache :: Verbosity -> Index -> IO NoIndexCache
-readNoIndexCache verbosity index = do
-  cacheOrFail <- readNoIndexCache' index
+readNoIndexCache :: Verbosity -> RepoContext -> Repo -> IO NoIndexCache
+readNoIndexCache verbosity repoCtxt repo = do
+  cacheOrFail <- readNoIndexCache' repo
   case cacheOrFail of
     Left msg -> do
       warn verbosity $
@@ -1127,56 +1124,55 @@ readNoIndexCache verbosity index = do
           , "Trying to regenerate the index cache..."
           ]
 
-      updatePackageIndexCacheFile verbosity index
+      updatePackageIndexCacheFile verbosity repoCtxt repo
 
-      either (die' verbosity) return =<< readNoIndexCache' index
+      either (die' verbosity) return =<< readNoIndexCache' repo
 
     -- we don't hash cons local repository cache, they are hopefully small
     Right res -> return res
 
--- | Read the 'Index' cache from the filesystem without attempting to
+-- | Read the index cache for 'Repo' from the filesystem without attempting to
 -- regenerate on parsing failures.
-readIndexCache' :: Index -> IO (Either String Cache)
-readIndexCache' index
-  | is01Index index = structuredDecodeFileOrFail (cacheFile index)
-  | otherwise =
-      Right . read00IndexCache <$> BSS.readFile (cacheFile index)
+readIndexCache' :: Repo -> IO (Either String Cache)
+readIndexCache' repo
+  | is01Index repo = structuredDecodeFileOrFail (cacheFile repo)
+  | otherwise = Right . read00IndexCache <$> BSS.readFile (cacheFile repo)
 
-readNoIndexCache' :: Index -> IO (Either String NoIndexCache)
-readNoIndexCache' index = structuredDecodeFileOrFail (cacheFile index)
+readNoIndexCache' :: Repo -> IO (Either String NoIndexCache)
+readNoIndexCache' repo = structuredDecodeFileOrFail (cacheFile repo)
 
--- | Write the 'Index' cache to the filesystem
-writeIndexCache :: Index -> Cache -> IO ()
-writeIndexCache index cache
-  | is01Index index = structuredEncodeFile (cacheFile index) cache
-  | otherwise = writeFile (cacheFile index) (show00IndexCache cache)
+-- | Write the index cache for 'Repo' to the filesystem
+writeIndexCache :: Repo -> Cache -> IO ()
+writeIndexCache repo cache
+  | is01Index repo = structuredEncodeFile (cacheFile repo) cache
+  | otherwise = writeFile (cacheFile repo) (show00IndexCache cache)
 
-writeNoIndexCache :: Verbosity -> Index -> NoIndexCache -> IO ()
-writeNoIndexCache verbosity index cache = do
-  let path = cacheFile index
+writeNoIndexCache :: Verbosity -> Repo -> NoIndexCache -> IO ()
+writeNoIndexCache verbosity repo cache = do
+  let path = cacheFile repo
   createDirectoryIfMissingVerbose verbosity True (takeDirectory path)
   structuredEncodeFile path cache
 
--- | Write the 'IndexState' to the filesystem
-writeIndexTimestamp :: Index -> RepoIndexState -> IO ()
-writeIndexTimestamp index st =
-  writeFile (timestampFile index) (prettyShow st)
+-- | Write a repository index timestamp to the filesystem
+writeIndexTimestamp :: Repo -> RepoIndexState -> IO ()
+writeIndexTimestamp repo st =
+  writeFile (timestampFile repo) (prettyShow st)
 
 -- | Read out the "current" index timestamp, i.e., what
 -- timestamp you would use to revert to this version
 currentIndexTimestamp :: Verbosity -> RepoContext -> Repo -> IO Timestamp
 currentIndexTimestamp verbosity repoCtxt r = do
-  mb_is <- readIndexTimestamp verbosity (RepoIndex repoCtxt r)
+  mb_is <- readIndexTimestamp verbosity r
   case mb_is of
     Just (IndexStateTime ts) -> return ts
     _ -> do
       (_, _, isi) <- readRepoIndex verbosity repoCtxt r IndexStateHead
       return (isiHeadTime isi)
 
--- | Read the 'IndexState' from the filesystem
-readIndexTimestamp :: Verbosity -> Index -> IO (Maybe RepoIndexState)
-readIndexTimestamp verbosity index =
-  fmap simpleParsec (readFile (timestampFile index))
+-- | Read a repository index timestamp from the filesystem
+readIndexTimestamp :: Verbosity -> Repo -> IO (Maybe RepoIndexState)
+readIndexTimestamp verbosity repo =
+  fmap simpleParsec (readFile (timestampFile repo))
     `catchIO` \e ->
       if isDoesNotExistError e
         then return Nothing
@@ -1295,8 +1291,7 @@ instance Binary NoIndexCacheEntry where
         case parseGenericPackageDescriptionMaybe bs of
           Just gpd -> return (CacheGPD gpd bs)
           Nothing -> fail "Failed to parse GPD"
-      1 -> do
-        NoIndexCachePreference <$> get
+      1 -> NoIndexCachePreference <$> get
       _ -> fail "Failed to parse NoIndexCacheEntry"
 
 instance Structured NoIndexCacheEntry where
