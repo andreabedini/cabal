@@ -4,6 +4,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE LambdaCase #-}
 
 -----------------------------------------------------------------------------
 
@@ -159,16 +160,18 @@ import Text.PrettyPrint
   , renderStyle
   , sep
   , text
-  , ($+$)
+  , ($+$), vcat, parens, space
   )
 
 import Data.Coerce (coerce)
 import qualified Data.Maybe as M
 import qualified Data.Set as Set
-import Distribution.AllowNewer (RelaxKind (..), relaxPackageDeps)
+import Distribution.AllowNewer (RelaxDepMod(..), RelaxKind (..), relaxPackageDeps, removeBound)
 import qualified Distribution.Compat.NonEmptySet as NES
-import Distribution.Types.AllowNewer (AllowNewer (..), AllowOlder (..))
+import Distribution.Types.AllowNewer (AllowNewer (..), AllowOlder (..), RelaxDeps (..), RelaxedDep (..), RelaxDepScope (..), RelaxDepSubject (..))
 import Distribution.Types.AnnotatedId
+import Data.Monoid (Endo(..))
+import Control.Monad
 
 type UseExternalInternalDeps = Bool
 
@@ -594,7 +597,9 @@ configure (pkg_descr0, pbi) cfg = do
   let cabalFileDir =
         maybe "." takeDirectory $
           flagToMaybe (configCabalFilePath cfg)
+
   checkCompilerProblems verbosity comp pkg_descr enabled
+
   checkPackageProblems
     verbosity
     cabalFileDir
@@ -1176,8 +1181,9 @@ dependencySatisfiable
 
       internalDepSatisfiable =
         Set.isSubsetOf (NES.toSet sublibs) packageLibraries
+
       internalDepSatisfiableExternally =
-        all (\ln -> not $ null $ PackageIndex.lookupInternalDependency installedPackageSet pn vr ln) sublibs
+        all (not . null . PackageIndex.lookupInternalDependency installedPackageSet pn vr) sublibs
 
       -- Check whether a library exists and is visible.
       -- We don't disambiguate between dependency on non-existent or private
@@ -1203,6 +1209,23 @@ dependencySatisfiable
         where
           maybeIPI = Map.lookup (depName, CLibName lib) requiredDepsMap
           promised = isJust $ Map.lookup (depName, CLibName lib) promisedDeps
+
+extractRelaxDepMod :: PackageId -> RelaxDeps -> PackageName -> Maybe RelaxDepMod
+extractRelaxDepMod pkgId = \case
+  RelaxDepsAll ->
+    const $ Just RelaxDepModNone
+  (RelaxDepsSome relaxedDeps) ->
+    msum . for relaxedDeps (\(RelaxedDep scope rdm p) ->
+      if scope `elem` [RelaxDepScopeAll, RelaxDepScopePackage (packageName pkgId), RelaxDepScopePackageId pkgId]
+      then \dpn ->
+        if p `elem` [RelaxDepSubjectAll, RelaxDepSubjectPkg dpn]
+        then Just rdm
+        else Nothing
+      else const Nothing)
+
+relax :: RelaxKind -> Dependency -> RelaxDepMod -> Dependency
+relax relKind (Dependency pkgName verRange cs) rdm =
+  Dependency pkgName (removeBound relKind rdm verRange) cs
 
 -- | Finalize a generic package description.  The workhorse is
 -- 'finalizePD' but there's a bit of other nattering
@@ -1230,33 +1253,44 @@ configureFinalizedPackage
   satisfies
   comp
   compPlatform
-  pkg_descr_before_relaxed_bounds = do
+  pkg_descr0 = do
     let
-      relax relax_kind getter = relaxPackageDeps relax_kind . fromMaybe mempty . coerce $ getter cfg
-      pkg_descr0 =
-        relax RelaxLower configAllowOlder
-          . relax RelaxUpper configAllowNewer
-          $ pkg_descr_before_relaxed_bounds
+      pkgId = package $ packageDescription pkg_descr0
+      extractUpper = extractRelaxDepMod pkgId $ foldMap unAllowNewer $ configAllowNewer cfg
+      extractLower = extractRelaxDepMod pkgId $ foldMap unAllowOlder $ configAllowOlder cfg
+      satisfiesRelaxed =
+        satisfies 
+          . (\d -> maybe d (relax RelaxUpper d) $ extractUpper (depPkgName d))
+          . (\d -> maybe d (relax RelaxLower d) $ extractLower (depPkgName d))
+
     (pkg_descr0', flags) <-
       case finalizePD
         (configConfigurationsFlags cfg)
         enabled
-        satisfies
+        satisfiesRelaxed
         compPlatform
         (compilerInfo comp)
         allConstraints
         pkg_descr0 of
         Right r -> return r
         Left missing ->
-          die' verbosity $
-            "Encountered missing or private dependencies:\n"
-              ++ ( render
-                    . nest 4
-                    . sep
-                    . punctuate comma
-                    . map (pretty . simplifyDependency)
-                    $ missing
-                 )
+          die' verbosity $ render $
+            text "Encountered missing or private dependencies:\n"
+            <> (nest 4 . vcat $ do
+                  d <- missing
+                  let relaxations =
+                        map (\case
+                          RelaxDepModNone -> "lower bound ignored"
+                          RelaxDepModCaret -> "lower bound caret modified")
+                        (maybeToList $ extractLower $ depPkgName d)
+                        <>
+                        map (\case
+                          RelaxDepModNone -> text "upper bound ignored"
+                          RelaxDepModCaret -> text "upper bound caret modified")
+                        (maybeToList $ extractUpper $ depPkgName d)
+
+                  return $ pretty (simplifyDependency d) <+>
+                    if not (null relaxations) then space <+> parens (hsep $ punctuate comma relaxations) else mempty)
 
     -- add extra include/lib dirs as specified in cfg
     -- we do it here so that those get checked too
@@ -1866,7 +1900,7 @@ combinedConstraints
       , Map (PackageName, ComponentName) InstalledPackageInfo
       )
 combinedConstraints constraints dependencies installedPackages = do
-  when (not (null badComponentIds)) $
+  unless (null badComponentIds) $
     Left $
       render $
         text "The following package dependencies were requested"

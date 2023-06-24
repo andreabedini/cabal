@@ -167,16 +167,9 @@ instance Semigroup d => Semigroup (DepTestRslt d) where
 -- on all branches is returned.
 -- [TODO: Could also be specified with a function argument.]
 --
--- TODO: The current algorithm is rather naive.  A better approach would be to:
+-- Note: the current algorithm is rather naive. A better approach, based on
+-- constraint solving, is implemented in cabal-install.
 --
--- * Rule out possible paths, by taking a look at the associated dependencies.
---
--- * Infer the required values for the conditions of these paths, and
---   calculate the required domains for the variables used in these
---   conditions.  Then picking a flag assignment would be linear (I guess).
---
--- This would require some sort of SAT solving, though, thus it's not
--- implemented unless we really need it.
 resolveWithFlags
   :: [(FlagName, [Bool])]
   -- ^ Domain for each flag name, will be tested in order.
@@ -510,6 +503,7 @@ finalizePD
       )
     where
       -- Combine lib, exes, and tests into one list of @CondTree@s with tagged data
+      condTrees :: [CondTree ConfVar [Dependency] PDTagged]
       condTrees =
         maybeToList (fmap (mapTreeData Lib) mb_lib0)
           ++ map (\(name, tree) -> mapTreeData (SubComp name . CLib) tree) sub_libs0
@@ -518,29 +512,22 @@ finalizePD
           ++ map (\(name, tree) -> mapTreeData (SubComp name . CTest) tree) tests0
           ++ map (\(name, tree) -> mapTreeData (SubComp name . CBench) tree) bms0
 
+      flagChoices :: [(FlagName, [Bool])]
       flagChoices = map (\(MkPackageFlag n _ d manual) -> (n, d2c manual n d)) flags
+
+      d2c :: Bool -> FlagName -> Bool -> [Bool]
       d2c manual n b = case lookupFlagAssignment n userflags of
         Just val -> [val]
         Nothing
           | manual -> [b]
           | otherwise -> [b, not b]
-      -- flagDefaults = map (\(n,x:_) -> (n,x)) flagChoices
+
+      check :: [Dependency] -> DepTestRslt [Dependency]
       check ds =
         let missingDeps = filter (not . satisfyDep) ds
          in if null missingDeps
               then DepOk
               else MissingDeps missingDeps
-
-{-
-let tst_p = (CondNode [1::Int] [Distribution.Package.Dependency "a" AnyVersion] [])
-let tst_p2 = (CondNode [1::Int] [Distribution.Package.Dependency "a" (EarlierVersion (Version [1,0] [])), Distribution.Package.Dependency "a" (LaterVersion (Version [2,0] []))] [])
-
-let p_index = Distribution.Simple.PackageIndex.fromList [Distribution.Package.PackageIdentifier "a" (Version [0,5] []), Distribution.Package.PackageIdentifier "a" (Version [2,5] [])]
-let look = not . null . Distribution.Simple.PackageIndex.lookupDependency p_index
-let looks ds = mconcat $ map (\d -> if look d then DepOk else MissingDeps [d]) ds
-resolveWithFlags [] Distribution.System.Linux Distribution.System.I386 (Distribution.Compiler.GHC,Version [6,8,2] []) [tst_p] looks   ===>  Right ...
-resolveWithFlags [] Distribution.System.Linux Distribution.System.I386 (Distribution.Compiler.GHC,Version [6,8,2] []) [tst_p2] looks  ===>  Left ...
--}
 
 -- | Flatten a generic package description by ignoring all conditions and just
 -- join the field descriptors into on package description.  Note, however,

@@ -3,6 +3,8 @@
 -- | Utilities to relax version bounds on dependencies
 module Distribution.AllowNewer
   ( relaxPackageDeps
+  , removeBound
+  , RelaxDepMod (..)
   , RelaxKind (..)
   ) where
 
