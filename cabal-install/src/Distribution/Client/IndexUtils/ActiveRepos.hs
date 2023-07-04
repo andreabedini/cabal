@@ -8,7 +8,6 @@ module Distribution.Client.IndexUtils.ActiveRepos
   , filterSkippedActiveRepos
   , ActiveRepoEntry (..)
   , CombineStrategy (..)
-  , organizeByRepos
   ) where
 
 import Distribution.Client.Compat.Prelude
@@ -140,60 +139,3 @@ instance Parsec CombineStrategy where
       , CombineStrategyOverride <$ P.string "override"
       ]
 
--------------------------------------------------------------------------------
--- Organisation
--------------------------------------------------------------------------------
-
--- | Sort values 'RepoName' according to 'ActiveRepos' list.
---
--- >>> let repos = [RepoName "a", RepoName "b", RepoName "c"]
--- >>> organizeByRepos (ActiveRepos [ActiveRepoRest CombineStrategyMerge]) id repos
--- Right [(RepoName "a",CombineStrategyMerge),(RepoName "b",CombineStrategyMerge),(RepoName "c",CombineStrategyMerge)]
---
--- >>> organizeByRepos (ActiveRepos [ActiveRepo (RepoName "b") CombineStrategyOverride, ActiveRepoRest CombineStrategyMerge]) id repos
--- Right [(RepoName "b",CombineStrategyOverride),(RepoName "a",CombineStrategyMerge),(RepoName "c",CombineStrategyMerge)]
---
--- >>> organizeByRepos (ActiveRepos [ActiveRepoRest CombineStrategyMerge, ActiveRepo (RepoName "b") CombineStrategyOverride]) id repos
--- Right [(RepoName "a",CombineStrategyMerge),(RepoName "c",CombineStrategyMerge),(RepoName "b",CombineStrategyOverride)]
---
--- >>> organizeByRepos (ActiveRepos [ActiveRepoRest CombineStrategyMerge, ActiveRepo (RepoName "d") CombineStrategyOverride]) id repos
--- Left "no repository provided d"
---
--- Note: currently if 'ActiveRepoRest' is provided more than once,
--- rest-repositories will be multiple times in the output.
-organizeByRepos
-  :: forall a
-   . ActiveRepos
-  -> (a -> RepoName)
-  -> [a]
-  -> Either String [(a, CombineStrategy)]
-organizeByRepos (ActiveRepos xs0) sel ys0 =
-  -- here we use lazyness to do only one traversal
-  let (rest, result) = case go rest xs0 ys0 of
-        Right (rest', result') -> (rest', Right result')
-        Left err -> ([], Left err)
-   in result
-  where
-    go :: [a] -> [ActiveRepoEntry] -> [a] -> Either String ([a], [(a, CombineStrategy)])
-    go _rest [] ys = Right (ys, [])
-    go rest (ActiveRepoRest s : xs) ys =
-      go rest xs ys <&> \(rest', result) ->
-        (rest', map (\x -> (x, s)) rest ++ result)
-    go rest (ActiveRepo r s : xs) ys = do
-      (z, zs) <- extract r ys
-      go rest xs zs <&> \(rest', result) ->
-        (rest', (z, s) : result)
-
-    extract :: RepoName -> [a] -> Either String (a, [a])
-    extract r = loop id
-      where
-        loop _acc [] = Left $ "no repository provided " ++ prettyShow r
-        loop acc (x : xs)
-          | sel x == r = Right (x, acc xs)
-          | otherwise = loop (acc . (x :)) xs
-
-    (<&>)
-      :: Either err ([s], b)
-      -> (([s], b) -> ([s], c))
-      -> Either err ([s], c)
-    (<&>) = flip fmap

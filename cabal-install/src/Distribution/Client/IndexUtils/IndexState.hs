@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 -----------------------------------------------------------------------------
 
@@ -16,6 +17,8 @@ module Distribution.Client.IndexUtils.IndexState
   , makeTotalIndexState
   , lookupIndexState
   , insertIndexState
+  , IndexStateProvenance(..)
+  , lookupIndexState'
   ) where
 
 import Distribution.Client.Compat.Prelude
@@ -96,7 +99,7 @@ data Tok
   | TokTimestamp Timestamp
   | TokHead
 
--- | Remove non-default values from 'TotalIndexState'.
+-- | Remove default values from 'TotalIndexState'.
 normalise :: TotalIndexState -> TotalIndexState
 normalise (TIS def m) = TIS def (Map.filter (/= def) m)
 
@@ -117,6 +120,12 @@ insertIndexState :: RepoName -> RepoIndexState -> TotalIndexState -> TotalIndexS
 insertIndexState rn idx (TIS def m)
   | idx == def = TIS def (Map.delete rn m)
   | otherwise = TIS def (Map.insert rn idx m)
+
+data IndexStateProvenance = NoIndexState | GlobalIndexState | UserDefault | UserExplicit
+
+lookupIndexState' :: RepoName -> TotalIndexState -> (IndexStateProvenance, RepoIndexState)
+lookupIndexState' rn (TIS def m) =
+  maybe (UserDefault, def) (UserExplicit,) $ Map.lookup rn m
 
 -------------------------------------------------------------------------------
 -- Repository index state

@@ -93,7 +93,6 @@ import Distribution.Simple.Command
   )
 import System.FilePath (dropExtension, (<.>))
 
-import Distribution.Client.IndexUtils.Timestamp (nullTimestamp)
 import qualified Hackage.Security.Client as Sec
 
 updateCommand :: CommandUI (NixStyleFlags ())

@@ -6,6 +6,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 -----------------------------------------------------------------------------
 
@@ -136,7 +140,6 @@ import Distribution.Client.Utils
   )
 import Distribution.Compat.Directory (listDirectory)
 import Distribution.Compat.Time (getFileAge, getModTime)
-import Distribution.Utils.Generic (fstOf3)
 import Distribution.Utils.Structured (Structured (..), nominalStructure, structuredDecodeFileOrFail, structuredEncodeFile)
 import System.Directory (doesDirectoryExist, doesFileExist)
 import System.FilePath
@@ -157,6 +160,8 @@ import qualified Codec.Compression.GZip as GZip
 
 import qualified Hackage.Security.Client as Sec
 import qualified Hackage.Security.Util.Some as Sec
+import Data.Functor ((<&>))
+import Data.Semigroup (Max(Max))
 
 -- | Reduced-verbosity version of 'Configure.getInstalledPackages'
 getInstalledPackages
@@ -178,6 +183,7 @@ getInstalledPackages verbosity comp packageDbs progdb =
 --
 -- Example: Use @indexBaseName repo <.> "tar.gz"@ to compute the 'FilePath' of the
 -- @00-index.tar.gz@/@01-index.tar.gz@ file.
+-- FIXME: yuck
 indexBaseName :: Repo -> FilePath
 indexBaseName repo = repoLocalDir repo </> fn
   where
@@ -210,8 +216,8 @@ data IndexStateInfo = IndexStateInfo
   -- 'isiMaxTime'.
   }
 
-emptyStateInfo :: IndexStateInfo
-emptyStateInfo = IndexStateInfo nullTimestamp nullTimestamp
+-- emptyStateInfo :: IndexStateInfo
+-- emptyStateInfo = IndexStateInfo nullTimestamp nullTimestamp
 
 -- | Filters a 'Cache' according to an 'IndexState'
 -- specification. Also returns 'IndexStateInfo' describing the
@@ -239,7 +245,9 @@ filterCache (IndexStateTime ts0) cache0 = (cache, IndexStateInfo{..})
 -- This is a higher level wrapper used internally in cabal-install.
 getSourcePackages :: Verbosity -> RepoContext -> IO SourcePackageDb
 getSourcePackages verbosity repoCtxt =
-  fstOf3 <$> getSourcePackagesAtIndexState verbosity repoCtxt Nothing Nothing
+  fst <$> getSourcePackagesAtIndexState verbosity repoCtxt Nothing Nothing
+
+data EffectiveActiveRepo = EffectiveActiveRepo RepoName CombineStrategy (Maybe IndexStateInfo)
 
 -- | Variant of 'getSourcePackages' which allows getting the source
 -- packages at a particular 'IndexState'.
@@ -253,135 +261,23 @@ getSourcePackagesAtIndexState
   :: Verbosity
   -> RepoContext
   -> Maybe TotalIndexState
+  -- ^ index state requested by the user
   -> Maybe ActiveRepos
-  -> IO (SourcePackageDb, TotalIndexState, ActiveRepos)
-getSourcePackagesAtIndexState verbosity repoCtxt _ _
-  | null (repoContextRepos repoCtxt) = do
-      -- In the test suite, we routinely don't have any remote package
-      -- servers, so don't bleat about it
-      warn (verboseUnmarkOutput verbosity) $
-        "No remote package servers have been specified. Usually "
-          ++ "you would have one specified in the config file."
-      return
-        ( SourcePackageDb
-            { packageIndex = mempty
-            , packagePreferences = mempty
-            }
-        , headTotalIndexState
-        , ActiveRepos []
-        )
-getSourcePackagesAtIndexState verbosity repoCtxt mb_idxState mb_activeRepos = do
-  let describeState IndexStateHead = "most recent state"
-      describeState (IndexStateTime time) = "historical state as of " ++ prettyShow time
-
-  pkgss <- for (repoContextRepos repoCtxt) $ \r -> do
-    let rname :: RepoName
-        rname = repoName r
-
-    info verbosity ("Reading available packages of " ++ unRepoName rname ++ "...")
-
-    idxState <- case mb_idxState of
-      Just totalIdxState -> do
-        let idxState = lookupIndexState rname totalIdxState
-        info verbosity $
-          "Using "
-            ++ describeState idxState
-            ++ " as explicitly requested (via command line / project configuration)"
-        return idxState
-      Nothing -> do
-        mb_idxState' <- readIndexTimestamp verbosity r
-        case mb_idxState' of
-          Nothing -> do
-            info verbosity "Using most recent state (could not read timestamp file)"
-            return IndexStateHead
-          Just idxState -> do
-            info verbosity $
-              "Using "
-                ++ describeState idxState
-                ++ " specified from most recent cabal update"
-            return idxState
-
-    unless (idxState == IndexStateHead) $
-      case r of
-        RepoLocalNoIndex{} -> warn verbosity "index-state ignored for file+noindex repositories"
-        RepoRemote{} -> warn verbosity ("index-state ignored for old-format (remote repository '" ++ unRepoName rname ++ "')")
-        RepoSecure{} -> pure ()
-
-    let idxState' = case r of
-          RepoSecure{} -> idxState
-          _ -> IndexStateHead
-
-    (pis, deps, isi) <- readRepoIndex verbosity repoCtxt r idxState'
-
-    case idxState' of
-      IndexStateHead -> do
-        info verbosity ("index-state(" ++ unRepoName rname ++ ") = " ++ prettyShow (isiHeadTime isi))
-        return ()
-      IndexStateTime ts0 -> do
-        when (isiMaxTime isi /= ts0) $
-          if ts0 > isiMaxTime isi
-            then
-              warn verbosity $
-                "Requested index-state "
-                  ++ prettyShow ts0
-                  ++ " is newer than '"
-                  ++ unRepoName rname
-                  ++ "'!"
-                  ++ " Falling back to older state ("
-                  ++ prettyShow (isiMaxTime isi)
-                  ++ ")."
-            else
-              info verbosity $
-                "Requested index-state "
-                  ++ prettyShow ts0
-                  ++ " does not exist in '"
-                  ++ unRepoName rname
-                  ++ "'!"
-                  ++ " Falling back to older state ("
-                  ++ prettyShow (isiMaxTime isi)
-                  ++ ")."
-        info
-          verbosity
-          ( "index-state("
-              ++ unRepoName rname
-              ++ ") = "
-              ++ prettyShow (isiMaxTime isi)
-              ++ " (HEAD = "
-              ++ prettyShow (isiHeadTime isi)
-              ++ ")"
-          )
-
-    pure
-      RepoData
-        { rdRepoName = rname
-        , rdTimeStamp = isiMaxTime isi
-        , rdIndex = pis
-        , rdPreferences = deps
-        }
+  -> IO (SourcePackageDb, [EffectiveActiveRepo])
+getSourcePackagesAtIndexState verbosity repoCtxt mUserIdxState mActiveRepos = do
+  pkgss <- readAllRepoData verbosity repoCtxt mUserIdxState 
 
   let activeRepos :: ActiveRepos
-      activeRepos = fromMaybe defaultActiveRepos mb_activeRepos
+      activeRepos = fromMaybe defaultActiveRepos mActiveRepos
 
-  pkgss' <- case organizeByRepos activeRepos rdRepoName pkgss of
+  pkgss' <- case organizeByRepos activeRepos pkgss of
     Right x -> return x
-    Left err -> warn verbosity err >> return (map (\x -> (x, CombineStrategyMerge)) pkgss)
+    Left err -> die' verbosity (show err)
 
-  let activeRepos' :: ActiveRepos
-      activeRepos' =
-        ActiveRepos
-          [ ActiveRepo (rdRepoName rd) strategy
-          | (rd, strategy) <- pkgss'
+  let effectiveActiveRepos =
+          [ EffectiveActiveRepo rdRepoName strategy rdIndexStateInfo
+          | (RepoData{rdRepoName, rdIndexStateInfo}, strategy) <- pkgss'
           ]
-
-  let totalIndexState :: TotalIndexState
-      totalIndexState =
-        makeTotalIndexState IndexStateHead $
-          Map.fromList
-            [ (n, IndexStateTime ts)
-            | (RepoData n ts _idx _prefs, _strategy) <- pkgss'
-            , -- e.g. file+noindex have nullTimestamp as their timestamp
-            ts /= nullTimestamp
-            ]
 
   let addIndex
         :: PackageIndex UnresolvedSourcePackage
@@ -406,23 +302,133 @@ getSourcePackagesAtIndexState verbosity repoCtxt mb_idxState mb_activeRepos = do
 
   _ <- evaluate pkgs
   _ <- evaluate prefs
-  _ <- evaluate totalIndexState
+  _ <- evaluate effectiveActiveRepos
   return
     ( SourcePackageDb
         { packageIndex = pkgs
         , packagePreferences = prefs
         }
-    , totalIndexState
-    , activeRepos'
+    , effectiveActiveRepos
     )
 
 -- auxiliary data used in getSourcePackagesAtIndexState
 data RepoData = RepoData
   { rdRepoName :: RepoName
-  , rdTimeStamp :: Timestamp
+  , rdIndexStateInfo :: Maybe IndexStateInfo
   , rdIndex :: PackageIndex UnresolvedSourcePackage
   , rdPreferences :: [Dependency]
   }
+
+readAllRepoData :: Verbosity -> RepoContext -> Maybe TotalIndexState -> IO [RepoData]
+readAllRepoData verbosity repoCtxt mUserIdxState =
+  for (repoContextRepos repoCtxt) $ \repo -> do
+
+    let rname :: RepoName
+        rname = repoName repo
+
+    info verbosity ("Reading available packages of " ++ unRepoName rname ++ "...")
+
+    let userIdxState = lookupIndexState' rname <$> mUserIdxState
+
+    let mkAvailablePackage pkgEntry =
+          SourcePackage
+            { srcpkgPackageId = pkgid
+            , srcpkgDescription = pkgdesc
+            , srcpkgSource = case pkgEntry of
+                NormalPackage _ _ _ _ -> RepoTarballPackage repo pkgid Nothing
+                BuildTreeRef _ _ _ path _ -> LocalUnpackedPackage path
+            , srcpkgDescrOverride = case pkgEntry of
+                NormalPackage _ _ pkgtxt _ -> Just pkgtxt
+                _ -> Nothing
+            }
+          where
+            pkgdesc = packageDesc pkgEntry
+            pkgid = packageId pkgEntry
+
+    case repo of
+      r@RepoLocalNoIndex { repoLocal, repoLocalDir } ->
+        case userIdxState of
+          Just (UserExplicit, _) ->
+            die' verbosity ("index-state unsupported by file+noindex repository '" ++ unRepoName rname)
+          _otherwise -> do
+            (pis, deps) <- readPackageLocalNoIndexCacheFile verbosity mkAvailablePackage repoCtxt r
+            return RepoData {rdRepoName = rname, rdIndex = pis, rdPreferences = deps, rdIndexStateInfo = Nothing}
+
+      r@RepoRemote { repoRemote, repoLocalDir } -> do
+        case userIdxState of
+          Just (UserExplicit, _) ->
+            die' verbosity ("index-state unsupported by old-format remote repository '" ++ unRepoName rname)
+          _otherwise -> do
+            warnIfIndexIsOld rname =<< getIndexFileAge r
+            (pis, deps) <- readPackageRemoteIndexCacheFile verbosity mkAvailablePackage repoCtxt r
+            return RepoData {rdRepoName = rname, rdIndex = pis, rdPreferences = deps, rdIndexStateInfo = Nothing}
+
+      r@RepoSecure { repoRemote, repoLocalDir } -> do
+        mGlobalIdxState <- fmap (GlobalIndexState,) <$> readIndexTimestamp verbosity r
+        let (idxStateProvenance, idxState) = fromMaybe (NoIndexState, IndexStateHead) $ userIdxState <|> mGlobalIdxState
+        warnIfIndexIsOld rname =<< getIndexFileAge r
+        info verbosity $ _msgReadingIndexState idxStateProvenance idxState
+        (pis, deps, isi) <- readPackageSecureIndexCacheFile verbosity mkAvailablePackage repoCtxt r idxState
+        return RepoData {rdRepoName = rname, rdIndex = pis, rdPreferences = deps, rdIndexStateInfo = Just isi}
+
+    where
+
+    isOldThreshold = 15 -- days
+    warnIfIndexIsOld name dt = do
+      when (dt >= isOldThreshold) $ 
+        warn verbosity $
+          "The package list for '"
+            ++ unRepoName name
+            ++ "' is "
+            ++ shows (floor dt :: Int) " days old.\nRun "
+            ++ "'cabal update' to get the latest list of available packages."
+
+
+-- | Sort values 'RepoName' according to 'ActiveRepos' list.
+--
+-- >>> let repos = [RepoName "a", RepoName "b", RepoName "c"]
+-- >>> organizeByRepos (ActiveRepos [ActiveRepoRest CombineStrategyMerge]) id repos
+-- Right [(RepoName "a",CombineStrategyMerge),(RepoName "b",CombineStrategyMerge),(RepoName "c",CombineStrategyMerge)]
+--
+-- >>> organizeByRepos (ActiveRepos [ActiveRepo (RepoName "b") CombineStrategyOverride, ActiveRepoRest CombineStrategyMerge]) id repos
+-- Right [(RepoName "b",CombineStrategyOverride),(RepoName "a",CombineStrategyMerge),(RepoName "c",CombineStrategyMerge)]
+--
+-- >>> organizeByRepos (ActiveRepos [ActiveRepoRest CombineStrategyMerge, ActiveRepo (RepoName "b") CombineStrategyOverride]) id repos
+-- Right [(RepoName "a",CombineStrategyMerge),(RepoName "c",CombineStrategyMerge),(RepoName "b",CombineStrategyOverride)]
+--
+-- >>> organizeByRepos (ActiveRepos [ActiveRepoRest CombineStrategyMerge, ActiveRepo (RepoName "d") CombineStrategyOverride]) id repos
+-- Left "no repository provided d"
+--
+-- Note: currently if 'ActiveRepoRest' is provided more than once,
+-- rest-repositories will be multiple times in the output.
+organizeByRepos
+  :: ActiveRepos
+  -> [RepoData]
+  -> Either RepoName [(RepoData, CombineStrategy)]
+organizeByRepos (ActiveRepos xs0) ys0 =
+  -- here we use lazyness to do only one traversal
+  let (rest, result) = case go rest xs0 ys0 of
+        Right (rest', result') -> (rest', Right result')
+        Left err -> ([], Left err)
+   in result
+  where
+    go _rest [] ys = Right (ys, [])
+    go rest (ActiveRepoRest s : xs) ys =
+      go rest xs ys <&> \(rest', result) ->
+        (rest', map (\x -> (x, s)) rest ++ result)
+    go rest (ActiveRepo r s : xs) ys = do
+      (z, zs) <- extract r ys
+      go rest xs zs <&> \(rest', result) ->
+        (rest', (z, s) : result)
+
+    extract rn = loop id
+      where
+        loop _acc [] = Left rn
+        loop acc (r : rs)
+          | rdRepoName r == rn = Right (r, acc rs)
+          | otherwise = loop (acc . (r :)) rs
+
+
 
 -- | Read a repository index from disk, from the local file specified by
 -- the 'Repo'.
@@ -435,14 +441,14 @@ readRepoIndex
   -> RepoContext
   -> Repo
   -> RepoIndexState
-  -> IO (PackageIndex UnresolvedSourcePackage, [Dependency], IndexStateInfo)
+  -> IO (Maybe (PackageIndex UnresolvedSourcePackage, [Dependency], Maybe IndexStateInfo))
 readRepoIndex verbosity repoCtxt repo idxState =
   handleNotFound $ do
     when (isRepoRemote repo) $ warnIfIndexIsOld =<< getIndexFileAge repo
     -- note that if this step fails due to a bad repo cache, the the procedure can still succeed by reading from the existing cache, which is updated regardless.
     updateRepoIndexCache verbosity repoCtxt repo
       `catchIO` (\e -> warn verbosity $ "unable to update the repo index cache -- " ++ displayException e)
-    readPackageIndexCacheFile
+    Just <$> readPackageIndexCacheFile
       verbosity
       mkAvailablePackage
       repoCtxt
@@ -476,7 +482,7 @@ readRepoIndex verbosity repoCtxt repo idxState =
                   ++ unRepoName (localRepoName local)
                   ++ " repository index: "
                   ++ show e
-          return (mempty, mempty, emptyStateInfo)
+          return Nothing
         else ioError e
 
     isOldThreshold = 15 -- days
@@ -751,12 +757,14 @@ lazyUnfold step = goLazy . Just
       vs' <- goLazy mk'
       return ((k, v) : vs')
 
+-- FIXME: local-no-index repos have no index
 indexFile :: Repo -> FilePath
 indexFile repo = indexBaseName repo <.> "tar"
 
 cacheFile :: Repo -> FilePath
 cacheFile repo = indexBaseName repo <.> "cache"
 
+-- FIXME: local-no-index repos have no timestamp
 timestampFile :: Repo -> FilePath
 timestampFile repo = indexBaseName repo <.> "timestamp"
 
@@ -770,16 +778,23 @@ is01Index repo = case repo of
 updatePackageIndexCacheFile :: Verbosity -> RepoContext -> Repo -> IO ()
 updatePackageIndexCacheFile verbosity repoCtxt repo = do
   info verbosity ("Updating index cache file " ++ cacheFile repo ++ " ...")
-  withIndexEntries verbosity repoCtxt repo callback callbackNoIndex
+  withIndexEntries verbosity repoCtxt repo callback callbackLegacy callbackNoIndex
   where
     callback entries = do
-      let !maxTs = maximumTimestamp (map cacheEntryTimestamp entries)
-          cache =
-            Cache
-              { cacheHeadTs = maxTs
-              , cacheEntries = entries
-              }
+      -- FIXME: how do we know there's at least a timestamp?
+      let Just (Max !maxTs) = flip foldMap entries $ \case 
+            (CacheBuildTreeRef _ _) -> Nothing
+            (CachePreference _ _ ts) -> Just (Max ts)
+            (CachePackageId _ _ ts) -> Just (Max ts)
+
+          cache = Cache { cacheHeadTs = maxTs , cacheEntries = entries }
+
       writeIndexCache repo cache
+      info verbosity ("Index cache updated to index-state " ++ prettyShow (cacheHeadTs cache))
+
+    callbackLegacy entries = do
+      let cache = Cache { cacheHeadTs = () , cacheEntries = entries }
+      writeLegacyIndexCache repo cache
       info
         verbosity
         ( "Index cache updated to index-state "
@@ -815,9 +830,10 @@ withIndexEntries
   -> RepoContext
   -> Repo
   -> ([IndexCacheEntry] -> IO a)
+  -> ([LegacyIndexCacheEntry] -> IO a)
   -> ([NoIndexCacheEntry] -> IO a)
   -> IO a
-withIndexEntries _ repoCtxt repo@RepoSecure{} callback _ =
+withIndexEntries _ repoCtxt repo@RepoSecure{} callback _ _ =
   repoContextWithSecureRepo repoCtxt repo $ \repoSecure ->
     Sec.withIndex repoSecure $ \Sec.IndexCallbacks{..} -> do
       -- Incrementally (lazily) read all the entries in the tar file in order,
@@ -851,7 +867,7 @@ withIndexEntries _ repoCtxt repo@RepoSecure{} callback _ =
           fromMaybe (error "withIndexEntries: invalid timestamp") $
             epochTimeToTimestamp $
               Sec.indexEntryTime sie
-withIndexEntries verbosity _repoCtxt (RepoLocalNoIndex (LocalRepo name localDir _) _cacheDir) _ callback = do
+withIndexEntries verbosity _repoCtxt (RepoLocalNoIndex (LocalRepo name localDir _) _cacheDir) _ _ callback = do
   dirContents <- listDirectory localDir
   let contentSet = Set.fromList dirContents
 
@@ -930,17 +946,17 @@ withIndexEntries verbosity _repoCtxt (RepoLocalNoIndex (LocalRepo name localDir 
       where
         filename = prettyShow pkgId FilePath.Posix.</> prettyShow (packageName pkgId) ++ ".cabal"
     readCabalEntry _ _ x = x
-withIndexEntries verbosity _repoCtxt repo callback _ = do
+withIndexEntries verbosity _repoCtxt repo _ callback _ = do
   -- non-secure repositories
   withFile (indexFile repo) ReadMode $ \h -> do
     bs <- maybeDecompress `fmap` BS.hGetContents h
     pkgsOrPrefs <- lazySequence $ parsePackageIndex verbosity bs
     callback $ map toCache (catMaybes pkgsOrPrefs)
   where
-    toCache :: PackageOrDep -> IndexCacheEntry
-    toCache (Pkg (NormalPackage pkgid _ _ blockNo)) = CachePackageId pkgid blockNo nullTimestamp
+    toCache :: PackageOrDep -> LegacyIndexCacheEntry
+    toCache (Pkg (NormalPackage pkgid _ _ blockNo)) = CachePackageId pkgid blockNo ()
     toCache (Pkg (BuildTreeRef refType _ _ _ blockNo)) = CacheBuildTreeRef refType blockNo
-    toCache (Dep d) = CachePreference d 0 nullTimestamp
+    toCache (Dep d) = CachePreference d 0 ()
 
 readPackageIndexCacheFile
   :: Package pkg
@@ -949,18 +965,63 @@ readPackageIndexCacheFile
   -> RepoContext
   -> Repo
   -> RepoIndexState
-  -> IO (PackageIndex pkg, [Dependency], IndexStateInfo)
+  -> IO (PackageIndex pkg, [Dependency], Maybe IndexStateInfo)
 readPackageIndexCacheFile verbosity mkPkg repContext repo idxState
   | localNoIndex repo = do
       cache0 <- readNoIndexCache verbosity repContext repo
       (pkgs, prefs) <- packageNoIndexFromCache verbosity mkPkg cache0
-      pure (pkgs, prefs, emptyStateInfo)
+      pure (pkgs, prefs, Nothing)
   | otherwise = do
       cache0 <- readIndexCache verbosity repContext repo
       indexHnd <- openFile (indexFile repo) ReadMode
       let (cache, isi) = filterCache idxState cache0
       (pkgs, deps) <- packageIndexFromCache verbosity mkPkg indexHnd cache
-      pure (pkgs, deps, isi)
+      pure (pkgs, deps, Just isi)
+
+-- FIXME: only for localRepos
+readPackageLocalNoIndexCacheFile
+  :: Package pkg
+  => Verbosity
+  -> (PackageEntry -> pkg)
+  -> RepoContext
+  -> Repo
+  -> IO (PackageIndex pkg, [Dependency])
+readPackageLocalNoIndexCacheFile verbosity mkPkg repContext repo = do
+  cache0 <- readNoIndexCache verbosity repContext repo
+  (pkgs, prefs) <- packageNoIndexFromCache verbosity mkPkg cache0
+  pure (pkgs, prefs)
+
+-- FIXME: only for RemoteRepo
+readPackageRemoteIndexCacheFile
+  :: Package pkg
+  => Verbosity
+  -> (PackageEntry -> pkg)
+  -> RepoContext
+  -> Repo
+  -> IO (PackageIndex pkg, [Dependency])
+readPackageRemoteIndexCacheFile verbosity mkPkg repContext repo = do
+  cache <- readIndexCache verbosity repContext repo
+  indexHnd <- openFile (indexFile repo) ReadMode
+  -- FIXME: AFAIU the timestamps are all null in this case
+  -- let (cache, isi) = filterCache idxState cache0
+  (pkgs, deps) <- packageIndexFromCache verbosity mkPkg indexHnd cache
+  pure (pkgs, deps)
+
+-- FIXME: only for SecureRepo
+readPackageSecureIndexCacheFile
+  :: Package pkg
+  => Verbosity
+  -> (PackageEntry -> pkg)
+  -> RepoContext
+  -> Repo
+  -> RepoIndexState
+  -> IO (PackageIndex pkg, [Dependency], IndexStateInfo)
+readPackageSecureIndexCacheFile verbosity mkPkg repContext repo idxState = do
+  cache0 <- readIndexCache verbosity repContext repo
+  indexHnd <- openFile (indexFile repo) ReadMode
+  let (cache, isi) = filterCache idxState cache0
+  (pkgs, deps) <- packageIndexFromCache verbosity mkPkg indexHnd cache
+  pure (pkgs, deps, isi)
 
 packageIndexFromCache
   :: Package pkg
@@ -1133,20 +1194,31 @@ readNoIndexCache verbosity repoCtxt repo = do
 
 -- | Read the index cache for 'Repo' from the filesystem without attempting to
 -- regenerate on parsing failures.
+-- FIXME: only for SecureRepo
 readIndexCache' :: Repo -> IO (Either String Cache)
-readIndexCache' repo
-  | is01Index repo = structuredDecodeFileOrFail (cacheFile repo)
-  | otherwise = Right . read00IndexCache <$> BSS.readFile (cacheFile repo)
+readIndexCache' repo =
+  structuredDecodeFileOrFail (cacheFile repo)
 
+-- FIXME: only for RemoteRepo
+readLegacyIndexCache :: Repo -> IO (Either String LegacyCache)
+readLegacyIndexCache repo =
+  Right . read00IndexCache <$> BSS.readFile (cacheFile repo)
+
+-- FIXME only for LocalRepo
 readNoIndexCache' :: Repo -> IO (Either String NoIndexCache)
 readNoIndexCache' repo = structuredDecodeFileOrFail (cacheFile repo)
 
--- | Write the index cache for 'Repo' to the filesystem
+-- FIXME only for secure repo
 writeIndexCache :: Repo -> Cache -> IO ()
-writeIndexCache repo cache
-  | is01Index repo = structuredEncodeFile (cacheFile repo) cache
-  | otherwise = writeFile (cacheFile repo) (show00IndexCache cache)
+writeIndexCache repo cache =
+  structuredEncodeFile (cacheFile repo) cache
 
+-- FIXME only for remote repo
+writeLegacyIndexCache :: Repo -> LegacyCache -> IO ()
+writeLegacyIndexCache repo cache =
+  writeFile (cacheFile repo) (show00IndexCache cache)
+
+-- FIXME only for local repo
 writeNoIndexCache :: Verbosity -> Repo -> NoIndexCache -> IO ()
 writeNoIndexCache verbosity repo cache = do
   let path = cacheFile repo
@@ -1154,22 +1226,27 @@ writeNoIndexCache verbosity repo cache = do
   structuredEncodeFile path cache
 
 -- | Write a repository index timestamp to the filesystem
+-- FIXME: not all repos have a timestamp file
 writeIndexTimestamp :: Repo -> RepoIndexState -> IO ()
 writeIndexTimestamp repo st =
   writeFile (timestampFile repo) (prettyShow st)
 
 -- | Read out the "current" index timestamp, i.e., what
 -- timestamp you would use to revert to this version
+-- FIXME: not all repos have a timestamp file
 currentIndexTimestamp :: Verbosity -> RepoContext -> Repo -> IO Timestamp
 currentIndexTimestamp verbosity repoCtxt r = do
   mb_is <- readIndexTimestamp verbosity r
   case mb_is of
     Just (IndexStateTime ts) -> return ts
-    _ -> do
-      (_, _, isi) <- readRepoIndex verbosity repoCtxt r IndexStateHead
-      return (isiHeadTime isi)
+    _otherwise ->
+      readRepoIndex verbosity repoCtxt r IndexStateHead >>= \case
+        Just (_, _, Just isi) -> return $ isiHeadTime isi
+        Just (_, _, Nothing) -> _
+        Nothing -> _
 
 -- | Read a repository index timestamp from the filesystem
+-- FIXME: not all repos have a timestamp file
 readIndexTimestamp :: Verbosity -> Repo -> IO (Maybe RepoIndexState)
 readIndexTimestamp verbosity repo =
   fmap simpleParsec (readFile (timestampFile repo))
@@ -1211,15 +1288,18 @@ hashConsCache cache0 =
     mapIntern k m = maybe (k, Map.insert k k m) (\k' -> (k', m)) (Map.lookup k m)
 
 -- | Cabal caches various information about the Hackage index
-data Cache = Cache
-  { cacheHeadTs :: Timestamp
+data Cache' ts = Cache
+  { cacheHeadTs :: ts
   -- ^ maximum/latest 'Timestamp' among 'cacheEntries'; unless the
   -- invariant of 'cacheEntries' being in chronological order is
   -- violated, this corresponds to the last (seen) 'Timestamp' in
   -- 'cacheEntries'
-  , cacheEntries :: [IndexCacheEntry]
+  , cacheEntries :: [IndexCacheEntry' ts]
   }
   deriving (Show, Generic)
+
+type LegacyCache = Cache' ()
+type Cache = Cache' Timestamp
 
 instance NFData Cache where
   rnf = rnf . cacheEntries
@@ -1237,12 +1317,15 @@ instance NFData NoIndexCache where
 -- content starts on a block boundary.
 type BlockNo = Word32 -- Tar.TarEntryOffset
 
-data IndexCacheEntry
-  = CachePackageId PackageId !BlockNo !Timestamp
-  | CachePreference Dependency !BlockNo !Timestamp
+data IndexCacheEntry' ts
+  = CachePackageId PackageId !BlockNo !ts
+  | CachePreference Dependency !BlockNo !ts
   | CacheBuildTreeRef !BuildTreeRefType !BlockNo
   -- NB: CacheBuildTreeRef is irrelevant for 01-index & v2-build
   deriving (Eq, Show, Generic)
+
+type IndexCacheEntry = IndexCacheEntry' Timestamp
+type LegacyIndexCacheEntry = IndexCacheEntry' ()
 
 data NoIndexCacheEntry
   = CacheGPD GenericPackageDescription !BSS.ByteString
@@ -1258,10 +1341,10 @@ instance NFData NoIndexCacheEntry where
   rnf (CacheGPD gpd bs) = rnf gpd `seq` rnf bs
   rnf (NoIndexCachePreference dep) = rnf dep
 
-cacheEntryTimestamp :: IndexCacheEntry -> Timestamp
-cacheEntryTimestamp (CacheBuildTreeRef _ _) = nullTimestamp
-cacheEntryTimestamp (CachePreference _ _ ts) = ts
-cacheEntryTimestamp (CachePackageId _ _ ts) = ts
+-- cacheEntryTimestamp :: IndexCacheEntry -> Timestamp
+-- cacheEntryTimestamp (CacheBuildTreeRef _ _) = nullTimestamp
+-- cacheEntryTimestamp (CachePreference _ _ ts) = ts
+-- cacheEntryTimestamp (CachePackageId _ _ ts) = ts
 
 ----------------------------------------------------------------------------
 -- new binary 01-index.cache format
@@ -1307,14 +1390,14 @@ buildTreeRefKey = "build-tree-ref:"
 preferredVersionKey = "pref-ver:"
 
 -- legacy 00-index.cache format
-read00IndexCache :: BSS.ByteString -> Cache
+read00IndexCache :: BSS.ByteString -> LegacyCache
 read00IndexCache bs =
   Cache
-    { cacheHeadTs = nullTimestamp
+    { cacheHeadTs = ()
     , cacheEntries = mapMaybe read00IndexCacheEntry $ BSS.lines bs
     }
 
-read00IndexCacheEntry :: BSS.ByteString -> Maybe IndexCacheEntry
+read00IndexCacheEntry :: BSS.ByteString -> Maybe LegacyIndexCacheEntry
 read00IndexCacheEntry = \line ->
   case BSS.words line of
     [key, pkgnamestr, pkgverstr, sep, blocknostr]
@@ -1328,7 +1411,7 @@ read00IndexCacheEntry = \line ->
                 ( CachePackageId
                     (PackageIdentifier pkgname pkgver)
                     blockno
-                    nullTimestamp
+                    ()
                 )
             _ -> Nothing
     [key, typecodestr, blocknostr] | key == BSS.pack buildTreeRefKey ->
@@ -1338,7 +1421,7 @@ read00IndexCacheEntry = \line ->
         _ -> Nothing
     (key : remainder) | key == BSS.pack preferredVersionKey -> do
       pref <- simpleParsecBS (BSS.unwords remainder)
-      return $ CachePreference pref 0 nullTimestamp
+      return $ CachePreference pref 0 ()
     _ -> Nothing
   where
     parseName str
@@ -1368,10 +1451,10 @@ read00IndexCacheEntry = \line ->
         _ -> Nothing
 
 -- legacy 00-index.cache format
-show00IndexCache :: Cache -> String
+show00IndexCache :: LegacyCache -> String
 show00IndexCache Cache{..} = unlines $ map show00IndexCacheEntry cacheEntries
 
-show00IndexCacheEntry :: IndexCacheEntry -> String
+show00IndexCacheEntry :: LegacyIndexCacheEntry -> String
 show00IndexCacheEntry entry = unwords $ case entry of
   CachePackageId pkgid b _ ->
     [ packageKey

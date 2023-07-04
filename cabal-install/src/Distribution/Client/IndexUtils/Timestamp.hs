@@ -13,7 +13,7 @@
 -- Timestamp type used in package indexes
 module Distribution.Client.IndexUtils.Timestamp
   ( Timestamp
-  , nullTimestamp
+  -- , nullTimestamp
   , epochTimeToTimestamp
   , timestampToUTCTime
   , utcTimeToTimestamp
