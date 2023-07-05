@@ -125,11 +125,13 @@ are tested before being released. This allows us to catch UX regressions and put
 a human perspective into testing.
 
 Contributions that touch `cabal-install` are expected to include notes for the QA team.
-They are a description of an expected result upon calling `cabal-install` with certain parameters.
+They are a description of an expected result upon calling `cabal-install` with certain parameters,
+and should be written in the body of the ticket or PR under their own heading, like this:
 
 For instance:
 
-> ## QA Notes
+> \#\# QA Notes
+> 
 > Calling `cabal haddock-project` should produce documentation for the whole cabal project with the following defaults enabled:
 > * Documentation lives in ./haddocks
 > * The file `./haddocks/index.html` should exist
@@ -143,6 +145,7 @@ Code Style
 
 We use automated formatting with Fourmolu to enforce a unified style across the code bases. It is checked in the CI process.
 After installing Fourmolu ≥ 0.12, you can automatically format the code bases with `make style` at the top level of the project.
+You can also use `make style-modified` to only format modified files.
 
 Other Conventions
 -----------------
