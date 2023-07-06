@@ -79,6 +79,7 @@ module Distribution.Simple.Command
   , boolOpt'
   , choiceOpt
   , choiceOptFromEnum
+  , liftOptions
   ) where
 
 import Distribution.Compat.Prelude hiding (get)
@@ -364,6 +365,14 @@ liftOption :: (b -> a) -> (a -> (b -> b)) -> OptionField a -> OptionField b
 liftOption get' set' opt =
   opt{optionDescr = liftOptDescr get' set' `map` optionDescr opt}
 
+-- | @since 3.11.0.0
+liftOptions
+  :: (b -> a)
+  -> (a -> b -> b)
+  -> [OptionField a]
+  -> [OptionField b]
+liftOptions get set = map (liftOption get set)
+
 -- | @since 3.4.0.0
 liftOptionL :: ALens' b a -> OptionField a -> OptionField b
 liftOptionL l = liftOption (^# l) (l #~)
@@ -371,7 +380,7 @@ liftOptionL l = liftOption (^# l) (l #~)
 liftOptDescr :: (b -> a) -> (a -> (b -> b)) -> OptDescr a -> OptDescr b
 liftOptDescr get' set' (ChoiceOpt opts) =
   ChoiceOpt
-    [ (d, ff, liftSet get' set' set, (get . get'))
+    [ (d, ff, liftSet get' set' set, get . get')
     | (d, ff, set, get) <- opts
     ]
 liftOptDescr get' set' (OptArg d ff ad set def get) =
@@ -424,8 +433,10 @@ commandShowOptions command v =
 commandListOptions :: CommandUI flags -> [String]
 commandListOptions command =
   concatMap listOption $
-    addCommonFlags ShowArgs $ -- This is a slight hack, we don't want
+    addCommonFlags ShowArgs $ -- This is a slight hack, we don't want -- This is a slight hack, we don't want
     -- "--list-options" showing up in the
+    -- "--list-options" showing up in the
+    -- list options output, so use ShowArgs
     -- list options output, so use ShowArgs
       commandGetOpts ShowArgs command
   where

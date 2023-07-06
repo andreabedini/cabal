@@ -221,7 +221,14 @@ data ConfigFlags = ConfigFlags
   -- ^ Allow depending on private sublibraries. This is used by external
   -- tools (like cabal-install) so they can add multiple-public-libraries
   -- compatibility to older ghcs by checking visibility externally.
-  , configAllowNewer :: Maybe AllowNewer
+  }
+  deriving (Generic, Read, Show, Typeable)
+
+instance Binary ConfigFlags
+instance Structured ConfigFlags
+
+data ConfigFlagsInternal = ConfigFlagsInternal
+  { configAllowNewer :: Maybe AllowNewer
   -- ^ Ignore upper bounds on all or some dependencies.
   -- Nothing means option not set.
   , configAllowOlder :: Maybe AllowOlder
@@ -230,16 +237,28 @@ data ConfigFlags = ConfigFlags
   }
   deriving (Generic, Read, Show, Typeable)
 
-instance Binary ConfigFlags
-instance Structured ConfigFlags
+instance Binary ConfigFlagsInternal
+instance Structured ConfigFlagsInternal
+
+instance Monoid ConfigFlagsInternal where
+  mempty = gmempty
+  mappend = (<>)
+
+instance Semigroup ConfigFlagsInternal where
+  (<>) = gmappend
+
+emptyConfigFlagsInternal :: ConfigFlagsInternal
+emptyConfigFlagsInternal = mempty
+
+defaultConfigFlagsInternal :: ConfigFlagsInternal
+defaultConfigFlagsInternal = emptyConfigFlagsInternal
+
 
 -- | More convenient version of 'configPrograms'. Results in an
 -- 'error' if internal invariant is violated.
 configPrograms :: WithCallStack (ConfigFlags -> ProgramDb)
 configPrograms =
-  fromMaybe (error "FIXME: remove configPrograms")
-    . fmap getLast'
-    . getOption'
+  maybe (error "FIXME: remove configPrograms") getLast' . getOption'
     . configPrograms_
 
 instance Eq ConfigFlags where
@@ -303,8 +322,8 @@ instance Eq ConfigFlags where
 configAbsolutePaths :: ConfigFlags -> IO ConfigFlags
 configAbsolutePaths f =
   (\v -> f{configPackageDBs = v})
-    `liftM` traverse
-      (maybe (return Nothing) (liftM Just . absolutePackageDBPath))
+    fmap traverse
+      (maybe (return Nothing) (fmap Just . absolutePackageDBPath))
       (configPackageDBs f)
 
 {- FOURMOLU_DISABLE -}
@@ -351,8 +370,6 @@ defaultConfigFlags progDb =
     , configDebugInfo = Flag NoDebugInfo
     , configDumpBuildInfo = NoFlag
     , configUseResponseFiles = NoFlag
-    , configAllowNewer = Nothing
-    , configAllowOlder = Nothing
     }
 {- FOURMOLU_ENABLE -}
 
