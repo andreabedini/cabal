@@ -1,4 +1,8 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 module Distribution.Client.Types.Repo
   ( -- * Remote repository
@@ -41,6 +45,11 @@ import qualified Distribution.Compat.CharParsing as P
 import qualified Text.PrettyPrint as Disp
 
 import Distribution.Client.Types.RepoName
+import Distribution.Make (Dependency)
+import qualified Data.ByteString as BSS
+import Distribution.Types.GenericPackageDescription
+import Distribution.Client.IndexUtils.Timestamp
+import Distribution.Client.IndexUtils.IndexState (RepoIndexState)
 
 import qualified System.FilePath.Posix as Posix
 import qualified System.FilePath.Windows as Windows
@@ -204,6 +213,71 @@ data Repo
 instance Binary Repo
 instance Structured Repo
 
+-- Repo         -> Index (~ tarball)  -> ?IndexState    -> Cache'
+-- LocalNoIndex -> ()                 -> ()             -> Cache' (RepoIndexState r)
+-- RemoteRepo   -> Tarball            -> ()             -> CacheWithNoTimestamp
+-- SecureRepo   -> HackageSecurity    -> IndexStateInfo -> CacheWithTimestamp
+
+data PackageId
+data BlockNo
+data BuildTreeRefType
+data IndexStateInfo
+
+data NoTimestamp
+data NoIndexState
+
+newtype SecureRepo = SecureRepo RemoteRepo
+
+data HasIndexState
+data HasNoIndexState
+
+class IsCache c where
+
+class (IsCache (Cache r)) => IsRepo r where
+  type RepoHasIndexState r
+  type Cache r
+
+instance IsCache NoIndexCache
+instance IsCache (IndexCache Timestamp)
+instance IsCache (IndexCache NoTimestamp)
+
+instance IsRepo LocalRepo where
+  type RepoHasIndexState LocalRepo = NoIndexState
+  type Cache LocalRepo = NoIndexCache
+
+instance IsRepo RemoteRepo where
+  type RepoHasIndexState RemoteRepo = NoIndexState
+  type Cache RemoteRepo = IndexCache NoTimestamp
+
+instance IsRepo SecureRepo where
+  type RepoHasIndexState SecureRepo = IndexStateInfo
+  type Cache SecureRepo = IndexCache Timestamp
+
+data IndexCache ts = IndexCache
+  { cacheHeadTs :: ts
+  , cacheEntries :: [IndexCacheEntry ts]
+  }
+
+data IndexCacheEntry ts
+  = CachePackageId PackageId !BlockNo !ts
+  | CachePreference Dependency !BlockNo !ts
+  | CacheBuildTreeRef !BuildTreeRefType !BlockNo
+
+newtype NoIndexCache = NoIndexCache
+  { noIndexCacheEntries :: [NoIndexCacheEntry]
+  }
+
+data NoIndexCacheEntry
+  = CacheGPD GenericPackageDescription !BSS.ByteString
+  | NoIndexCachePreference [Dependency]
+
+data SomeRepo r where
+  SomeLocalRepo  :: FilePath -> LocalRepo  -> SomeRepo LocalRepo
+  SomeRemoteRepo :: FilePath -> RemoteRepo -> SomeRepo RemoteRepo
+  SomeSecureRepo :: FilePath -> RemoteRepo -> SomeRepo SecureRepo
+
+
+-- 
 -- | Check if this is a remote repo
 isRepoRemote :: Repo -> Bool
 isRepoRemote RepoLocalNoIndex{} = False
