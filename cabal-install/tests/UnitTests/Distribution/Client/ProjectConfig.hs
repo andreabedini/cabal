@@ -66,7 +66,6 @@ import Data.TreeDiff.QuickCheck
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
-import Distribution.Types.AllowNewer
 
 tests :: [TestTree]
 tests =

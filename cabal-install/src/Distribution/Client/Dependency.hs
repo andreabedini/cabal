@@ -77,17 +77,19 @@ import Distribution.Client.Dependency.Types
   )
 import Distribution.Client.SolverInstallPlan (SolverInstallPlan)
 import qualified Distribution.Client.SolverInstallPlan as SolverInstallPlan
-import Distribution.Types.AllowNewer
+import Distribution.Client.Types
   ( AllowNewer (..)
   , AllowOlder (..)
+  , PackageSpecifier (..)
+  , RelaxDepMod (..)
+  , RelaxDepScope (..)
+  , RelaxDepSubject (..)
   , RelaxDeps (..)
-  , isRelaxDeps
-  )
-import Distribution.Client.Types
-  (  PackageSpecifier (..)
+  , RelaxedDep (..)
   , SourcePackageDb (SourcePackageDb)
   , UnresolvedPkgLoc
   , UnresolvedSourcePackage
+  , isRelaxDeps
   , pkgSpecifierConstraints
   , pkgSpecifierTarget
   )
@@ -161,7 +163,6 @@ import Data.List
   )
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-import Distribution.AllowNewer (RelaxKind (..), relaxPackageDeps)
 
 -- ------------------------------------------------------------
 
@@ -527,6 +528,8 @@ removeUpperBounds (AllowNewer relDeps) = removeBounds RelaxUpper relDeps
 removeLowerBounds :: AllowOlder -> DepResolverParams -> DepResolverParams
 removeLowerBounds (AllowOlder relDeps) = removeBounds RelaxLower relDeps
 
+data RelaxKind = RelaxLower | RelaxUpper
+
 -- | Common internal implementation of 'removeLowerBounds'/'removeUpperBounds'
 removeBounds :: RelaxKind -> RelaxDeps -> DepResolverParams -> DepResolverParams
 removeBounds _ rd params | not (isRelaxDeps rd) = params -- no-op optimisation
@@ -543,6 +546,54 @@ removeBounds relKind relDeps params =
       srcPkg
         { srcpkgDescription = relaxPackageDeps relKind relDeps (srcpkgDescription srcPkg)
         }
+
+-- | Relax the dependencies of this package if needed.
+--
+-- Helper function used by 'removeBounds'
+relaxPackageDeps
+  :: RelaxKind
+  -> RelaxDeps
+  -> PD.GenericPackageDescription
+  -> PD.GenericPackageDescription
+relaxPackageDeps _ rd gpd | not (isRelaxDeps rd) = gpd -- subsumed by no-op case in 'removeBounds'
+relaxPackageDeps relKind RelaxDepsAll gpd = PD.transformAllBuildDepends relaxAll gpd
+  where
+    relaxAll :: Dependency -> Dependency
+    relaxAll (Dependency pkgName verRange cs) =
+      Dependency pkgName (removeBound relKind RelaxDepModNone verRange) cs
+relaxPackageDeps relKind (RelaxDepsSome depsToRelax0) gpd =
+  PD.transformAllBuildDepends relaxSome gpd
+  where
+    thisPkgName = packageName gpd
+    thisPkgId = packageId gpd
+    depsToRelax = Map.fromList $ mapMaybe f depsToRelax0
+
+    f :: RelaxedDep -> Maybe (RelaxDepSubject, RelaxDepMod)
+    f (RelaxedDep scope rdm p) = case scope of
+      RelaxDepScopeAll -> Just (p, rdm)
+      RelaxDepScopePackage p0
+        | p0 == thisPkgName -> Just (p, rdm)
+        | otherwise -> Nothing
+      RelaxDepScopePackageId p0
+        | p0 == thisPkgId -> Just (p, rdm)
+        | otherwise -> Nothing
+
+    relaxSome :: Dependency -> Dependency
+    relaxSome d@(Dependency depName verRange cs)
+      | Just relMod <- Map.lookup RelaxDepSubjectAll depsToRelax =
+          -- a '*'-subject acts absorbing, for consistency with
+          -- the 'Semigroup RelaxDeps' instance
+          Dependency depName (removeBound relKind relMod verRange) cs
+      | Just relMod <- Map.lookup (RelaxDepSubjectPkg depName) depsToRelax =
+          Dependency depName (removeBound relKind relMod verRange) cs
+      | otherwise = d -- no-op
+
+-- | Internal helper for 'relaxPackageDeps'
+removeBound :: RelaxKind -> RelaxDepMod -> VersionRange -> VersionRange
+removeBound RelaxLower RelaxDepModNone = removeLowerBound
+removeBound RelaxUpper RelaxDepModNone = removeUpperBound
+removeBound RelaxLower RelaxDepModCaret = transformCaretLower
+removeBound RelaxUpper RelaxDepModCaret = transformCaretUpper
 
 -- | Supply defaults for packages without explicit Setup dependencies
 --

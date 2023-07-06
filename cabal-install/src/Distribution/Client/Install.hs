@@ -267,7 +267,6 @@ import Distribution.Version
   )
 
 import qualified Data.ByteString as BS
-import Distribution.Types.AllowNewer (AllowOlder(..), AllowNewer (..))
 
 -- TODO:
 
@@ -679,11 +678,11 @@ planPackages
       allowOlder =
         fromMaybe
           (AllowOlder mempty)
-          (configAllowOlder configFlags)
+          (configAllowOlder configExFlags)
       allowNewer =
         fromMaybe
           (AllowNewer mempty)
-          (configAllowNewer configFlags)
+          (configAllowNewer configExFlags)
 
 -- | Remove the provided targets from the install plan.
 pruneInstallPlan
