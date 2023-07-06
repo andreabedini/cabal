@@ -419,6 +419,7 @@ data RepoData = RepoData
 -- All the 'SourcePackage's are marked as having come from the given 'Repo'.
 --
 -- This is a higher level wrapper used internally in cabal-install.
+-- TODO:
 readRepoIndex
   :: Verbosity
   -> RepoContext
@@ -757,10 +758,11 @@ indexFile (RepoIndex _ctxt repo) = indexBaseName repo <.> "tar"
 cacheFile :: Index -> FilePath
 cacheFile (RepoIndex _ctxt repo) = indexBaseName repo <.> "cache"
 
-timestampFile :: Index -> FilePath
+timestampFile :: Repo -> FilePath
 timestampFile (RepoIndex _ctxt repo) = indexBaseName repo <.> "timestamp"
 
 -- | Return 'True' if 'Index' uses 01-index format (aka secure repo)
+-- is01Repo ??
 is01Index :: Index -> Bool
 is01Index (RepoIndex _ repo) = case repo of
   RepoSecure{} -> True
