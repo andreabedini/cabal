@@ -62,7 +62,8 @@ import Distribution.Compat.Semigroup (Last' (..), Option' (..))
 import Distribution.Compat.Stack
 
 import Distribution.Simple.Setup.Common
-import Distribution.Types.AllowNewer (AllowNewer (..), AllowOlder (..), RelaxDeps (..))
+import Distribution.AllowNewer (AllowNewer (..), AllowOlder (..), RelaxedDep (RelaxedDep), RelaxDepMod (RelaxDepModNone), RelaxedDeps (RelaxedDeps))
+import qualified Data.List.NonEmpty as NE
 
 -- ------------------------------------------------------------
 
@@ -221,38 +222,17 @@ data ConfigFlags = ConfigFlags
   -- ^ Allow depending on private sublibraries. This is used by external
   -- tools (like cabal-install) so they can add multiple-public-libraries
   -- compatibility to older ghcs by checking visibility externally.
-  }
-  deriving (Generic, Read, Show, Typeable)
-
-instance Binary ConfigFlags
-instance Structured ConfigFlags
-
-data ConfigFlagsInternal = ConfigFlagsInternal
-  { configAllowNewer :: Maybe AllowNewer
+  , configAllowNewer :: Flag AllowNewer
   -- ^ Ignore upper bounds on all or some dependencies.
   -- Nothing means option not set.
-  , configAllowOlder :: Maybe AllowOlder
+  , configAllowOlder :: Flag AllowOlder
   -- ^ Ignore lower bounds on all or some dependencies.
   -- Nothing means option not set.
   }
   deriving (Generic, Read, Show, Typeable)
 
-instance Binary ConfigFlagsInternal
-instance Structured ConfigFlagsInternal
-
-instance Monoid ConfigFlagsInternal where
-  mempty = gmempty
-  mappend = (<>)
-
-instance Semigroup ConfigFlagsInternal where
-  (<>) = gmappend
-
-emptyConfigFlagsInternal :: ConfigFlagsInternal
-emptyConfigFlagsInternal = mempty
-
-defaultConfigFlagsInternal :: ConfigFlagsInternal
-defaultConfigFlagsInternal = emptyConfigFlagsInternal
-
+instance Binary ConfigFlags
+instance Structured ConfigFlags
 
 -- | More convenient version of 'configPrograms'. Results in an
 -- 'error' if internal invariant is violated.
@@ -314,8 +294,6 @@ instance Eq ConfigFlags where
       && equal configDebugInfo
       && equal configDumpBuildInfo
       && equal configUseResponseFiles
-      && equal configAllowNewer
-      && equal configAllowOlder
     where
       equal f = on (==) f a b
 
@@ -863,13 +841,13 @@ configureOptions showOrParseArgs =
               ++ " DEPS is a comma or space separated list of DEP or PKG:DEP,"
               ++ " where PKG or DEP can be *."
           )
-          configAllowOlder
-          (\v flags -> flags{configAllowOlder = v})
+          (fmap unAllowOlder . configAllowOlder)
+          (\v flags -> flags{configAllowOlder = fmap AllowOlder v})
           ( optArg
               "DEPS"
-              (fmap (Just . AllowOlder) parseRelaxDeps)
-              (Just $ AllowOlder RelaxDepsAll)
-              (relaxDepsPrinter . fmap unAllowOlder)
+              (Flag <$> parsecToReadEErr unexpectMsgString parsec)
+              (Flag $ RelaxedDeps (Left RelaxDepModNone))
+              relaxDepsPrinter
           )
        , option
           ""
@@ -878,36 +856,16 @@ configureOptions showOrParseArgs =
               ++ " DEPS is a comma or space separated list of DEP or PKG:DEP,"
               ++ " where PKG or DEP can be *."
           )
-          configAllowNewer
-          (\v flags -> flags{configAllowNewer = v})
+          (fmap unAllowNewer . configAllowNewer)
+          (\v flags -> flags{configAllowNewer = fmap AllowNewer v})
           ( optArg
               "DEPS"
-              (fmap (Just . AllowNewer) parseRelaxDeps)
-              (Just $ AllowNewer RelaxDepsAll)
-              (relaxDepsPrinter . fmap unAllowNewer)
+              (Flag <$> parsecToReadEErr unexpectMsgString parsec)
+              (Flag $ RelaxedDeps (Left RelaxDepModNone))
+              relaxDepsPrinter
           )
-       ]
+        ]
   where
-    relaxDepsParser :: CabalParsing m => m RelaxDeps
-    relaxDepsParser = do
-      rs <- parsecOptCommaList parsec
-      if null rs
-        then -- This error is not displayed by the argument parser,
-        -- but its nice to have anyway.
-
-          fail $
-            "empty argument list is not allowed. "
-              ++ "Note: use --allow-newer/--allow-older without the equals sign to permit all "
-              ++ "packages to use newer versions."
-        else return . RelaxDepsSome $ rs
-
-    relaxDepsPrinter :: Maybe RelaxDeps -> [Maybe String]
-    relaxDepsPrinter Nothing = []
-    relaxDepsPrinter (Just RelaxDepsAll) = [Nothing]
-    relaxDepsPrinter (Just (RelaxDepsSome pkgs)) = map (Just . prettyShow) pkgs
-
-    parseRelaxDeps = parsecToReadE ("Not a valid list of DEPS: " ++) relaxDepsParser
-
     liftInstallDirs =
       liftOption configInstallDirs (\v flags -> flags{configInstallDirs = v})
 
@@ -919,6 +877,9 @@ configureOptions showOrParseArgs =
         d
         (fmap fromPathTemplate . get)
         (set . fmap toPathTemplate)
+
+relaxDepsPrinter :: Flag RelaxedDeps -> [Maybe String]
+relaxDepsPrinter = _
 
 readPackageDbList :: String -> [Maybe PackageDB]
 readPackageDbList str = [readPackageDb str]

@@ -1,71 +1,104 @@
 -----------------------------------------------------------------------------
 
 -- | Utilities to relax version bounds on dependencies
+{-# LANGUAGE DeriveGeneric #-}
 module Distribution.AllowNewer
-  ( relaxPackageDeps
-  , removeBound
+  ( AllowNewer (..)
+  , AllowOlder (..)
   , RelaxDepMod (..)
+  -- , RelaxDepSubject (..)
+  , RelaxedDep (..)
+  , RelaxedDeps (..)
   , RelaxKind (..)
+  , removeBound
+  , mkRelaxedDeps
   ) where
 
 import Distribution.Compat.Prelude
 
-import Distribution.Package
-  ( Package (..)
-  , packageName
-  )
-import qualified Distribution.PackageDescription as PD
-import qualified Distribution.PackageDescription.Configuration as PD
-import Distribution.Types.Dependency
 import Distribution.Version
 
-import qualified Data.Map as Map
-import Distribution.Types.AllowNewer
+import Distribution.Parsec ( Parsec (parsec))
+import Distribution.Types.PackageName (PackageName, mkPackageName)
+
+import qualified Distribution.Compat.CharParsing as P
+import Distribution.Pretty (Pretty (pretty))
+import qualified Text.PrettyPrint as Disp
+import qualified Data.List.NonEmpty as NE
 
 data RelaxKind = RelaxLower | RelaxUpper
 
--- | Relax the dependencies of this package if needed.
---
--- Helper function used by 'removeBounds'
-relaxPackageDeps
-  :: RelaxKind
-  -> RelaxDeps
-  -> PD.GenericPackageDescription
-  -> PD.GenericPackageDescription
-relaxPackageDeps _ rd gpd | not (isRelaxDeps rd) = gpd -- subsumed by no-op case in 'removeBounds'
-relaxPackageDeps relKind RelaxDepsAll gpd = PD.transformAllBuildDepends relaxAll gpd
-  where
-    relaxAll :: Dependency -> Dependency
-    relaxAll (Dependency pkgName verRange cs) =
-      Dependency pkgName (removeBound relKind RelaxDepModNone verRange) cs
-relaxPackageDeps relKind (RelaxDepsSome depsToRelax0) gpd =
-  PD.transformAllBuildDepends relaxSome gpd
-  where
-    thisPkgName = packageName gpd
-    thisPkgId = packageId gpd
-    depsToRelax = Map.fromList $ mapMaybe f depsToRelax0
+-- $setup
+-- >>> import Distribution.Parsec
 
-    f :: RelaxedDep -> Maybe (RelaxDepSubject, RelaxDepMod)
-    f (RelaxedDep scope rdm p) = case scope of
-      RelaxDepScopeAll -> Just (p, rdm)
-      RelaxDepScopePackage p0
-        | p0 == thisPkgName -> Just (p, rdm)
-        | otherwise -> Nothing
-      RelaxDepScopePackageId p0
-        | p0 == thisPkgId -> Just (p, rdm)
-        | otherwise -> Nothing
+-- TODO: When https://github.com/haskell/cabal/issues/4203 gets tackled,
+-- it may make sense to move these definitions to the Solver.Types
+-- module
 
-    relaxSome :: Dependency -> Dependency
-    relaxSome d@(Dependency depName verRange cs)
-      | Just relMod <- Map.lookup RelaxDepSubjectAll depsToRelax =
-          -- a '*'-subject acts absorbing, for consistency with
-          -- the 'Semigroup RelaxDeps' instance
-          Dependency depName (removeBound relKind relMod verRange) cs
-      | Just relMod <- Map.lookup (RelaxDepSubjectPkg depName) depsToRelax =
-          Dependency depName (removeBound relKind relMod verRange) cs
-      | otherwise = d -- no-op
+-- | 'RelaxDeps' in the context of upper bounds (i.e. for @--allow-newer@ flag)
+newtype AllowNewer = AllowNewer {unAllowNewer :: RelaxedDeps}
+  deriving (Eq, Read, Show, Generic)
 
--- | Internal helper for 'relaxPackageDeps'
+instance Binary AllowNewer
+instance Structured AllowNewer
+
+instance Semigroup AllowNewer where
+  AllowNewer x <> AllowNewer y = AllowNewer (x <> y)
+
+-- | 'RelaxDeps' in the context of lower bounds (i.e. for @--allow-older@ flag)
+newtype AllowOlder = AllowOlder {unAllowOlder :: RelaxedDeps}
+  deriving (Eq, Read, Show, Generic)
+
+instance Binary AllowOlder
+instance Structured AllowOlder
+
+instance Semigroup AllowOlder where
+  AllowOlder x <> AllowOlder y = AllowOlder (x <> y)
+
+-- | Dependencies can be relaxed either for all packages in the install plan, or
+-- only for some packages.
+newtype RelaxedDeps = RelaxedDeps (Either RelaxDepMod (NE.NonEmpty RelaxedDep))
+  deriving (Eq, Read, Show, Generic)
+
+instance Binary RelaxedDeps
+instance Structured RelaxedDeps
+
+instance Semigroup RelaxedDeps where
+  RelaxedDeps lhs <> RelaxedDeps rhs = RelaxedDeps (lhs <> rhs)
+
+mkRelaxedDeps :: NE.NonEmpty RelaxedDep -> RelaxedDeps
+mkRelaxedDeps xs = RelaxedDeps $ 
+  case find (\(RelaxedDep _ pn) -> pn == mkPackageName "all") xs of
+    Nothing -> Right xs
+    Just (RelaxedDep rdm _pn) -> Left rdm
+
+data RelaxedDep = RelaxedDep !RelaxDepMod !PackageName
+  deriving (Eq, Read, Show, Generic)
+
+instance Binary RelaxedDep
+instance Structured RelaxedDep
+
+-- | Modifier for dependency relaxation
+data RelaxDepMod
+  = -- | Default semantics
+    RelaxDepModNone
+  | -- | Apply relaxation only to @^>=@ constraints
+    RelaxDepModCaret
+  deriving (Eq, Read, Show, Generic)
+
+instance Binary RelaxDepMod
+instance Structured RelaxDepMod
+
+instance Pretty RelaxedDep where
+  pretty (RelaxedDep RelaxDepModNone subj) = pretty subj
+  pretty (RelaxedDep RelaxDepModCaret subj) = Disp.char '^' Disp.<> pretty subj
+
+instance Parsec RelaxedDep where
+  parsec = RelaxedDep <$> modP <*> parsec
+
+modP :: P.CharParsing m => m RelaxDepMod
+modP = RelaxDepModCaret <$ P.char '^' <|> pure RelaxDepModNone
+
 removeBound :: RelaxKind -> RelaxDepMod -> VersionRange -> VersionRange
 removeBound RelaxLower RelaxDepModNone = removeLowerBound
 removeBound RelaxUpper RelaxDepModNone = removeUpperBound

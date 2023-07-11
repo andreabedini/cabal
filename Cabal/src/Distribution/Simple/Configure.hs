@@ -163,15 +163,11 @@ import Text.PrettyPrint
   , ($+$), vcat, parens, space
   )
 
-import Data.Coerce (coerce)
 import qualified Data.Maybe as M
 import qualified Data.Set as Set
-import Distribution.AllowNewer (RelaxDepMod(..), RelaxKind (..), relaxPackageDeps, removeBound)
+import Distribution.AllowNewer ( RelaxDepMod(..), RelaxKind(..), removeBound, AllowNewer(..), AllowOlder(..), RelaxedDep(..))
 import qualified Distribution.Compat.NonEmptySet as NES
-import Distribution.Types.AllowNewer (AllowNewer (..), AllowOlder (..), RelaxDeps (..), RelaxedDep (..), RelaxDepScope (..), RelaxDepSubject (..))
 import Distribution.Types.AnnotatedId
-import Data.Monoid (Endo(..))
-import Control.Monad
 
 type UseExternalInternalDeps = Bool
 
@@ -1217,18 +1213,18 @@ dependencySatisfiable
           maybeIPI = Map.lookup (depName, CLibName lib) requiredDepsMap
           promised = isJust $ Map.lookup (depName, CLibName lib) promisedDeps
 
-extractRelaxDepMod :: PackageId -> RelaxDeps -> PackageName -> Maybe RelaxDepMod
-extractRelaxDepMod pkgId = \case
-  RelaxDepsAll ->
-    const $ Just RelaxDepModNone
-  (RelaxDepsSome relaxedDeps) ->
-    msum . for relaxedDeps (\(RelaxedDep scope rdm p) ->
-      if scope `elem` [RelaxDepScopeAll, RelaxDepScopePackage (packageName pkgId), RelaxDepScopePackageId pkgId]
-      then \dpn ->
-        if p `elem` [RelaxDepSubjectAll, RelaxDepSubjectPkg dpn]
-        then Just rdm
-        else Nothing
-      else const Nothing)
+-- extractRelaxDepMod :: [RelaxedDep] -> PackageName -> Maybe RelaxDepMod
+-- extractRelaxDepMod pkgId = \case
+--   RelaxDepsAll ->
+--     const $ Just RelaxDepModNone
+--   (RelaxDepsSome relaxedDeps) ->
+--     msum . for relaxedDeps (\(RelaxedDep scope rdm p) ->
+--       if scope `elem` [RelaxDepScopeAll, RelaxDepScopePackage (packageName pkgId), RelaxDepScopePackageId pkgId]
+--       then \dpn ->
+--         if p `elem` [RelaxDepSubjectAll, RelaxDepSubjectPkg dpn]
+--         then Just rdm
+--         else Nothing
+--       else const Nothing)
 
 relax :: RelaxKind -> Dependency -> RelaxDepMod -> Dependency
 relax relKind (Dependency pkgName verRange cs) rdm =
@@ -1263,10 +1259,10 @@ configureFinalizedPackage
   pkg_descr0 = do
     let
       pkgId = package $ packageDescription pkg_descr0
-      extractUpper = extractRelaxDepMod pkgId $ foldMap unAllowNewer $ configAllowNewer cfg
-      extractLower = extractRelaxDepMod pkgId $ foldMap unAllowOlder $ configAllowOlder cfg
+      extractUpper d = foldMap (_ . unAllowNewer) $ configAllowNewer cfg
+      extractLower d = foldMap (_ . unAllowOlder) $ configAllowOlder cfg
       satisfiesRelaxed =
-        satisfies 
+        satisfies
           . (\d -> maybe d (relax RelaxUpper d) $ extractUpper (depPkgName d))
           . (\d -> maybe d (relax RelaxLower d) $ extractLower (depPkgName d))
 
