@@ -41,6 +41,34 @@ data Message =
   | Success
   | Failure ConflictSet FailReason
 
+data Message'
+  = Failure' ConflictSet FailReason
+  | PackageGoal QPN QGoalReason
+  | RejectF QFN Bool ConflictSet FailReason
+  | RejectS QSN Bool ConflictSet FailReason
+  | Skipping' (Set CS.Conflict)
+  | Success'
+  | TryingF QFN Bool
+  | TryingP QPN POption (Maybe (GoalReason QPN))
+  | TryingS QSN Bool
+  | RejectMany QPN [POption] ConflictSet FailReason
+  | SkipMany QPN [POption] (Set CS.Conflict)
+  | UnknownPackage' QPN (GoalReason QPN)
+
+displayMessage' :: Message' -> String
+displayMessage' (Failure' c fr) = "fail" ++ showFR c fr
+displayMessage' (PackageGoal qpn gr) = "next goal: " ++ showQPN qpn ++ showGR gr
+displayMessage' (RejectF qfn b c fr) = "rejecting: " ++ showQFNBool qfn b ++ showFR c fr
+displayMessage' (RejectS qsn b c fr) = "rejecting: " ++ showQSNBool qsn b ++ showFR c fr
+displayMessage' (Skipping' cs) = showConflicts cs
+displayMessage' Success' = "done"
+displayMessage' (TryingF qfn b) = "trying: " ++ showQFNBool qfn b
+displayMessage' (TryingP qpn i mgr) = "trying: " ++ showQPNPOpt qpn i ++ maybe "" showGR mgr
+displayMessage' (TryingS qsn b) = "trying: " ++ showQSNBool qsn b
+displayMessage' (RejectMany qpn is c fr) = "rejecting: " ++ L.intercalate ", " (map (showQPNPOpt qpn) (reverse is)) ++ showFR c fr
+displayMessage' (SkipMany qpn is cs) = "skipping: " ++ L.intercalate ", " (map (showQPNPOpt qpn) (reverse is)) ++ showConflicts cs
+displayMessage' (UnknownPackage' qpn gr) = "unknown package: " ++ showQPN qpn ++ showGR gr
+
 -- | Transforms the structured message type to actual messages (strings).
 --
 -- The log contains level numbers, which are useful for any trace that involves
@@ -54,38 +82,40 @@ showMessages = go 0
     go :: Int -> Progress Message a b -> Progress String a b
     go !_ (Done x)                           = Done x
     go !_ (Fail x)                           = Fail x
+
     -- complex patterns
     go !l (Step (TryP qpn i) (Step Enter (Step (Failure c fr) (Step Leave ms)))) =
         goPReject l qpn [i] c fr ms
+
     go !l (Step (TryP qpn i) (Step Enter (Step (Skip conflicts) (Step Leave ms)))) =
         goPSkip l qpn [i] conflicts ms
+
     go !l (Step (TryF qfn b) (Step Enter (Step (Failure c fr) (Step Leave ms)))) =
-        (atLevel l $ "rejecting: " ++ showQFNBool qfn b ++ showFR c fr) (go l ms)
+        (atLevel l $ displayMessage' (RejectF qfn b c fr)) (go l ms)
+
     go !l (Step (TryS qsn b) (Step Enter (Step (Failure c fr) (Step Leave ms)))) =
-        (atLevel l $ "rejecting: " ++ showQSNBool qsn b ++ showFR c fr) (go l ms)
+        (atLevel l $ displayMessage' (RejectS qsn b c fr)) (go l ms)
+
+    -- "Trying ..." message when a new goal is started
     go !l (Step (Next (Goal (P _  ) gr)) (Step (TryP qpn' i) ms@(Step Enter (Step (Next _) _)))) =
-        (atLevel l $ "trying: " ++ showQPNPOpt qpn' i ++ showGR gr) (go l ms)
+        (atLevel l $ displayMessage' (TryingP qpn' i (Just gr))) (go l ms)
+
     go !l (Step (Next (Goal (P qpn) gr)) (Step (Failure _c UnknownPackage) ms)) =
-        atLevel l ("unknown package: " ++ showQPN qpn ++ showGR gr) $ go l ms
+        (atLevel l $ displayMessage' (UnknownPackage' qpn gr)) (go l ms)
+
     -- standard display
     go !l (Step Enter                    ms) = go (l+1) ms
     go !l (Step Leave                    ms) = go (l-1) ms
-    go !l (Step (TryP qpn i)             ms) = (atLevel l $ "trying: " ++ showQPNPOpt qpn i) (go l ms)
-    go !l (Step (TryF qfn b)             ms) = (atLevel l $ "trying: " ++ showQFNBool qfn b) (go l ms)
-    go !l (Step (TryS qsn b)             ms) = (atLevel l $ "trying: " ++ showQSNBool qsn b) (go l ms)
-    go !l (Step (Next (Goal (P qpn) gr)) ms) = (atLevel l $ showPackageGoal qpn gr) (go l ms)
-    go !l (Step (Next _)                 ms) = go l     ms -- ignore flag goals in the log
-    go !l (Step (Skip conflicts)         ms) =
-        -- 'Skip' should always be handled by 'goPSkip' in the case above.
-        (atLevel l $ "skipping: " ++ showConflicts conflicts) (go l ms)
-    go !l (Step (Success)                ms) = (atLevel l $ "done") (go l ms)
-    go !l (Step (Failure c fr)           ms) = (atLevel l $ showFailure c fr) (go l ms)
+    go !l (Step (TryP qpn i)             ms) = (atLevel l $ displayMessage' (TryingP qpn i Nothing)) (go l ms)
+    go !l (Step (TryF qfn b)             ms) = (atLevel l $ displayMessage' (TryingF qfn b)) (go l ms)
+    go !l (Step (TryS qsn b)             ms) = (atLevel l $ displayMessage' (TryingS qsn b)) (go l ms)
+    go !l (Step (Next (Goal (P qpn) gr)) ms) = (atLevel l $ displayMessage' (PackageGoal qpn gr)) (go l ms)
+    go !l (Step (Next _)                 ms) = go l ms -- ignore flag goals in the log
 
-    showPackageGoal :: QPN -> QGoalReason -> String
-    showPackageGoal qpn gr = "next goal: " ++ showQPN qpn ++ showGR gr
-
-    showFailure :: ConflictSet -> FailReason -> String
-    showFailure c fr = "fail" ++ showFR c fr
+    -- 'Skip' should always be handled by 'goPSkip' in the case above.
+    go !l (Step (Skip conflicts)         ms) = (atLevel l $ displayMessage' (Skipping' conflicts)) (go l ms)
+    go !l (Step (Success)                ms) = (atLevel l $ displayMessage' Success') (go l ms)
+    go !l (Step (Failure c fr)           ms) = (atLevel l $ displayMessage' (Failure' c fr)) (go l ms)
 
     -- special handler for many subsequent package rejections
     goPReject :: Int
@@ -96,9 +126,10 @@ showMessages = go 0
               -> Progress Message a b
               -> Progress String a b
     goPReject l qpn is c fr (Step (TryP qpn' i) (Step Enter (Step (Failure _ fr') (Step Leave ms))))
-      | qpn == qpn' && fr == fr' = goPReject l qpn (i : is) c fr ms
+      | qpn == qpn' && fr == fr' =
+        goPReject l qpn (i : is) c fr ms
     goPReject l qpn is c fr ms =
-        (atLevel l $ "rejecting: " ++ L.intercalate ", " (map (showQPNPOpt qpn) (reverse is)) ++ showFR c fr) (go l ms)
+        (atLevel l $ displayMessage' (RejectMany qpn is c fr)) (go l ms)
 
     -- Handle many subsequent skipped package instances.
     goPSkip :: Int
@@ -110,10 +141,7 @@ showMessages = go 0
     goPSkip l qpn is conflicts (Step (TryP qpn' i) (Step Enter (Step (Skip conflicts') (Step Leave ms))))
       | qpn == qpn' && conflicts == conflicts' = goPSkip l qpn (i : is) conflicts ms
     goPSkip l qpn is conflicts ms =
-      let msg = "skipping: "
-                 ++ L.intercalate ", " (map (showQPNPOpt qpn) (reverse is))
-                 ++ showConflicts conflicts
-      in atLevel l msg (go l ms)
+        (atLevel l $ displayMessage' (SkipMany qpn is conflicts)) (go l ms)
 
     -- write a message with the current level number
     atLevel :: Int -> String -> Progress String a b -> Progress String a b
