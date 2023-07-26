@@ -42,32 +42,32 @@ data Message =
   | Failure ConflictSet FailReason
 
 data Message'
-  = Failure' ConflictSet FailReason
-  | PackageGoal QPN QGoalReason
+  = PackageGoal QPN QGoalReason
   | RejectF QFN Bool ConflictSet FailReason
   | RejectS QSN Bool ConflictSet FailReason
   | Skipping' (Set CS.Conflict)
-  | Success'
   | TryingF QFN Bool
   | TryingP QPN POption (Maybe (GoalReason QPN))
   | TryingS QSN Bool
   | RejectMany QPN [POption] ConflictSet FailReason
   | SkipMany QPN [POption] (Set CS.Conflict)
   | UnknownPackage' QPN (GoalReason QPN)
+  | Success'
+  | Failure' ConflictSet FailReason
 
 displayMessage' :: Message' -> String
-displayMessage' (Failure' c fr) = "fail" ++ showFR c fr
 displayMessage' (PackageGoal qpn gr) = "next goal: " ++ showQPN qpn ++ showGR gr
 displayMessage' (RejectF qfn b c fr) = "rejecting: " ++ showQFNBool qfn b ++ showFR c fr
 displayMessage' (RejectS qsn b c fr) = "rejecting: " ++ showQSNBool qsn b ++ showFR c fr
 displayMessage' (Skipping' cs) = showConflicts cs
-displayMessage' Success' = "done"
 displayMessage' (TryingF qfn b) = "trying: " ++ showQFNBool qfn b
 displayMessage' (TryingP qpn i mgr) = "trying: " ++ showQPNPOpt qpn i ++ maybe "" showGR mgr
 displayMessage' (TryingS qsn b) = "trying: " ++ showQSNBool qsn b
 displayMessage' (RejectMany qpn is c fr) = "rejecting: " ++ L.intercalate ", " (map (showQPNPOpt qpn) (reverse is)) ++ showFR c fr
 displayMessage' (SkipMany qpn is cs) = "skipping: " ++ L.intercalate ", " (map (showQPNPOpt qpn) (reverse is)) ++ showConflicts cs
 displayMessage' (UnknownPackage' qpn gr) = "unknown package: " ++ showQPN qpn ++ showGR gr
+displayMessage' Success' = "done"
+displayMessage' (Failure' c fr) = "fail" ++ showFR c fr
 
 -- | Transforms the structured message type to actual messages (strings).
 --

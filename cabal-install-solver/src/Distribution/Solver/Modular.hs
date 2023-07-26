@@ -32,7 +32,9 @@ import Distribution.Solver.Modular.Index
 import Distribution.Solver.Modular.IndexConversion
          ( convPIs )
 import Distribution.Solver.Modular.Log
-         ( SolverFailure(..), displayLogMessages )
+         ( SolverFailure(..) )
+import Distribution.Solver.Modular.Message
+         ( showMessages )
 import Distribution.Solver.Modular.Package
          ( PN )
 import Distribution.Solver.Modular.RetryLog
@@ -127,8 +129,8 @@ solve' sc cinfo idx pkgConfigDB pprefs gcs pns =
     runSolver :: Bool -> SolverConfig
               -> RetryLog String SolverFailure (Assignment, RevDepMap)
     runSolver keepLog sc' =
-        displayLogMessages keepLog $
-        solve sc' cinfo idx pkgConfigDB pprefs gcs pns
+      let progress = toProgress $ solve sc' cinfo idx pkgConfigDB pprefs gcs pns
+       in fromProgress $ if keepLog then showMessages progress else foldProgress (const id) Fail Done progress
 
     createErrorMsg :: SolverFailure
                    -> RetryLog String String (Assignment, RevDepMap)
