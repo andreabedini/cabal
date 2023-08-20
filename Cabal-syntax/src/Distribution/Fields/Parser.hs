@@ -2,6 +2,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 -----------------------------------------------------------------------------
 
@@ -23,6 +24,11 @@ module Distribution.Fields.Parser
     -- $grammar
   , readFields
   , readFields'
+
+  , readFieldsDSL
+  , readFieldsDSL'
+  , cabalStyleFile
+
 #ifdef CABAL_PARSEC_DEBUG
 
     -- * Internal
@@ -34,7 +40,6 @@ module Distribution.Fields.Parser
 {- FOURMOLU_ENABLE -}
 
 import qualified Data.ByteString.Char8 as B8
-import Data.Functor.Identity
 import Distribution.Compat.Prelude
 import Distribution.Fields.Field
 import Distribution.Fields.Lexer
@@ -49,8 +54,12 @@ import Distribution.Parsec.Position (Position (..), positionCol)
 import Text.Parsec.Combinator hiding (eof, notFollowedBy)
 import Text.Parsec.Error
 import Text.Parsec.Pos
-import Text.Parsec.Prim hiding (many, (<|>))
+import Text.Parsec.Prim hiding (many, (<|>), getInput, setInput)
+import Text.Parsec.Free (getInput, setInput)
 import Prelude ()
+import Control.Monad.Reader (runReaderT)
+import Data.IORef (newIORef, readIORef)
+import Text.Parsec.Free.Log (dumpLog)
 
 #ifdef CABAL_PARSEC_DEBUG
 import qualified Data.Text                as T
@@ -72,30 +81,30 @@ mkLexState' st =
     st
     (case unLex lexToken st of LexResult st' tok -> (tok, mkLexState' st'))
 
-type Parser a = ParsecT LexState' () Identity a
+type Parser m a = ParsecT LexState' () m a
 
-instance Stream LexState' Identity LToken where
+instance Monad m => Stream LexState' m LToken where
   uncons (LexState' _ (tok, st')) =
     case tok of
       L _ EOF -> return Nothing
       _ -> return (Just (tok, st'))
 
 -- | Get lexer warnings accumulated so far
-getLexerWarnings :: Parser [LexWarning]
+getLexerWarnings :: Parser m [LexWarning]
 getLexerWarnings = do
   LexState' (LexState{warnings = ws}) _ <- getInput
   return ws
 
 -- | Set Alex code i.e. the mode "state" lexer is in.
-setLexerMode :: Int -> Parser ()
+setLexerMode :: Int -> Parser m ()
 setLexerMode code = do
   LexState' ls _ <- getInput
   setInput $! mkLexState' ls{curCode = code}
 
-getToken :: (Token -> Maybe a) -> Parser a
+getToken :: Monad m => (Token -> Maybe a) -> Parser m a
 getToken getTok = getTokenWithPos (\(L _ t) -> getTok t)
 
-getTokenWithPos :: (LToken -> Maybe a) -> Parser a
+getTokenWithPos :: Monad m => (LToken -> Maybe a) -> Parser m a
 getTokenWithPos getTok = tokenPrim (\(L _ t) -> describeToken t) updatePos getTok
   where
     updatePos :: SourcePos -> LToken -> LexState' -> SourcePos
@@ -115,11 +124,11 @@ describeToken t = case t of
   EOF -> "end of file"
   LexicalError is -> "character in input " ++ show (B8.head is)
 
-tokSym :: Parser (Name Position)
-tokSym', tokStr, tokOther :: Parser (SectionArg Position)
-tokIndent :: Parser Int
-tokColon, tokOpenBrace, tokCloseBrace :: Parser ()
-tokFieldLine :: Parser (FieldLine Position)
+tokSym :: Monad m => Parser m (Name Position)
+tokSym', tokStr, tokOther :: Monad m => Parser m (SectionArg Position)
+tokIndent :: Monad m => Parser m Int
+tokColon, tokOpenBrace, tokCloseBrace :: Monad m => Parser m ()
+tokFieldLine :: Monad m => Parser m (FieldLine Position)
 tokSym = getTokenWithPos $ \t -> case t of L pos (TokSym x) -> Just (mkName pos x); _ -> Nothing
 tokSym' = getTokenWithPos $ \t -> case t of L pos (TokSym x) -> Just (SecArgName pos x); _ -> Nothing
 tokStr = getTokenWithPos $ \t -> case t of L pos (TokStr x) -> Just (SecArgStr pos x); _ -> Nothing
@@ -130,18 +139,18 @@ tokOpenBrace = getToken $ \t -> case t of OpenBrace -> Just (); _ -> Nothing
 tokCloseBrace = getToken $ \t -> case t of CloseBrace -> Just (); _ -> Nothing
 tokFieldLine = getTokenWithPos $ \t -> case t of L pos (TokFieldLine s) -> Just (FieldLine pos s); _ -> Nothing
 
-colon, openBrace, closeBrace :: Parser ()
-sectionArg :: Parser (SectionArg Position)
+colon, openBrace, closeBrace :: Monad m => Parser m ()
+sectionArg :: Monad m => Parser m (SectionArg Position)
 sectionArg = tokSym' <|> tokStr <|> tokOther <?> "section parameter"
 
-fieldSecName :: Parser (Name Position)
+fieldSecName :: Monad m => Parser m (Name Position)
 fieldSecName = tokSym <?> "field or section name"
 
 colon = tokColon <?> "\":\""
 openBrace = tokOpenBrace <?> "\"{\""
 closeBrace = tokCloseBrace <?> "\"}\""
 
-fieldContent :: Parser (FieldLine Position)
+fieldContent :: Monad m => Parser m (FieldLine Position)
 fieldContent = tokFieldLine <?> "field contents"
 
 newtype IndentLevel = IndentLevel Int
@@ -152,7 +161,7 @@ zeroIndentLevel = IndentLevel 0
 incIndentLevel :: IndentLevel -> IndentLevel
 incIndentLevel (IndentLevel i) = IndentLevel (succ i)
 
-indentOfAtLeast :: IndentLevel -> Parser IndentLevel
+indentOfAtLeast :: Monad m => IndentLevel -> Parser m IndentLevel
 indentOfAtLeast (IndentLevel i) = try $ do
   j <- tokIndent
   guard (j >= i) <?> "indentation of at least " ++ show i
@@ -160,7 +169,7 @@ indentOfAtLeast (IndentLevel i) = try $ do
 
 newtype LexerMode = LexerMode Int
 
-inLexerMode :: LexerMode -> Parser p -> Parser p
+inLexerMode :: LexerMode -> Parser m p -> Parser m p
 inLexerMode (LexerMode mode) p =
   do setLexerMode mode; x <- p; setLexerMode in_section; return x
 
@@ -219,7 +228,7 @@ inLexerMode (LexerMode mode) p =
 
 -- Top level of a file using cabal syntax
 --
-cabalStyleFile :: Parser [Field Position]
+cabalStyleFile :: Monad m => Parser m [Field Position]
 cabalStyleFile = do
   es <- elements zeroIndentLevel
   eof
@@ -229,7 +238,7 @@ cabalStyleFile = do
 -- and sections content
 --
 -- elements ::= element*
-elements :: IndentLevel -> Parser [Field Position]
+elements :: Monad m => IndentLevel -> Parser m [Field Position]
 elements ilevel = many (element ilevel)
 
 -- An individual element, ie a field or a section. These can either use
@@ -238,7 +247,7 @@ elements ilevel = many (element ilevel)
 --
 -- element ::= '\\n' name elementInLayoutContext
 --           |      name elementInNonLayoutContext
-element :: IndentLevel -> Parser (Field Position)
+element :: Monad m => IndentLevel -> Parser m (Field Position)
 element ilevel =
   ( do
       ilevel' <- indentOfAtLeast ilevel
@@ -256,7 +265,7 @@ element ilevel =
 --
 -- elementInLayoutContext ::= ':'  fieldLayoutOrBraces
 --                          | arg* sectionLayoutOrBraces
-elementInLayoutContext :: IndentLevel -> Name Position -> Parser (Field Position)
+elementInLayoutContext :: Monad m => IndentLevel -> Name Position -> Parser m (Field Position)
 elementInLayoutContext ilevel name =
   (do colon; fieldLayoutOrBraces ilevel name)
     <|> ( do
@@ -271,7 +280,7 @@ elementInLayoutContext ilevel name =
 --
 -- elementInNonLayoutContext ::= ':' FieldInlineOrBraces
 --                             | arg* '\\n'? '{' elements '\\n'? '}'
-elementInNonLayoutContext :: Name Position -> Parser (Field Position)
+elementInNonLayoutContext :: Monad m => Name Position -> Parser m (Field Position)
 elementInNonLayoutContext name =
   (do colon; fieldInlineOrBraces name)
     <|> ( do
@@ -287,7 +296,7 @@ elementInNonLayoutContext name =
 --
 -- fieldLayoutOrBraces   ::= '\\n'? '{' content '}'
 --                         | line? ('\\n' line)*
-fieldLayoutOrBraces :: IndentLevel -> Name Position -> Parser (Field Position)
+fieldLayoutOrBraces :: Monad m => IndentLevel -> Name Position -> Parser m (Field Position)
 fieldLayoutOrBraces ilevel name = braces <|> fieldLayout
   where
     braces = do
@@ -306,7 +315,7 @@ fieldLayoutOrBraces ilevel name = braces <|> fieldLayout
 --
 -- sectionLayoutOrBraces ::= '\\n'? '{' elements \\n? '}'
 --                         | elements
-sectionLayoutOrBraces :: IndentLevel -> Parser [Field Position]
+sectionLayoutOrBraces :: Monad m => IndentLevel -> Parser m [Field Position]
 sectionLayoutOrBraces ilevel =
   ( do
       openBrace
@@ -321,7 +330,7 @@ sectionLayoutOrBraces ilevel =
 --
 -- fieldInlineOrBraces   ::= '\\n'? '{' content '}'
 --                         | content
-fieldInlineOrBraces :: Name Position -> Parser (Field Position)
+fieldInlineOrBraces :: Monad m => Name Position -> Parser m (Field Position)
 fieldInlineOrBraces name =
   ( do
       openBrace
@@ -375,6 +384,24 @@ readFields' s = do
 
     lexSt = mkLexState' (mkLexState s)
 
+readFieldsDSL :: B8.ByteString -> IO (Either ParseError [Field Position])
+readFieldsDSL s = fmap fst <$> readFieldsDSL' s
+
+readFieldsDSL' :: B8.ByteString -> IO (Either ParseError ([Field Position], [LexWarning]))
+readFieldsDSL' s = do
+  parselog <- newIORef [] 
+  res <- runReaderT (runParserTLog parser () "the input" lexSt) parselog
+  readIORef parselog >>= dumpLog
+  return res
+  where
+    parser :: Monad m => ParsecT LexState' () m ([Field Position], [LexWarning])
+    parser = do
+      fields <- cabalStyleFile
+      ws <- getLexerWarnings -- lexer accumulates warnings in reverse (consing them to the list)
+      pure (fields, reverse ws ++ checkIndentation fields [])
+
+    lexSt = mkLexState' (mkLexState s)
+
 -- | Check (recursively) that all fields inside a block are indented the same.
 --
 -- We have to do this as a post-processing check.
@@ -410,13 +437,13 @@ parseTest' p fname s =
   where
     lexSt = mkLexState' . mkLexState
 
-parseFile :: Show a => Parser a -> FilePath -> IO ()
+parseFile :: Show a => Parser m a -> FilePath -> IO ()
 parseFile p f = B8.readFile f >>= \s -> parseTest' p f s
 
-parseStr  :: Show a => Parser a -> String -> IO ()
+parseStr  :: Show a => Parser m a -> String -> IO ()
 parseStr p = parseBS p . B8.pack
 
-parseBS  :: Show a => Parser a -> B8.ByteString -> IO ()
+parseBS  :: Show a => Parser m a -> B8.ByteString -> IO ()
 parseBS p = parseTest' p "<input string>"
 
 formatError :: B8.ByteString -> ParseError -> String
@@ -446,10 +473,10 @@ lines' s1
                           | otherwise -> [l]
 #endif
 
-eof :: Parser ()
+eof :: Monad m => Parser m ()
 eof = notFollowedBy anyToken <?> "end of file"
   where
-    notFollowedBy :: Parser LToken -> Parser ()
+    notFollowedBy :: Monad m => Parser m LToken -> Parser m ()
     notFollowedBy p =
       try
         ( (do L _ t <- try p; unexpected (describeToken t))

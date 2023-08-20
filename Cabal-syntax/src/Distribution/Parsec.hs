@@ -70,6 +70,7 @@ import qualified Distribution.Compat.CharParsing as P
 import qualified Distribution.Compat.DList as DList
 import qualified Distribution.Compat.MonadFail as Fail
 import qualified Text.Parsec as Parsec
+import qualified Text.Parsec.Free as Parsec.Free
 
 -------------------------------------------------------------------------------
 -- Class
@@ -174,7 +175,7 @@ instance P.CharParsing ParsecParser where
 
 instance CabalParsing ParsecParser where
   parsecWarning t w = liftParsec $ do
-    spos <- Parsec.getPosition
+    spos <- Parsec.Free.getPosition
     Parsec.modifyState
       (PWarning t (Position (Parsec.sourceLine spos) (Parsec.sourceColumn spos)) w :)
   askCabalSpecVersion = PP pure
