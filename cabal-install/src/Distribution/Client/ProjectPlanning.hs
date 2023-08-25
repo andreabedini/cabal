@@ -673,7 +673,7 @@ scopeA
         -- This is moderately expensive and doesn't change that often so we cache
         -- it independently.
         --
-        compilerEtc@(_, _, compilerprogdb) <-
+        compilerEtc@(compiler, platform, progdb) <-
           configureCompiler verbosity distDirLayout projectConfig
 
         -- Configuring other programs.
@@ -694,7 +694,7 @@ scopeA
         -- itself as that's just not going to work. So we check for this.
         liftIO $
           checkBadPerPackageCompilerPaths
-            (configuredPrograms compilerprogdb)
+            (configuredPrograms progdb)
             (getMapMappend (projectConfigSpecificPackage projectConfig))
 
         -- TODO: [required eventually] find/configure other programs that the
@@ -704,113 +704,8 @@ scopeA
         -- but note that some of them may be built as part of the plan.
 
         (solverPlan, pkgConfigDB, totalIndexState, activeRepos) <-
-          phaseRunSolver
-            projectConfig
-            compilerEtc
-            localPackages
-            (fromMaybe mempty mbInstalledPackages)
-
-        (elaboratedPlan, elaboratedShared) <-
-          phaseElaboratePlan
-            projectConfig
-            compilerEtc
-            pkgConfigDB
-            solverPlan
-            localPackages
-
-        phaseMaintainPlanOutputs elaboratedPlan elaboratedShared
-
-        return (elaboratedPlan, elaboratedShared, totalIndexState, activeRepos)
-    where
-      -- Run the solver to get the initial install plan.
-      -- This is expensive so we cache it independently.
-      --
-      phaseRunSolver
-        :: ProjectConfig
-        -> (Compiler, Platform, ProgramDb)
-        -> [PackageSpecifier UnresolvedSourcePackage]
-        -> InstalledPackageIndex
-        -> Rebuild (SolverInstallPlan, PkgConfigDb, IndexUtils.TotalIndexState, IndexUtils.ActiveRepos)
-      phaseRunSolver
-        projectConfig@ProjectConfig
-          { projectConfigShared
-          , projectConfigBuildOnly
-          }
-        (compiler, platform, progdb)
-        localPackages
-        installedPackages =
-          rerunIfChanged
-            verbosity
-            fileMonitorSolverPlan
-            ( solverSettings
-            , localPackages
-            , localPackagesEnabledStanzas
-            , compiler
-            , platform
-            , programDbSignature progdb
-            )
-            $ do
-              installedPkgIndex <-
-                getInstalledPackages
-                  verbosity
-                  compiler
-                  progdb
-                  platform
-                  corePackageDbs
-              (sourcePkgDb, tis, ar) <-
-                getSourcePackages
-                  verbosity
-                  withRepoCtx
-                  (solverSettingIndexState solverSettings)
-                  (solverSettingActiveRepos solverSettings)
-              pkgConfigDB <- getPkgConfigDb verbosity progdb
-
-              -- TODO: [code cleanup] it'd be better if the Compiler contained the
-              -- ConfiguredPrograms that it needs, rather than relying on the progdb
-              -- since we don't need to depend on all the programs here, just the
-              -- ones relevant for the compiler.
-
-              liftIO $ do
-                solver <-
-                  chooseSolver
-                    verbosity
-                    (solverSettingSolver solverSettings)
-                    (compilerInfo compiler)
-
-                notice verbosity "Resolving dependencies..."
-                planOrError <-
-                  foldProgress logMsg (pure . Left) (pure . Right) $
-                    planPackages
-                      verbosity
-                      compiler
-                      platform
-                      solver
-                      solverSettings
-                      (installedPackages <> installedPkgIndex)
-                      sourcePkgDb
-                      pkgConfigDB
-                      localPackages
-                      localPackagesEnabledStanzas
-                case planOrError of
-                  Left msg -> do
-                    reportPlanningFailure projectConfig compiler platform localPackages
-                    die' verbosity msg
-                  Right plan -> return (plan, pkgConfigDB, tis, ar)
-          where
-            corePackageDbs :: [PackageDB]
-            corePackageDbs =
-              applyPackageDbFlags
-                [GlobalPackageDB]
-                (projectConfigPackageDBs projectConfigShared)
-
-            withRepoCtx =
-              projectConfigWithSolverRepoContext
-                verbosity
-                projectConfigShared
-                projectConfigBuildOnly
+          let
             solverSettings = resolveSolverSettings projectConfig
-            logMsg message rest = debugNoWrap verbosity message >> rest
-
             localPackagesEnabledStanzas =
               Map.fromList
                 [ (pkgname, stanzas)
@@ -842,6 +737,112 @@ scopeA
                                  ]
                       | otherwise = Map.fromList [(TestStanzas, False), (BenchStanzas, False)]
                 ]
+           in
+            rerunIfChanged
+              verbosity
+              fileMonitorSolverPlan
+              (solverSettings, localPackages, localPackagesEnabledStanzas, compiler, platform, programDbSignature progdb)
+              $ phaseRunSolver
+                projectConfig
+                compilerEtc
+                localPackages
+                localPackagesEnabledStanzas
+                (fromMaybe mempty mbInstalledPackages)
+                solverSettings
+
+        (elaboratedPlan, elaboratedShared) <-
+          phaseElaboratePlan
+            projectConfig
+            compilerEtc
+            pkgConfigDB
+            solverPlan
+            localPackages
+
+        phaseMaintainPlanOutputs elaboratedPlan elaboratedShared
+
+        return (elaboratedPlan, elaboratedShared, totalIndexState, activeRepos)
+    where
+      -- Run the solver to get the initial install plan.
+      -- This is expensive so we cache it independently.
+      --
+      phaseRunSolver
+        :: ProjectConfig
+        -> (Compiler, Platform, ProgramDb)
+        -> [PackageSpecifier UnresolvedSourcePackage]
+        -> Map PackageName (Map OptionalStanza Bool)
+        -> InstalledPackageIndex
+        -> SolverSettings
+        -> Rebuild (SolverInstallPlan, PkgConfigDb, IndexUtils.TotalIndexState, IndexUtils.ActiveRepos)
+      phaseRunSolver
+        projectConfig@ProjectConfig
+          { projectConfigShared
+          , projectConfigBuildOnly
+          }
+        (compiler, platform, progdb)
+        localPackages
+        localPackagesEnabledStanzas
+        installedPackages
+        solverSettings =
+          do
+            installedPkgIndex <-
+              getInstalledPackages
+                verbosity
+                compiler
+                progdb
+                platform
+                corePackageDbs
+            (sourcePkgDb, tis, ar) <-
+              getSourcePackages
+                verbosity
+                withRepoCtx
+                (solverSettingIndexState solverSettings)
+                (solverSettingActiveRepos solverSettings)
+            pkgConfigDB <- getPkgConfigDb verbosity progdb
+
+            -- TODO: [code cleanup] it'd be better if the Compiler contained the
+            -- ConfiguredPrograms that it needs, rather than relying on the progdb
+            -- since we don't need to depend on all the programs here, just the
+            -- ones relevant for the compiler.
+
+            liftIO $ do
+              solver <-
+                chooseSolver
+                  verbosity
+                  (solverSettingSolver solverSettings)
+                  (compilerInfo compiler)
+
+              notice verbosity "Resolving dependencies..."
+              planOrError <-
+                foldProgress logMsg (pure . Left) (pure . Right) $
+                  planPackages
+                    verbosity
+                    compiler
+                    platform
+                    solver
+                    solverSettings
+                    (installedPackages <> installedPkgIndex)
+                    sourcePkgDb
+                    pkgConfigDB
+                    localPackages
+                    localPackagesEnabledStanzas
+              case planOrError of
+                Left msg -> do
+                  reportPlanningFailure projectConfig compiler platform localPackages
+                  die' verbosity msg
+                Right plan -> return (plan, pkgConfigDB, tis, ar)
+          where
+            corePackageDbs :: [PackageDB]
+            corePackageDbs =
+              applyPackageDbFlags
+                [GlobalPackageDB]
+                (projectConfigPackageDBs projectConfigShared)
+
+            withRepoCtx =
+              projectConfigWithSolverRepoContext
+                verbosity
+                projectConfigShared
+                projectConfigBuildOnly
+            logMsg message rest = debugNoWrap verbosity message >> rest
 
       -- Elaborate the solver's install plan to get a fully detailed plan. This
       -- version of the plan has the final nix-style hashed ids.
