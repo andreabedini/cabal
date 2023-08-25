@@ -605,27 +605,7 @@ rebuildInstallPlan
               , localPackages
               , progsearchpath
               )
-              $ do
-                compilerEtc <- phaseConfigureCompiler projectConfig
-                _ <- phaseConfigurePrograms projectConfig compilerEtc
-                (solverPlan, pkgConfigDB, totalIndexState, activeRepos) <-
-                  phaseRunSolver
-                    projectConfig
-                    compilerEtc
-                    localPackages
-                    (fromMaybe mempty mbInstalledPackages)
-                ( elaboratedPlan
-                  , elaboratedShared
-                  ) <-
-                  phaseElaboratePlan
-                    projectConfig
-                    compilerEtc
-                    pkgConfigDB
-                    solverPlan
-                    localPackages
-
-                phaseMaintainPlanOutputs elaboratedPlan elaboratedShared
-                return (elaboratedPlan, elaboratedShared, totalIndexState, activeRepos)
+              $ scopeA verbosity distDirLayout cabalStoreDirLayout projectConfig localPackages mbInstalledPackages
 
           -- The improved plan changes each time we install something, whereas
           -- the underlying elaborated plan only changes when input config
@@ -634,41 +614,80 @@ rebuildInstallPlan
 
           return (improvedPlan, elaboratedPlan, elaboratedShared, totalIndexState, activeRepos)
     where
-      fileMonitorSolverPlan = newFileMonitorInCacheDir "solver-plan"
-      fileMonitorSourceHashes = newFileMonitorInCacheDir "source-hashes"
       fileMonitorElaboratedPlan = newFileMonitorInCacheDir "elaborated-plan"
       fileMonitorImprovedPlan = newFileMonitorInCacheDir "improved-plan"
 
       newFileMonitorInCacheDir :: Eq a => FilePath -> FileMonitor a b
       newFileMonitorInCacheDir = newFileMonitor . distProjectCacheFile
 
-      -- Configure the compiler we're using.
+      -- Improve the elaborated install plan. The elaborated plan consists
+      -- mostly of source packages (with full nix-style hashed ids). Where
+      -- corresponding installed packages already exist in the store, replace
+      -- them in the plan.
       --
-      -- This is moderately expensive and doesn't change that often so we cache
-      -- it independently.
+      -- Note that we do monitor the store's package db here, so we will redo
+      -- this improvement phase when the db changes -- including as a result of
+      -- executing a plan and installing things.
       --
-      phaseConfigureCompiler
-        :: ProjectConfig
-        -> Rebuild (Compiler, Platform, ProgramDb)
-      phaseConfigureCompiler = configureCompiler verbosity distDirLayout
+      phaseImprovePlan
+        :: ElaboratedInstallPlan
+        -> ElaboratedSharedConfig
+        -> Rebuild ElaboratedInstallPlan
+      phaseImprovePlan elaboratedPlan elaboratedShared = do
+        liftIO $ debug verbosity "Improving the install plan..."
+        storePkgIdSet <- getStoreEntries cabalStoreDirLayout compid
+        let improvedPlan =
+              improveInstallPlanWithInstalledPackages
+                storePkgIdSet
+                elaboratedPlan
+        liftIO $ debugNoWrap verbosity (showElaboratedInstallPlan improvedPlan)
+        -- TODO: [nice to have] having checked which packages from the store
+        -- we're using, it may be sensible to sanity check those packages
+        -- by loading up the compiler package db and checking everything
+        -- matches up as expected, e.g. no dangling deps, files deleted.
+        return improvedPlan
+        where
+          compid = compilerId (pkgConfigCompiler elaboratedShared)
 
-      -- Configuring other programs.
-      --
-      -- Having configred the compiler, now we configure all the remaining
-      -- programs. This is to check we can find them, and to monitor them for
-      -- changes.
-      --
-      -- TODO: [required eventually] we don't actually do this yet.
-      --
-      -- We rely on the fact that the previous phase added the program config for
-      -- all local packages, but that all the programs configured so far are the
-      -- compiler program or related util programs.
-      --
-      phaseConfigurePrograms
-        :: ProjectConfig
-        -> (Compiler, Platform, ProgramDb)
-        -> Rebuild ()
-      phaseConfigurePrograms projectConfig (_, _, compilerprogdb) = do
+scopeA
+  :: Verbosity
+  -> DistDirLayout
+  -> StoreDirLayout
+  -> ProjectConfig
+  -> [PackageSpecifier UnresolvedSourcePackage]
+  -> Maybe InstalledPackageIndex
+  -> Rebuild
+      ( ElaboratedInstallPlan
+      , ElaboratedSharedConfig
+      , IndexUtils.TotalIndexState
+      , IndexUtils.ActiveRepos
+      )
+scopeA
+  verbosity
+  distDirLayout@DistDirLayout{distProjectCacheFile}
+  cabalStoreDirLayout =
+    \projectConfig localPackages mbInstalledPackages ->
+      do
+        -- Configure the compiler we're using.
+        --
+        -- This is moderately expensive and doesn't change that often so we cache
+        -- it independently.
+        --
+        compilerEtc@(_, _, compilerprogdb) <-
+          configureCompiler verbosity distDirLayout projectConfig
+
+        -- Configuring other programs.
+        --
+        -- Having configred the compiler, now we configure all the remaining
+        -- programs. This is to check we can find them, and to monitor them for
+        -- changes.
+        --
+        -- TODO: [required eventually] we don't actually do this yet.
+        --
+        -- We rely on the fact that the previous phase added the program config for
+        -- all local packages, but that all the programs configured so far are the
+        -- compiler program or related util programs.
+        --
         -- Users are allowed to specify program locations independently for
         -- each package (e.g. to use a particular version of a pre-processor
         -- for some packages). However they cannot do this for the compiler
@@ -678,12 +697,31 @@ rebuildInstallPlan
             (configuredPrograms compilerprogdb)
             (getMapMappend (projectConfigSpecificPackage projectConfig))
 
-      -- TODO: [required eventually] find/configure other programs that the
-      -- user specifies.
+        -- TODO: [required eventually] find/configure other programs that the
+        -- user specifies.
 
-      -- TODO: [required eventually] find/configure all build-tools
-      -- but note that some of them may be built as part of the plan.
+        -- TODO: [required eventually] find/configure all build-tools
+        -- but note that some of them may be built as part of the plan.
 
+        (solverPlan, pkgConfigDB, totalIndexState, activeRepos) <-
+          phaseRunSolver
+            projectConfig
+            compilerEtc
+            localPackages
+            (fromMaybe mempty mbInstalledPackages)
+
+        (elaboratedPlan, elaboratedShared) <-
+          phaseElaboratePlan
+            projectConfig
+            compilerEtc
+            pkgConfigDB
+            solverPlan
+            localPackages
+
+        phaseMaintainPlanOutputs elaboratedPlan elaboratedShared
+
+        return (elaboratedPlan, elaboratedShared, totalIndexState, activeRepos)
+    where
       -- Run the solver to get the initial install plan.
       -- This is expensive so we cache it independently.
       --
@@ -890,34 +928,11 @@ rebuildInstallPlan
           elaboratedPlan
           elaboratedShared
 
-      -- Improve the elaborated install plan. The elaborated plan consists
-      -- mostly of source packages (with full nix-style hashed ids). Where
-      -- corresponding installed packages already exist in the store, replace
-      -- them in the plan.
-      --
-      -- Note that we do monitor the store's package db here, so we will redo
-      -- this improvement phase when the db changes -- including as a result of
-      -- executing a plan and installing things.
-      --
-      phaseImprovePlan
-        :: ElaboratedInstallPlan
-        -> ElaboratedSharedConfig
-        -> Rebuild ElaboratedInstallPlan
-      phaseImprovePlan elaboratedPlan elaboratedShared = do
-        liftIO $ debug verbosity "Improving the install plan..."
-        storePkgIdSet <- getStoreEntries cabalStoreDirLayout compid
-        let improvedPlan =
-              improveInstallPlanWithInstalledPackages
-                storePkgIdSet
-                elaboratedPlan
-        liftIO $ debugNoWrap verbosity (showElaboratedInstallPlan improvedPlan)
-        -- TODO: [nice to have] having checked which packages from the store
-        -- we're using, it may be sensible to sanity check those packages
-        -- by loading up the compiler package db and checking everything
-        -- matches up as expected, e.g. no dangling deps, files deleted.
-        return improvedPlan
-        where
-          compid = compilerId (pkgConfigCompiler elaboratedShared)
+      fileMonitorSolverPlan = newFileMonitorInCacheDir "solver-plan"
+      fileMonitorSourceHashes = newFileMonitorInCacheDir "source-hashes"
+
+      newFileMonitorInCacheDir :: Eq a => FilePath -> FileMonitor a b
+      newFileMonitorInCacheDir = newFileMonitor . distProjectCacheFile
 
 -- | If a 'PackageSpecifier' refers to a single package, return Just that
 -- package.
