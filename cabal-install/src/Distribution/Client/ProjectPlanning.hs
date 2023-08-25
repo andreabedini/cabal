@@ -649,14 +649,52 @@ rebuildInstallPlan
   -- ^ @(improvedPlan, elaboratedPlan, _, _, _)@
 rebuildInstallPlan
   verbosity
-  distDirLayout@DistDirLayout
-    { distProjectRootDirectory
-    , distProjectCacheFile
-    }
-  CabalDirLayout
-    { cabalStoreDirLayout
-    } = \projectConfig localPackages mbInstalledPackages ->
-    runRebuild distProjectRootDirectory $ do
+  distDirLayout@DistDirLayout{distProjectRootDirectory}
+  cabalDirLayout
+  projectConfig
+  localPackages
+  mbInstalledPackages
+  =
+  runRebuild distProjectRootDirectory $ do
+    compilerEtc@(_, _, compilerprogdb) <- configureCompiler verbosity distDirLayout projectConfig
+
+    -- Users are allowed to specify program locations independently for
+    -- each package (e.g. to use a particular version of a pre-processor
+    -- for some packages). However they cannot do this for the compiler
+    -- itself as that's just not going to work. So we check for this.
+    liftIO $
+      checkBadPerPackageCompilerPaths
+        (configuredPrograms compilerprogdb)
+        (getMapMappend (projectConfigSpecificPackage projectConfig))
+
+    rebuildInstallPlan'
+      verbosity distDirLayout cabalDirLayout projectConfig localPackages mbInstalledPackages compilerEtc
+
+rebuildInstallPlan'
+  :: Verbosity
+  -> DistDirLayout
+  -> CabalDirLayout
+  -> ProjectConfig
+  -> [PackageSpecifier UnresolvedSourcePackage]
+  -> Maybe InstalledPackageIndex
+  -> (Compiler, Platform, ProgramDb)
+  -> Rebuild
+      ( ElaboratedInstallPlan -- with store packages
+      , ElaboratedInstallPlan -- with source packages
+      , ElaboratedSharedConfig
+      , IndexUtils.TotalIndexState
+      , IndexUtils.ActiveRepos
+      )
+rebuildInstallPlan'
+  verbosity
+  distDirLayout@DistDirLayout { distProjectCacheFile }
+  CabalDirLayout { cabalStoreDirLayout }
+  = \ projectConfig
+      localPackages
+      mbInstalledPackages
+      compilerEtc
+      -> do
+
       progsearchpath <- liftIO $ getSystemSearchPath
       let projectConfigMonitored = projectConfig{projectConfigBuildOnly = mempty}
 
