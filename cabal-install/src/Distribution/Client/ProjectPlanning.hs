@@ -765,7 +765,7 @@ scopeA
             solverPlan
             localPackages
 
-        phaseMaintainPlanOutputs elaboratedPlan elaboratedShared
+        phaseMaintainPlanOutputs verbosity distDirLayout elaboratedPlan elaboratedShared
 
         return (elaboratedPlan, elaboratedShared, totalIndexState, activeRepos)
     where
@@ -920,27 +920,29 @@ scopeA
                 projectConfigShared
                 projectConfigBuildOnly
 
-      -- Update the files we maintain that reflect our current build environment.
-      -- In particular we maintain a JSON representation of the elaborated
-      -- install plan (but not the improved plan since that reflects the state
-      -- of the build rather than just the input environment).
-      --
-      phaseMaintainPlanOutputs
-        :: ElaboratedInstallPlan
-        -> ElaboratedSharedConfig
-        -> Rebuild ()
-      phaseMaintainPlanOutputs elaboratedPlan elaboratedShared = liftIO $ do
-        debug verbosity "Updating plan.json"
-        writePlanExternalRepresentation
-          distDirLayout
-          elaboratedPlan
-          elaboratedShared
-
       fileMonitorSolverPlan = newFileMonitorInCacheDir "solver-plan"
       fileMonitorSourceHashes = newFileMonitorInCacheDir "source-hashes"
 
       newFileMonitorInCacheDir :: Eq a => FilePath -> FileMonitor a b
       newFileMonitorInCacheDir = newFileMonitor . distProjectCacheFile
+
+-- Update the files we maintain that reflect our current build environment.
+-- In particular we maintain a JSON representation of the elaborated
+-- install plan (but not the improved plan since that reflects the state
+-- of the build rather than just the input environment).
+--
+phaseMaintainPlanOutputs
+  :: Verbosity
+  -> DistDirLayout
+  -> ElaboratedInstallPlan
+  -> ElaboratedSharedConfig
+  -> Rebuild ()
+phaseMaintainPlanOutputs verbosity distDirLayout elaboratedPlan elaboratedShared = liftIO $ do
+  debug verbosity "Updating plan.json"
+  writePlanExternalRepresentation
+    distDirLayout
+    elaboratedPlan
+    elaboratedShared
 
 -- | If a 'PackageSpecifier' refers to a single package, return Just that
 -- package.
