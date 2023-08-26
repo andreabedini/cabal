@@ -682,8 +682,8 @@ getLocalPackagesEnabledStanzas projectConfig localPackages =
                 | enabled <- flagToList testsEnabled
                 ]
                   ++ [ (BenchStanzas, enabled)
-                      | enabled <- flagToList benchmarksEnabled
-                      ]
+                     | enabled <- flagToList benchmarksEnabled
+                     ]
           | otherwise = Map.fromList [(TestStanzas, False), (BenchStanzas, False)]
     ]
 scopeA
