@@ -583,7 +583,10 @@ rebuildInstallPlan
     }
   CabalDirLayout
     { cabalStoreDirLayout
-    } = \projectConfig localPackages mbInstalledPackages ->
+    }
+  projectConfig
+  localPackages
+  mbInstalledPackages =
     runRebuild distProjectRootDirectory $ do
       progsearchpath <- liftIO $ getSystemSearchPath
       let projectConfigMonitored = projectConfig{projectConfigBuildOnly = mempty}
@@ -702,77 +705,78 @@ scopeA
 scopeA
   verbosity
   distDirLayout@DistDirLayout{distProjectCacheFile}
-  cabalStoreDirLayout =
-    \projectConfig localPackages mbInstalledPackages ->
-      do
-        -- Configure the compiler we're using.
-        --
-        -- This is moderately expensive and doesn't change that often so we cache
-        -- it independently.
-        --
-        compilerEtc@(compiler, platform, progdb) <-
-          configureCompiler verbosity distDirLayout projectConfig
+  cabalStoreDirLayout
+  projectConfig
+  localPackages
+  mbInstalledPackages = do
+    -- Configure the compiler we're using.
+    --
+    -- This is moderately expensive and doesn't change that often so we cache
+    -- it independently.
+    --
+    compilerEtc@(compiler, platform, progdb) <-
+      configureCompiler verbosity distDirLayout projectConfig
 
-        -- Configuring other programs.
-        --
-        -- Having configred the compiler, now we configure all the remaining
-        -- programs. This is to check we can find them, and to monitor them for
-        -- changes.
-        --
-        -- TODO: [required eventually] we don't actually do this yet.
-        --
-        -- We rely on the fact that the previous phase added the program config for
-        -- all local packages, but that all the programs configured so far are the
-        -- compiler program or related util programs.
-        --
-        -- Users are allowed to specify program locations independently for
-        -- each package (e.g. to use a particular version of a pre-processor
-        -- for some packages). However they cannot do this for the compiler
-        -- itself as that's just not going to work. So we check for this.
-        liftIO $
-          checkBadPerPackageCompilerPaths
-            (configuredPrograms progdb)
-            (getMapMappend (projectConfigSpecificPackage projectConfig))
+    -- Configuring other programs.
+    --
+    -- Having configred the compiler, now we configure all the remaining
+    -- programs. This is to check we can find them, and to monitor them for
+    -- changes.
+    --
+    -- TODO: [required eventually] we don't actually do this yet.
+    --
+    -- We rely on the fact that the previous phase added the program config for
+    -- all local packages, but that all the programs configured so far are the
+    -- compiler program or related util programs.
+    --
+    -- Users are allowed to specify program locations independently for
+    -- each package (e.g. to use a particular version of a pre-processor
+    -- for some packages). However they cannot do this for the compiler
+    -- itself as that's just not going to work. So we check for this.
+    liftIO $
+      checkBadPerPackageCompilerPaths
+        (configuredPrograms progdb)
+        (getMapMappend (projectConfigSpecificPackage projectConfig))
 
-        -- TODO: [required eventually] find/configure other programs that the
-        -- user specifies.
+    -- TODO: [required eventually] find/configure other programs that the
+    -- user specifies.
 
-        -- TODO: [required eventually] find/configure all build-tools
-        -- but note that some of them may be built as part of the plan.
+    -- TODO: [required eventually] find/configure all build-tools
+    -- but note that some of them may be built as part of the plan.
 
-        (solverPlan, pkgConfigDB, totalIndexState, activeRepos) <-
-          let
-            solverSettings = resolveSolverSettings projectConfig
-            localPackagesEnabledStanzas = getLocalPackagesEnabledStanzas projectConfig localPackages
-           in
-            rerunIfChanged
-              verbosity
-              fileMonitorSolverPlan
-              (solverSettings, localPackages, localPackagesEnabledStanzas, compiler, platform, programDbSignature progdb)
-              $ phaseRunSolver
-                verbosity
-                projectConfig
-                compilerEtc
-                localPackages
-                localPackagesEnabledStanzas
-                (fromMaybe mempty mbInstalledPackages)
-                solverSettings
-
-        (elaboratedPlan, elaboratedShared) <-
-          phaseElaboratePlan
+    (solverPlan, pkgConfigDB, totalIndexState, activeRepos) <-
+      let
+        solverSettings = resolveSolverSettings projectConfig
+        localPackagesEnabledStanzas = getLocalPackagesEnabledStanzas projectConfig localPackages
+       in
+        rerunIfChanged
+          verbosity
+          fileMonitorSolverPlan
+          (solverSettings, localPackages, localPackagesEnabledStanzas, compiler, platform, programDbSignature progdb)
+          $ phaseRunSolver
             verbosity
-            distDirLayout
-            cabalStoreDirLayout
-            fileMonitorSourceHashes
             projectConfig
             compilerEtc
-            pkgConfigDB
-            solverPlan
             localPackages
+            localPackagesEnabledStanzas
+            (fromMaybe mempty mbInstalledPackages)
+            solverSettings
 
-        phaseMaintainPlanOutputs verbosity distDirLayout elaboratedPlan elaboratedShared
+    (elaboratedPlan, elaboratedShared) <-
+      phaseElaboratePlan
+        verbosity
+        distDirLayout
+        cabalStoreDirLayout
+        fileMonitorSourceHashes
+        projectConfig
+        compilerEtc
+        pkgConfigDB
+        solverPlan
+        localPackages
 
-        return (elaboratedPlan, elaboratedShared, totalIndexState, activeRepos)
+    phaseMaintainPlanOutputs verbosity distDirLayout elaboratedPlan elaboratedShared
+
+    return (elaboratedPlan, elaboratedShared, totalIndexState, activeRepos)
     where
       fileMonitorSolverPlan = newFileMonitorInCacheDir "solver-plan"
       fileMonitorSourceHashes = newFileMonitorInCacheDir "source-hashes"
