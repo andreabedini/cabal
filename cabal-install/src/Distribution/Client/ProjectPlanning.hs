@@ -651,6 +651,41 @@ phaseImprovePlan verbosity cabalStoreDirLayout elaboratedPlan elaboratedShared =
   where
     compid = compilerId (pkgConfigCompiler elaboratedShared)
 
+getLocalPackagesEnabledStanzas
+  :: ProjectConfig
+  -> [PackageSpecifier (SourcePackage (PackageLocation loc))]
+  -> Map PackageName (Map OptionalStanza Bool)
+getLocalPackagesEnabledStanzas projectConfig localPackages =
+  Map.fromList
+    [ (pkgname, stanzas)
+    | pkg <- localPackages
+    , -- TODO: misnomer: we should separate
+    -- builtin/global/inplace/local packages
+    -- and packages explicitly mentioned in the project
+    --
+    let pkgname = pkgSpecifierTarget pkg
+        testsEnabled =
+          lookupLocalPackageConfig
+            packageConfigTests
+            projectConfig
+            pkgname
+        benchmarksEnabled =
+          lookupLocalPackageConfig
+            packageConfigBenchmarks
+            projectConfig
+            pkgname
+        isLocal = isJust (shouldBeLocal pkg)
+        stanzas
+          | isLocal =
+              Map.fromList $
+                [ (TestStanzas, enabled)
+                | enabled <- flagToList testsEnabled
+                ]
+                  ++ [ (BenchStanzas, enabled)
+                      | enabled <- flagToList benchmarksEnabled
+                      ]
+          | otherwise = Map.fromList [(TestStanzas, False), (BenchStanzas, False)]
+    ]
 scopeA
   :: Verbosity
   -> DistDirLayout
@@ -708,37 +743,7 @@ scopeA
         (solverPlan, pkgConfigDB, totalIndexState, activeRepos) <-
           let
             solverSettings = resolveSolverSettings projectConfig
-            localPackagesEnabledStanzas =
-              Map.fromList
-                [ (pkgname, stanzas)
-                | pkg <- localPackages
-                , -- TODO: misnomer: we should separate
-                -- builtin/global/inplace/local packages
-                -- and packages explicitly mentioned in the project
-                --
-                let pkgname = pkgSpecifierTarget pkg
-                    testsEnabled =
-                      lookupLocalPackageConfig
-                        packageConfigTests
-                        projectConfig
-                        pkgname
-                    benchmarksEnabled =
-                      lookupLocalPackageConfig
-                        packageConfigBenchmarks
-                        projectConfig
-                        pkgname
-                    isLocal = isJust (shouldBeLocal pkg)
-                    stanzas
-                      | isLocal =
-                          Map.fromList $
-                            [ (TestStanzas, enabled)
-                            | enabled <- flagToList testsEnabled
-                            ]
-                              ++ [ (BenchStanzas, enabled)
-                                 | enabled <- flagToList benchmarksEnabled
-                                 ]
-                      | otherwise = Map.fromList [(TestStanzas, False), (BenchStanzas, False)]
-                ]
+            localPackagesEnabledStanzas = getLocalPackagesEnabledStanzas projectConfig localPackages
            in
             rerunIfChanged
               verbosity
