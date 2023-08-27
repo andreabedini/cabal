@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE TupleSections #-}
@@ -71,25 +72,30 @@ import Distribution.System
   , buildOS
   )
 import Distribution.Utils.String (trim)
-import Network.Browser
-  ( browse
-  , request
-  , setAllowBasicAuth
-  , setAuthorityGen
-  , setErrHandler
-  , setOutHandler
-  , setProxy
-  , setUserAgent
-  )
-import Network.HTTP
-  ( Header (..)
-  , HeaderName (..)
-  , Request (..)
-  , RequestMethod (..)
-  , Response (..)
-  , lookupHeader
-  )
-import Network.HTTP.Proxy (Proxy (..), fetchProxy)
+
+-- import Network.Browser
+--   ( browse
+--   , request
+--   , setAllowBasicAuth
+--   , setAuthorityGen
+--   , setErrHandler
+--   , setOutHandler
+--   , setProxy
+--   , setUserAgent
+--   )
+-- import Network.HTTP
+--   ( Header (..)
+--   , HeaderName (..)
+--   , Request (..)
+--   , RequestMethod (..)
+--   , Response (..)
+--   , lookupHeader
+--   )
+-- import Network.HTTP.Proxy (Proxy (..), fetchProxy)
+import Network.HTTP.Client as HTTP
+import Network.HTTP.Client.MultipartFormData as HTTP
+import Network.HTTP.Types
+import Network.HTTP.Types.Header
 import Network.URI
   ( URI (..)
   , URIAuth (..)
@@ -129,6 +135,7 @@ import qualified Data.ByteString.Lazy.Char8 as LBS8
 import qualified Data.Char as Char
 import Distribution.Client.Errors
 import qualified Distribution.Compat.CharParsing as P
+import Data.String (IsString)
 
 ------------------------------------------------------------------------------
 -- Downloading a URI, given an HttpTransport
@@ -490,8 +497,9 @@ curlTransport prog =
                     | t <- maybeToList etag
                     ]
                   ++ concat
-                    [ ["--header", show name ++ ": " ++ value]
-                    | Header name value <- reqHeaders
+                    -- FIXME: BS8.unpack assumes ASCII encoding!!
+                    [ ["--header", show name ++ ": " ++ BS8.unpack value]
+                    | (name, value) <- reqHeaders
                     ]
 
           resp <-
@@ -586,8 +594,9 @@ curlTransport prog =
             , "Accept: text/plain"
             ]
               ++ concat
-                [ ["--header", show name ++ ": " ++ value]
-                | Header name value <- headers
+                -- FIXME: BS8.unpack assumes ASCII encoding!!
+                [ ["--header", show name ++ ": " ++ BS8.unpack value]
+                | (name, value) <- headers
                 ]
       resp <-
         getProgramInvocationOutput verbosity $
@@ -660,16 +669,17 @@ wgetTransport prog =
               [ ["--header", "If-None-Match: " ++ t]
               | t <- maybeToList etag
               ]
-            ++ [ "--header=" ++ show name ++ ": " ++ value
-               | hdr@(Header name value) <- reqHeaders
+            -- FIXME: BS8.unpack assumes ASCII encoding!!
+            -- how to do pass a bytestring as argument?
+            ++ [ "--header=" ++ show name ++ ": " ++ BS8.unpack value
+               | hdr@(name, value) <- reqHeaders
                , (not (isRangeHeader hdr))
                ]
 
         -- wget doesn't support range requests.
         -- so, we ignore range request headers, lest we get errors.
         isRangeHeader :: Header -> Bool
-        isRangeHeader (Header HdrRange _) = True
-        isRangeHeader _ = False
+        isRangeHeader = (== hRange) . fst
 
     posthttp = noPostYet
 
@@ -712,8 +722,9 @@ wgetTransport prog =
                 , "--output-document=" ++ responseFile
                 , "--header=Accept: text/plain"
                 ]
-                  ++ [ "--header=" ++ show name ++ ": " ++ value
-                     | Header name value <- headers
+                  -- FIXME: BS8.unpack assumes ASCII encoding!!
+                  ++ [ "--header=" ++ show name ++ ": " ++ BS8.unpack value
+                     | (name, value) <- headers
                      ]
                   ++ maybeToList (authTokenHeader auth)
 
@@ -780,6 +791,7 @@ powershellTransport :: ConfiguredProgram -> HttpTransport
 powershellTransport prog =
   HttpTransport gethttp posthttp posthttpfile puthttpfile True False
   where
+    gethttp :: Verbosity -> URI -> Maybe ETag -> FilePath -> [Header] -> IO (HttpCode, Maybe ETag)
     gethttp verbosity uri etag destPath reqHeaders = do
       resp <-
         runPowershellScript verbosity $
@@ -817,7 +829,8 @@ powershellTransport prog =
         parseCode code x = case readMaybe code of
           Just i -> return i
           Nothing -> statusParseFail verbosity uri x
-        etagHeader = [Header HdrIfNoneMatch t | t <- maybeToList etag]
+        -- FIXME: BS8.unpack assumes ASCII encoding!!
+        etagHeader = [(hIfNoneMatch, BS8.pack t) | t <- maybeToList etag] :: [Header]
 
     posthttp = noPostYet
 
@@ -829,11 +842,7 @@ powershellTransport prog =
           LBS.hPut tmpHandle body
           hClose tmpHandle
           fullPath <- canonicalizePath tmpFile
-
-          let contentHeader =
-                Header
-                  HdrContentType
-                  ("multipart/form-data; boundary=" ++ boundary)
+          let contentHeader = (hContentType, "multipart/form-data; boundary=" <> BS8.pack boundary) :: Header
           resp <-
             runPowershellScript verbosity $
               webclientScript
@@ -876,28 +885,29 @@ powershellTransport prog =
 
     escape = show
 
-    useragentHeader = Header HdrUserAgent userAgent
-    extraHeaders = [Header HdrAccept "text/plain", useragentHeader]
+    useragentHeader = (hUserAgent, userAgent) :: Header
+    extraHeaders = [(hAccept, "text/plain"), useragentHeader]
 
+    setupHeaders :: [Header] -> [[Char]]
     setupHeaders headers =
-      [ "$request." ++ addHeader name value
-      | Header name value <- headers
+      -- FIXME: BS8.unpack assumes ASCII encoding!!
+      [ "$request." ++ addHeader name (BS8.unpack value)
+      | (name, value) <- headers
       ]
       where
-        addHeader header value =
-          case header of
-            HdrAccept -> "Accept = " ++ escape value
-            HdrUserAgent -> "UserAgent = " ++ escape value
-            HdrConnection -> "Connection = " ++ escape value
-            HdrContentLength -> "ContentLength = " ++ escape value
-            HdrContentType -> "ContentType = " ++ escape value
-            HdrDate -> "Date = " ++ escape value
-            HdrExpect -> "Expect = " ++ escape value
-            HdrHost -> "Host = " ++ escape value
-            HdrIfModifiedSince -> "IfModifiedSince = " ++ escape value
-            HdrReferer -> "Referer = " ++ escape value
-            HdrTransferEncoding -> "TransferEncoding = " ++ escape value
-            HdrRange ->
+        addHeader header value
+          | header == hAccept = "Accept = " ++ escape value
+          | header == hUserAgent = "UserAgent = " ++ escape value
+          | header == hConnection = "Connection = " ++ escape value
+          | header == hContentLength = "ContentLength = " ++ escape value
+          | header == hContentType = "ContentType = " ++ escape value
+          | header == hDate = "Date = " ++ escape value
+          | header == hExpect = "Expect = " ++ escape value
+          | header == hHost = "Host = " ++ escape value
+          | header == hIfModifiedSince = "IfModifiedSince = " ++ escape value
+          | header == hReferer = "Referer = " ++ escape value
+          | header == hTransferEncoding = "TransferEncoding = " ++ escape value
+          | header == hRange =
               let (start, end) =
                     if "bytes=" `isPrefixOf` value
                       then case break (== '-') value' of
@@ -906,7 +916,7 @@ powershellTransport prog =
                       else error $ "Could not decode range: " ++ value
                   value' = drop 6 value
                in "AddRange(\"bytes\", " ++ escape start ++ ", " ++ escape end ++ ");"
-            name -> "Headers.Add(" ++ escape (show name) ++ "," ++ escape value ++ ");"
+          | otherwise = "Headers.Add(" ++ escape (show header) ++ "," ++ escape value ++ ");"
 
     setupAuth (Just (Left (uname, passwd))) =
       [ "$request.Credentials = new-object System.Net.NetworkCredential("
@@ -987,73 +997,52 @@ plainHttpTransport :: HttpTransport
 plainHttpTransport =
   HttpTransport gethttp posthttp posthttpfile puthttpfile False False
   where
-    gethttp verbosity uri etag destPath reqHeaders = do
-      let req =
-            Request
-              { rqURI = uri
-              , rqMethod = GET
-              , rqHeaders =
-                  [ Header HdrIfNoneMatch t
-                  | t <- maybeToList etag
-                  ]
-                    ++ reqHeaders
-              , rqBody = LBS.empty
-              }
-      (_, resp) <- cabalBrowse verbosity Nothing (request req)
-      let code = convertRspCode (rspCode resp)
-          etag' = lookupHeader HdrETag (rspHeaders resp)
-      -- 206 Partial Content is a normal response to a range request; see #3385.
-      when (code == 200 || code == 206) $
-        writeFileAtomic destPath $
-          rspBody resp
-      return (code, etag')
+    gethttp :: Verbosity -> URI -> Maybe ETag -> FilePath -> [Header] -> IO (Int, Maybe ETag)
+    gethttp _verbosity uri etag destPath reqHeaders = do
+      request0 <- requestFromURI uri
+      -- FIXME: BS8.unpack assumes ASCII encoding!!
+      let request = request0 { requestHeaders = [ (hIfNoneMatch, BS8.pack t) | t <- maybeToList etag ] ++ reqHeaders }
+      response <- httpLbs request _manager
+      -- FIXME: BS8.unpack assumes ASCII encoding!!
+      let etag' = BS8.unpack <$> lookup hETag (responseHeaders response)
+      -- FIXME: stream response to disk
+      writeFileAtomic destPath $ responseBody response
+      return (statusCode (responseStatus response), etag')
 
+    posthttp :: Verbosity -> URI -> String -> Maybe Auth -> IO (Int, String)
     posthttp = noPostYet
 
-    posthttpfile verbosity uri path auth = do
-      (body, boundary) <- generateMultipartBody path
-      let headers =
-            [ Header
-                HdrContentType
-                ("multipart/form-data; boundary=" ++ boundary)
-            , Header HdrContentLength (show (LBS8.length body))
-            , Header HdrAccept ("text/plain")
-            ]
-              ++ maybeToList (authTokenHeader auth)
-          req =
-            Request
-              { rqURI = uri
-              , rqMethod = POST
-              , rqHeaders = headers
-              , rqBody = body
-              }
-      (_, resp) <- cabalBrowse verbosity auth (request req)
-      return (convertRspCode (rspCode resp), rspErrorString resp)
+    posthttpfile :: Verbosity -> URI -> FilePath -> Maybe Auth -> IO (Int, String)
+    posthttpfile _verbosity uri path auth = do
+      request0 <- requestFromURI uri
+      -- [ Header HdrContentType ("multipart/form-data; boundary=" ++ boundary)
+      -- , Header HdrContentLength (show (LBS8.length body))
+      -- , Header HdrAccept ("text/plain")
+      -- ]
+      -- ++ maybeToList (authTokenHeader auth)
+      -- FIXME: auth!
+      let request = request0 { requestHeaders = [ (hAccept, "text/plain") ] }
+      response <- formDataBody [ partFileSource "package" path ] request >>= flip httpLbs _manager
+      -- FIXME: what is the second thing we need to return?
+      -- FIXME: BS8.unpack assumes ASCII encoding!!
+      return (statusCode (responseStatus response), LBS8.unpack (responseBody response))
 
-    puthttpfile verbosity uri path auth headers = do
-      body <- LBS8.readFile path
-      let req =
-            Request
-              { rqURI = uri
-              , rqMethod = PUT
-              , rqHeaders =
-                  Header HdrContentLength (show (LBS8.length body))
-                    : Header HdrAccept "text/plain"
-                    : maybeToList (authTokenHeader auth)
-                    ++ headers
-              , rqBody = body
-              }
-      (_, resp) <- cabalBrowse verbosity auth (request req)
-      return (convertRspCode (rspCode resp), rspErrorString resp)
+    puthttpfile :: Verbosity -> URI -> FilePath -> Maybe Auth -> [Header] -> IO (Int, String)
+    puthttpfile _verbosity uri path auth headers = do
+      reqBody <- streamFile path
+      request0 <- requestFromURI uri
+      -- FIXME: auth! 
+      -- maybeToList (authTokenHeader auth)
+      let request = request0 { 
+                  method = "PUT",
+                  requestHeaders = (hAccept, "text/plain") : headers,
+                  requestBody = reqBody }
+      response <- httpLbs request _manager
+      -- FIXME: BS8.unpack assumes ASCII encoding!!
+      return (statusCode (responseStatus response), LBS8.unpack (responseBody response))
 
-    convertRspCode (a, b, c) = a * 100 + b * 10 + c
 
-    rspErrorString resp =
-      case lookupHeader HdrContentType (rspHeaders resp) of
-        Just contenttype
-          | takeWhile (/= ';') contenttype == "text/plain" ->
-              LBS8.unpack (rspBody resp)
-        _ -> rspReason resp
+    -- FIXME: auth, logging, error handler, proxy, ...
 
     cabalBrowse verbosity auth act = do
       p <- fixupEmptyProxy <$> fetchProxy True
@@ -1076,15 +1065,13 @@ plainHttpTransport =
     authTokenHeader (Just (Right token)) = Just $ Header HdrAuthorization ("X-ApiKey " ++ token)
     authTokenHeader _ = Nothing
 
-    fixupEmptyProxy (Proxy uri _) | null uri = NoProxy
-    fixupEmptyProxy p = p
 
 ------------------------------------------------------------------------------
 -- Common stuff used by multiple transport impls
 --
 
-userAgent :: String
-userAgent =
+userAgent :: IsString s => s
+userAgent = fromString $
   concat
     [ "cabal-install/"
     , prettyShow cabalInstallVersion
@@ -1124,14 +1111,8 @@ generateMultipartBody path = do
              ]
 
     headers =
-      [ Header
-          (HdrCustom "Content-disposition")
-          ( "form-data; name=package; "
-              ++ "filename=\""
-              ++ takeFileName path
-              ++ "\""
-          )
-      , Header HdrContentType "application/x-gzip"
+      [ (hContentDisposition, "form-data; name=package; " ++ "filename=\"" ++ takeFileName path ++ "\"")
+      , (hContentType, "application/x-gzip")
       ]
 
     crlf = LBS8.pack "\r\n"
