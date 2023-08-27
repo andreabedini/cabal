@@ -689,6 +689,7 @@ getLocalPackagesEnabledStanzas projectConfig localPackages =
                      ]
           | otherwise = Map.fromList [(TestStanzas, False), (BenchStanzas, False)]
     ]
+
 scopeA
   :: Verbosity
   -> DistDirLayout
@@ -706,7 +707,7 @@ scopeA
   verbosity
   distDirLayout@DistDirLayout{distProjectCacheFile}
   cabalStoreDirLayout
-  projectConfig
+  projectConfig@ProjectConfig{projectConfigShared, projectConfigBuildOnly}
   localPackages
   mbInstalledPackages = do
     -- Configure the compiler we're using.
@@ -761,6 +762,7 @@ scopeA
             localPackagesEnabledStanzas
             (fromMaybe mempty mbInstalledPackages)
             solverSettings
+            withRepoCtx
 
     (elaboratedPlan, elaboratedShared) <-
       phaseElaboratePlan
@@ -773,6 +775,7 @@ scopeA
         pkgConfigDB
         solverPlan
         localPackages
+        withRepoCtx
 
     -- Update the files we maintain that reflect our current build environment.
     -- In particular we maintain a JSON representation of the elaborated
@@ -794,6 +797,12 @@ scopeA
       newFileMonitorInCacheDir :: Eq a => FilePath -> FileMonitor a b
       newFileMonitorInCacheDir = newFileMonitor . distProjectCacheFile
 
+      withRepoCtx =
+        projectConfigWithSolverRepoContext
+          verbosity
+          projectConfigShared
+          projectConfigBuildOnly
+
 -- Run the solver to get the initial install plan.
 -- This is expensive so we cache it independently.
 --
@@ -805,18 +814,17 @@ phaseRunSolver
   -> Map PackageName (Map OptionalStanza Bool)
   -> InstalledPackageIndex
   -> SolverSettings
+  -> (forall a. (RepoContext -> IO a) -> IO a)
   -> Rebuild (SolverInstallPlan, PkgConfigDb, IndexUtils.TotalIndexState, IndexUtils.ActiveRepos)
 phaseRunSolver
   verbosity
-  projectConfig@ProjectConfig
-    { projectConfigShared
-    , projectConfigBuildOnly
-    }
+  projectConfig@ProjectConfig{projectConfigShared}
   (compiler, platform, progdb)
   localPackages
   localPackagesEnabledStanzas
   installedPackages
-  solverSettings =
+  solverSettings
+  withRepoCtx =
     do
       installedPkgIndex <-
         getInstalledPackages
@@ -871,11 +879,6 @@ phaseRunSolver
           [GlobalPackageDB]
           (projectConfigPackageDBs projectConfigShared)
 
-      withRepoCtx =
-        projectConfigWithSolverRepoContext
-          verbosity
-          projectConfigShared
-          projectConfigBuildOnly
       logMsg message rest = debugNoWrap verbosity message >> rest
 
 -- Elaborate the solver's install plan to get a fully detailed plan. This
@@ -891,6 +894,7 @@ phaseElaboratePlan
   -> PkgConfigDb
   -> SolverInstallPlan
   -> [PackageSpecifier (SourcePackage (PackageLocation loc))]
+  -> (forall a. (RepoContext -> IO a) -> IO a)
   -> Rebuild (ElaboratedInstallPlan, ElaboratedSharedConfig)
 phaseElaboratePlan
   verbosity
@@ -902,55 +906,50 @@ phaseElaboratePlan
     , projectConfigAllPackages
     , projectConfigLocalPackages
     , projectConfigSpecificPackage
-    , projectConfigBuildOnly
     }
   (compiler, platform, progdb)
   pkgConfigDB
   solverPlan
-  localPackages = do
-    liftIO $ debug verbosity "Elaborating the install plan..."
+  localPackages
+  withRepoCtx =
+    do
+      liftIO $ debug verbosity "Elaborating the install plan..."
 
-    sourcePackageHashes <-
-      rerunIfChanged
-        verbosity
-        fileMonitorSourceHashes
-        (packageLocationsSignature solverPlan)
-        $ getPackageSourceHashes verbosity withRepoCtx solverPlan
-
-    defaultInstallDirs <- liftIO $ userInstallDirTemplates compiler
-    let installDirs = fmap Cabal.fromFlag $ (fmap Flag defaultInstallDirs) <> (projectConfigInstallDirs projectConfigShared)
-    (elaboratedPlan, elaboratedShared) <-
-      liftIO . runLogProgress verbosity $
-        elaborateInstallPlan
+      sourcePackageHashes <-
+        rerunIfChanged
           verbosity
-          platform
-          compiler
-          progdb
-          pkgConfigDB
-          distDirLayout
-          cabalStoreDirLayout
-          solverPlan
-          localPackages
-          sourcePackageHashes
-          installDirs
-          projectConfigShared
-          projectConfigAllPackages
-          projectConfigLocalPackages
-          (getMapMappend projectConfigSpecificPackage)
-    let instantiatedPlan =
-          instantiateInstallPlan
+          fileMonitorSourceHashes
+          (packageLocationsSignature solverPlan)
+          $ getPackageSourceHashes verbosity withRepoCtx solverPlan
+
+      defaultInstallDirs <- liftIO $ userInstallDirTemplates compiler
+      let installDirs = fmap Cabal.fromFlag $ (fmap Flag defaultInstallDirs) <> (projectConfigInstallDirs projectConfigShared)
+      (elaboratedPlan, elaboratedShared) <-
+        liftIO . runLogProgress verbosity $
+          elaborateInstallPlan
+            verbosity
+            platform
+            compiler
+            progdb
+            pkgConfigDB
+            distDirLayout
             cabalStoreDirLayout
+            solverPlan
+            localPackages
+            sourcePackageHashes
             installDirs
-            elaboratedShared
-            elaboratedPlan
-    liftIO $ debugNoWrap verbosity (showElaboratedInstallPlan instantiatedPlan)
-    return (instantiatedPlan, elaboratedShared)
-    where
-      withRepoCtx =
-        projectConfigWithSolverRepoContext
-          verbosity
-          projectConfigShared
-          projectConfigBuildOnly
+            projectConfigShared
+            projectConfigAllPackages
+            projectConfigLocalPackages
+            (getMapMappend projectConfigSpecificPackage)
+      let instantiatedPlan =
+            instantiateInstallPlan
+              cabalStoreDirLayout
+              installDirs
+              elaboratedShared
+              elaboratedPlan
+      liftIO $ debugNoWrap verbosity (showElaboratedInstallPlan instantiatedPlan)
+      return (instantiatedPlan, elaboratedShared)
 
 -- | If a 'PackageSpecifier' refers to a single package, return Just that
 -- package.
