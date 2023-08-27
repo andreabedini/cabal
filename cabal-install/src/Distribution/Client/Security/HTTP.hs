@@ -12,7 +12,7 @@ import Prelude ()
 -- stdlibs
 
 import qualified Data.ByteString.Lazy as BS.L
-import qualified Network.HTTP as HTTP
+import qualified Network.HTTP.Types as HTTP.Types
 import Network.URI
   ( URI
   )
