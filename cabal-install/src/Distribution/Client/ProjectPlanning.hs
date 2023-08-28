@@ -734,12 +734,14 @@ rebuildInstallPlan
                   progdb
                   platform
                   corePackageDbs
+
               (sourcePkgDb, tis, ar) <-
                 getSourcePackages
                   verbosity
                   withRepoCtx
                   (solverSettingIndexState solverSettings)
                   (solverSettingActiveRepos solverSettings)
+
               pkgConfigDB <- getPkgConfigDb verbosity progdb
 
               -- TODO: [code cleanup] it'd be better if the Compiler contained the
@@ -780,6 +782,8 @@ rebuildInstallPlan
                 [GlobalPackageDB]
                 (projectConfigPackageDBs projectConfigShared)
 
+            localPackagesEnabledStanzas = getLocalPackagesEnabledStanzas projectConfig localPackages
+
             withRepoCtx =
               projectConfigWithSolverRepoContext
                 verbosity
@@ -787,38 +791,6 @@ rebuildInstallPlan
                 projectConfigBuildOnly
             solverSettings = resolveSolverSettings projectConfig
             logMsg message rest = debugNoWrap verbosity message >> rest
-
-            localPackagesEnabledStanzas =
-              Map.fromList
-                [ (pkgname, stanzas)
-                | pkg <- localPackages
-                , -- TODO: misnomer: we should separate
-                -- builtin/global/inplace/local packages
-                -- and packages explicitly mentioned in the project
-                --
-                let pkgname = pkgSpecifierTarget pkg
-                    testsEnabled =
-                      lookupLocalPackageConfig
-                        packageConfigTests
-                        projectConfig
-                        pkgname
-                    benchmarksEnabled =
-                      lookupLocalPackageConfig
-                        packageConfigBenchmarks
-                        projectConfig
-                        pkgname
-                    isLocal = isJust (shouldBeLocal pkg)
-                    stanzas
-                      | isLocal =
-                          Map.fromList $
-                            [ (TestStanzas, enabled)
-                            | enabled <- flagToList testsEnabled
-                            ]
-                              ++ [ (BenchStanzas, enabled)
-                                 | enabled <- flagToList benchmarksEnabled
-                                 ]
-                      | otherwise = Map.fromList [(TestStanzas, False), (BenchStanzas, False)]
-                ]
 
       -- Elaborate the solver's install plan to get a fully detailed plan. This
       -- version of the plan has the final nix-style hashed ids.
@@ -919,6 +891,42 @@ rebuildInstallPlan
         return improvedPlan
         where
           compid = compilerId (pkgConfigCompiler elaboratedShared)
+
+getLocalPackagesEnabledStanzas 
+  :: ProjectConfig
+  -> [PackageSpecifier (SourcePackage (PackageLocation loc))]
+  -> Map PackageName (Map OptionalStanza Bool)
+getLocalPackagesEnabledStanzas projectConfig localPackages =
+  Map.fromList
+    [ (pkgname, stanzas)
+    | pkg <- localPackages
+    , -- TODO: misnomer: we should separate
+    -- builtin/global/inplace/local packages
+    -- and packages explicitly mentioned in the project
+    --
+    let pkgname = pkgSpecifierTarget pkg
+        testsEnabled =
+          lookupLocalPackageConfig
+            packageConfigTests
+            projectConfig
+            pkgname
+        benchmarksEnabled =
+          lookupLocalPackageConfig
+            packageConfigBenchmarks
+            projectConfig
+            pkgname
+        isLocal = isJust (shouldBeLocal pkg)
+        stanzas
+          | isLocal =
+              Map.fromList $
+                [ (TestStanzas, enabled)
+                | enabled <- flagToList testsEnabled
+                ]
+                  ++ [ (BenchStanzas, enabled)
+                      | enabled <- flagToList benchmarksEnabled
+                      ]
+          | otherwise = Map.fromList [(TestStanzas, False), (BenchStanzas, False)]
+    ]
 
 -- | If a 'PackageSpecifier' refers to a single package, return Just that
 -- package.
