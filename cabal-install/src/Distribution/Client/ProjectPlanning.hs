@@ -387,7 +387,7 @@ rebuildProjectConfig
     , distProjectFile
     }
   cliConfig = do
-    progsearchpath <- liftIO $ getSystemSearchPath
+    systemSearchPath <- liftIO $ getSystemSearchPath
 
     let fileMonitorProjectConfig = newFileMonitor (distProjectCacheFile "config")
 
@@ -397,7 +397,7 @@ rebuildProjectConfig
         ( configPath
         , distProjectFile ""
         , (projectConfigHcFlavor, projectConfigHcPath, projectConfigHcPkg)
-        , progsearchpath
+        , systemSearchPath
         , packageConfigProgramPaths
         , packageConfigProgramPathExtra
         )
@@ -496,14 +496,14 @@ configureCompiler
     } = do
     let fileMonitorCompiler = newFileMonitor . distProjectCacheFile $ "compiler"
 
-    progsearchpath <- liftIO $ getSystemSearchPath
+    systemSearchPath <- liftIO $ getSystemSearchPath
     rerunIfChanged
       verbosity
       fileMonitorCompiler
       ( projectConfigHcFlavor
       , projectConfigHcPath
       , projectConfigHcPkg
-      , progsearchpath
+      , systemSearchPath
       , packageConfigProgramPaths
       , packageConfigProgramPathExtra
       )
@@ -585,7 +585,7 @@ rebuildInstallPlan
   localPackages
   mbInstalledPackages =
     runRebuild distProjectRootDirectory $ do
-      progsearchpath <- liftIO $ getSystemSearchPath
+      systemSearchPath <- liftIO $ getSystemSearchPath
       let projectConfigMonitored = projectConfig{projectConfigBuildOnly = mempty}
 
       -- The overall improved plan is cached
@@ -594,7 +594,7 @@ rebuildInstallPlan
         fileMonitorImprovedPlan
         -- react to changes in the project config,
         -- the package .cabal files and the path
-        (projectConfigMonitored, localPackages, progsearchpath)
+        (projectConfigMonitored, localPackages, systemSearchPath)
         $ do
           -- And so is the elaborated plan that the improved plan based on
           (elaboratedPlan, elaboratedShared, totalIndexState, activeRepos) <-
@@ -603,7 +603,7 @@ rebuildInstallPlan
               fileMonitorElaboratedPlan
               ( projectConfigMonitored
               , localPackages
-              , progsearchpath
+              , systemSearchPath
               )
               $ scopeA verbosity distDirLayout cabalStoreDirLayout projectConfig localPackages mbInstalledPackages
 
