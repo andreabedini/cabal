@@ -757,24 +757,24 @@ rebuildInstallPlan
                     (compilerInfo compiler)
 
                 notice verbosity "Resolving dependencies..."
-                planOrError <-
-                  foldProgress logMsg (pure . Left) (pure . Right) $
-                    planPackages
-                      verbosity
-                      compiler
-                      platform
-                      solver
-                      solverSettings
-                      (installedPackages <> installedPkgIndex)
-                      sourcePkgDb
-                      pkgConfigDB
-                      localPackages
-                      localPackagesEnabledStanzas
-                case planOrError of
-                  Left msg -> do
-                    reportPlanningFailure projectConfig compiler platform localPackages
-                    die' verbosity msg
-                  Right plan -> return (plan, pkgConfigDB, tis, ar)
+                foldProgress
+                  logMsg
+                  ( \errmsg -> do
+                      reportPlanningFailure projectConfig compiler platform localPackages
+                      die' verbosity errmsg
+                  )
+                  (\plan -> return (plan, pkgConfigDB, tis, ar))
+                  $ planPackages
+                    verbosity
+                    compiler
+                    platform
+                    solver
+                    solverSettings
+                    (installedPackages <> installedPkgIndex)
+                    sourcePkgDb
+                    pkgConfigDB
+                    localPackages
+                    localPackagesEnabledStanzas
           where
             corePackageDbs :: [PackageDB]
             corePackageDbs =
@@ -820,6 +820,7 @@ rebuildInstallPlan
 
             defaultInstallDirs <- liftIO $ userInstallDirTemplates compiler
             let installDirs = fmap Cabal.fromFlag $ (fmap Flag defaultInstallDirs) <> (projectConfigInstallDirs projectConfigShared)
+
             (elaboratedPlan, elaboratedShared) <-
               liftIO . runLogProgress verbosity $
                 elaborateInstallPlan
@@ -892,7 +893,7 @@ rebuildInstallPlan
         where
           compid = compilerId (pkgConfigCompiler elaboratedShared)
 
-getLocalPackagesEnabledStanzas 
+getLocalPackagesEnabledStanzas
   :: ProjectConfig
   -> [PackageSpecifier (SourcePackage (PackageLocation loc))]
   -> Map PackageName (Map OptionalStanza Bool)
@@ -923,8 +924,8 @@ getLocalPackagesEnabledStanzas projectConfig localPackages =
                 | enabled <- flagToList testsEnabled
                 ]
                   ++ [ (BenchStanzas, enabled)
-                      | enabled <- flagToList benchmarksEnabled
-                      ]
+                     | enabled <- flagToList benchmarksEnabled
+                     ]
           | otherwise = Map.fromList [(TestStanzas, False), (BenchStanzas, False)]
     ]
 
