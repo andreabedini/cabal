@@ -500,9 +500,9 @@ configureCompiler
     rerunIfChanged
       verbosity
       fileMonitorCompiler
-      ( hcFlavor
-      , hcPath
-      , hcPkg
+      ( projectConfigHcFlavor
+      , projectConfigHcPath
+      , projectConfigHcPkg
       , progsearchpath
       , packageConfigProgramPaths
       , packageConfigProgramPathExtra
@@ -512,9 +512,9 @@ configureCompiler
         result@(_, _, progdb') <-
           liftIO $
             Cabal.configCompilerEx
-              hcFlavor
-              hcPath
-              hcPkg
+              (flagToMaybe projectConfigHcFlavor)
+              (flagToMaybe projectConfigHcPath)
+              (flagToMaybe projectConfigHcPkg)
               progdb
               verbosity
 
@@ -528,9 +528,6 @@ configureCompiler
 
         return result
     where
-      hcFlavor = flagToMaybe projectConfigHcFlavor
-      hcPath = flagToMaybe projectConfigHcPath
-      hcPkg = flagToMaybe projectConfigHcPkg
       progdb =
         userSpecifyPaths (Map.toList (getMapLast packageConfigProgramPaths))
           . modifyProgramSearchPath
