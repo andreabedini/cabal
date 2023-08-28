@@ -859,12 +859,6 @@ phaseRunSolver
       -- ones relevant for the compiler.
 
       liftIO $ do
-        solver <-
-          chooseSolver
-            verbosity
-            (solverSettingSolver solverSettings)
-            (compilerInfo compiler)
-
         notice verbosity "Resolving dependencies..."
         planOrError <-
           foldProgress logMsg (pure . Left) (pure . Right) $
@@ -872,7 +866,7 @@ phaseRunSolver
               verbosity
               compiler
               platform
-              solver
+              Modular
               solverSettings
               (installedPackages <> installedPkgIndex)
               sourcePkgDb
