@@ -669,7 +669,18 @@ rebuildInstallPlan
                     localPackages
                     sourcePackageHashes
 
-                phaseMaintainPlanOutputs elaboratedPlan elaboratedShared
+                -- Update the files we maintain that reflect our current build environment.
+                -- In particular we maintain a JSON representation of the elaborated
+                -- install plan (but not the improved plan since that reflects the state
+                -- of the build rather than just the input environment).
+                --
+                liftIO $ do
+                  debug verbosity "Updating plan.json"
+                  writePlanExternalRepresentation
+                    distDirLayout
+                    elaboratedPlan
+                    elaboratedShared
+
                 return (elaboratedPlan, elaboratedShared, totalIndexState, activeRepos)
 
           -- The improved plan changes each time we install something, whereas
@@ -835,22 +846,6 @@ rebuildInstallPlan
                     elaboratedPlan
             liftIO $ debugNoWrap verbosity (showElaboratedInstallPlan instantiatedPlan)
             return (instantiatedPlan, elaboratedShared)
-
-      -- Update the files we maintain that reflect our current build environment.
-      -- In particular we maintain a JSON representation of the elaborated
-      -- install plan (but not the improved plan since that reflects the state
-      -- of the build rather than just the input environment).
-      --
-      phaseMaintainPlanOutputs
-        :: ElaboratedInstallPlan
-        -> ElaboratedSharedConfig
-        -> Rebuild ()
-      phaseMaintainPlanOutputs elaboratedPlan elaboratedShared = liftIO $ do
-        debug verbosity "Updating plan.json"
-        writePlanExternalRepresentation
-          distDirLayout
-          elaboratedPlan
-          elaboratedShared
 
       -- Improve the elaborated install plan. The elaborated plan consists
       -- mostly of source packages (with full nix-style hashed ids). Where
