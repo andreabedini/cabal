@@ -757,12 +757,14 @@ rebuildInstallPlan
                       projectConfigAllPackages
                       projectConfigLocalPackages
                       (getMapMappend projectConfigSpecificPackage)
+
                 let instantiatedPlan =
                       instantiateInstallPlan
                         cabalStoreDirLayout
                         installDirs
                         elaboratedShared
                         elaboratedPlan
+
                 liftIO $ debugNoWrap verbosity (showElaboratedInstallPlan instantiatedPlan)
 
                 -- Update the files we maintain that reflect our current build environment.
@@ -1744,7 +1746,8 @@ elaborateInstallPlan
                 let do_ cid =
                       let cid' = annotatedIdToConfiguredId . ci_ann_id $ cid
                        in (cid', False) -- filled in later in pruneInstallPlanPhase2)
-                      -- 2. Read out the dependencies from the ConfiguredComponent cc0
+
+                -- 2. Read out the dependencies from the ConfiguredComponent cc0
                 let compLibDependencies =
                       -- Nub because includes can show up multiple times
                       ordNub
