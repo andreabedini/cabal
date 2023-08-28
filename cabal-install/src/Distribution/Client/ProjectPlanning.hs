@@ -734,39 +734,36 @@ rebuildInstallPlan
 
                 -- Elaborate the solver's install plan to get a fully detailed plan. This
                 -- version of the plan has the final nix-style hashed ids.
+                liftIO $ debug verbosity "Elaborating the install plan..."
+
+                defaultInstallDirs <- liftIO $ userInstallDirTemplates compiler
+                let installDirs = fmap Cabal.fromFlag $ (fmap Flag defaultInstallDirs) <> (projectConfigInstallDirs projectConfigShared)
+
                 (elaboratedPlan, elaboratedShared) <-
-                  do
-                    liftIO $ debug verbosity "Elaborating the install plan..."
-
-                    defaultInstallDirs <- liftIO $ userInstallDirTemplates compiler
-                    let installDirs = fmap Cabal.fromFlag $ (fmap Flag defaultInstallDirs) <> (projectConfigInstallDirs projectConfigShared)
-
-                    (elaboratedPlan, elaboratedShared) <-
-                      liftIO . runLogProgress verbosity $
-                        elaborateInstallPlan
-                          verbosity
-                          platform
-                          compiler
-                          progdb
-                          pkgConfigDB
-                          distDirLayout
-                          cabalStoreDirLayout
-                          solverPlan
-                          localPackages
-                          sourcePackageHashes
-                          installDirs
-                          projectConfigShared
-                          projectConfigAllPackages
-                          projectConfigLocalPackages
-                          (getMapMappend projectConfigSpecificPackage)
-                    let instantiatedPlan =
-                          instantiateInstallPlan
-                            cabalStoreDirLayout
-                            installDirs
-                            elaboratedShared
-                            elaboratedPlan
-                    liftIO $ debugNoWrap verbosity (showElaboratedInstallPlan instantiatedPlan)
-                    return (instantiatedPlan, elaboratedShared)
+                  liftIO . runLogProgress verbosity $
+                    elaborateInstallPlan
+                      verbosity
+                      platform
+                      compiler
+                      progdb
+                      pkgConfigDB
+                      distDirLayout
+                      cabalStoreDirLayout
+                      solverPlan
+                      localPackages
+                      sourcePackageHashes
+                      installDirs
+                      projectConfigShared
+                      projectConfigAllPackages
+                      projectConfigLocalPackages
+                      (getMapMappend projectConfigSpecificPackage)
+                let instantiatedPlan =
+                      instantiateInstallPlan
+                        cabalStoreDirLayout
+                        installDirs
+                        elaboratedShared
+                        elaboratedPlan
+                liftIO $ debugNoWrap verbosity (showElaboratedInstallPlan instantiatedPlan)
 
                 -- Update the files we maintain that reflect our current build environment.
                 -- In particular we maintain a JSON representation of the elaborated
@@ -782,10 +779,30 @@ rebuildInstallPlan
 
                 return (elaboratedPlan, elaboratedShared, totalIndexState, activeRepos)
 
+          -- Improve the elaborated install plan. The elaborated plan consists
+          -- mostly of source packages (with full nix-style hashed ids). Where
+          -- corresponding installed packages already exist in the store, replace
+          -- them in the plan.
+          --
+          -- Note that we do monitor the store's package db here, so we will redo
+          -- this improvement phase when the db changes -- including as a result of
+          -- executing a plan and installing things.
+          --
           -- The improved plan changes each time we install something, whereas
           -- the underlying elaborated plan only changes when input config
           -- changes, so it's worth caching them separately.
-          improvedPlan <- phaseImprovePlan elaboratedPlan elaboratedShared
+          liftIO $ debug verbosity "Improving the install plan..."
+          let compid = compilerId (pkgConfigCompiler elaboratedShared)
+          storePkgIdSet <- getStoreEntries cabalStoreDirLayout compid
+          let improvedPlan =
+                improveInstallPlanWithInstalledPackages
+                  storePkgIdSet
+                  elaboratedPlan
+          liftIO $ debugNoWrap verbosity (showElaboratedInstallPlan improvedPlan)
+          -- TODO: [nice to have] having checked which packages from the store
+          -- we're using, it may be sensible to sanity check those packages
+          -- by loading up the compiler package db and checking everything
+          -- matches up as expected, e.g. no dangling deps, files deleted.
 
           return (improvedPlan, elaboratedPlan, elaboratedShared, totalIndexState, activeRepos)
     where
@@ -796,35 +813,6 @@ rebuildInstallPlan
 
       newFileMonitorInCacheDir :: Eq a => FilePath -> FileMonitor a b
       newFileMonitorInCacheDir = newFileMonitor . distProjectCacheFile
-
-      -- Improve the elaborated install plan. The elaborated plan consists
-      -- mostly of source packages (with full nix-style hashed ids). Where
-      -- corresponding installed packages already exist in the store, replace
-      -- them in the plan.
-      --
-      -- Note that we do monitor the store's package db here, so we will redo
-      -- this improvement phase when the db changes -- including as a result of
-      -- executing a plan and installing things.
-      --
-      phaseImprovePlan
-        :: ElaboratedInstallPlan
-        -> ElaboratedSharedConfig
-        -> Rebuild ElaboratedInstallPlan
-      phaseImprovePlan elaboratedPlan elaboratedShared = do
-        liftIO $ debug verbosity "Improving the install plan..."
-        storePkgIdSet <- getStoreEntries cabalStoreDirLayout compid
-        let improvedPlan =
-              improveInstallPlanWithInstalledPackages
-                storePkgIdSet
-                elaboratedPlan
-        liftIO $ debugNoWrap verbosity (showElaboratedInstallPlan improvedPlan)
-        -- TODO: [nice to have] having checked which packages from the store
-        -- we're using, it may be sensible to sanity check those packages
-        -- by loading up the compiler package db and checking everything
-        -- matches up as expected, e.g. no dangling deps, files deleted.
-        return improvedPlan
-        where
-          compid = compilerId (pkgConfigCompiler elaboratedShared)
 
 getLocalPackagesEnabledStanzas
   :: ProjectConfig
