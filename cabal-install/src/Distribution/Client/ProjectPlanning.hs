@@ -577,13 +577,17 @@ rebuildInstallPlan
   -- ^ @(improvedPlan, elaboratedPlan, _, _, _)@
 rebuildInstallPlan
   verbosity
-  distDirLayout@DistDirLayout
-    { distProjectRootDirectory
-    , distProjectCacheFile
+  distDirLayout@DistDirLayout{distProjectRootDirectory, distProjectCacheFile}
+  CabalDirLayout{cabalStoreDirLayout}
+  projectConfig@ProjectConfig
+    { projectConfigAllPackages
+    , projectConfigLocalPackages
+    , projectConfigSpecificPackage
+    , projectConfigShared
+    , projectConfigBuildOnly
     }
-  CabalDirLayout
-    { cabalStoreDirLayout
-    } = \projectConfig localPackages mbInstalledPackages ->
+  localPackages
+  mbInstalledPackages =
     runRebuild distProjectRootDirectory $ do
       systemSearchPath <- liftIO $ getSystemSearchPath
       let projectConfigMonitored = projectConfig{projectConfigBuildOnly = mempty}
@@ -591,8 +595,8 @@ rebuildInstallPlan
       let withRepoCtx =
             projectConfigWithSolverRepoContext
               verbosity
-              (projectConfigShared projectConfig)
-              (projectConfigBuildOnly projectConfig)
+              projectConfigShared
+              projectConfigBuildOnly
 
       -- The overall improved plan is cached
       rerunIfChanged
@@ -617,7 +621,7 @@ rebuildInstallPlan
                 -- This is moderately expensive and doesn't change that often so we cache
                 -- it independently.
                 --
-                compilerEtc@(compiler, platform, progdb) <- configureCompiler verbosity distDirLayout projectConfig
+                (compiler, platform, progdb) <- configureCompiler verbosity distDirLayout projectConfig
 
                 -- Configuring other programs.
                 --
@@ -638,7 +642,7 @@ rebuildInstallPlan
                 liftIO $
                   checkBadPerPackageCompilerPaths
                     (configuredPrograms progdb)
-                    (getMapMappend (projectConfigSpecificPackage projectConfig))
+                    (getMapMappend projectConfigSpecificPackage)
 
                 -- TODO: [required eventually] find/configure other programs that the
                 -- user specifies.
@@ -650,7 +654,7 @@ rebuildInstallPlan
                     corePackageDbs =
                       applyPackageDbFlags
                         [GlobalPackageDB]
-                        (projectConfigPackageDBs (projectConfigShared projectConfig))
+                        (projectConfigPackageDBs projectConfigShared)
 
                     localPackagesEnabledStanzas = getLocalPackagesEnabledStanzas projectConfig localPackages
 
@@ -728,14 +732,41 @@ rebuildInstallPlan
                     (packageLocationsSignature solverPlan)
                     $ getPackageSourceHashes verbosity withRepoCtx solverPlan
 
+                -- Elaborate the solver's install plan to get a fully detailed plan. This
+                -- version of the plan has the final nix-style hashed ids.
                 (elaboratedPlan, elaboratedShared) <-
-                  phaseElaboratePlan
-                    projectConfig
-                    compilerEtc
-                    pkgConfigDB
-                    solverPlan
-                    localPackages
-                    sourcePackageHashes
+                  do
+                    liftIO $ debug verbosity "Elaborating the install plan..."
+
+                    defaultInstallDirs <- liftIO $ userInstallDirTemplates compiler
+                    let installDirs = fmap Cabal.fromFlag $ (fmap Flag defaultInstallDirs) <> (projectConfigInstallDirs projectConfigShared)
+
+                    (elaboratedPlan, elaboratedShared) <-
+                      liftIO . runLogProgress verbosity $
+                        elaborateInstallPlan
+                          verbosity
+                          platform
+                          compiler
+                          progdb
+                          pkgConfigDB
+                          distDirLayout
+                          cabalStoreDirLayout
+                          solverPlan
+                          localPackages
+                          sourcePackageHashes
+                          installDirs
+                          projectConfigShared
+                          projectConfigAllPackages
+                          projectConfigLocalPackages
+                          (getMapMappend projectConfigSpecificPackage)
+                    let instantiatedPlan =
+                          instantiateInstallPlan
+                            cabalStoreDirLayout
+                            installDirs
+                            elaboratedShared
+                            elaboratedPlan
+                    liftIO $ debugNoWrap verbosity (showElaboratedInstallPlan instantiatedPlan)
+                    return (instantiatedPlan, elaboratedShared)
 
                 -- Update the files we maintain that reflect our current build environment.
                 -- In particular we maintain a JSON representation of the elaborated
@@ -765,62 +796,6 @@ rebuildInstallPlan
 
       newFileMonitorInCacheDir :: Eq a => FilePath -> FileMonitor a b
       newFileMonitorInCacheDir = newFileMonitor . distProjectCacheFile
-
-      -- Elaborate the solver's install plan to get a fully detailed plan. This
-      -- version of the plan has the final nix-style hashed ids.
-      --
-      phaseElaboratePlan
-        :: ProjectConfig
-        -> (Compiler, Platform, ProgramDb)
-        -> PkgConfigDb
-        -> SolverInstallPlan
-        -> [PackageSpecifier (SourcePackage (PackageLocation loc))]
-        -> Map PackageId PackageSourceHash
-        -> Rebuild (ElaboratedInstallPlan, ElaboratedSharedConfig)
-      phaseElaboratePlan
-        ProjectConfig
-          { projectConfigShared
-          , projectConfigAllPackages
-          , projectConfigLocalPackages
-          , projectConfigSpecificPackage
-          }
-        (compiler, platform, progdb)
-        pkgConfigDB
-        solverPlan
-        localPackages
-        sourcePackageHashes =
-          do
-            liftIO $ debug verbosity "Elaborating the install plan..."
-
-            defaultInstallDirs <- liftIO $ userInstallDirTemplates compiler
-            let installDirs = fmap Cabal.fromFlag $ (fmap Flag defaultInstallDirs) <> (projectConfigInstallDirs projectConfigShared)
-
-            (elaboratedPlan, elaboratedShared) <-
-              liftIO . runLogProgress verbosity $
-                elaborateInstallPlan
-                  verbosity
-                  platform
-                  compiler
-                  progdb
-                  pkgConfigDB
-                  distDirLayout
-                  cabalStoreDirLayout
-                  solverPlan
-                  localPackages
-                  sourcePackageHashes
-                  installDirs
-                  projectConfigShared
-                  projectConfigAllPackages
-                  projectConfigLocalPackages
-                  (getMapMappend projectConfigSpecificPackage)
-            let instantiatedPlan =
-                  instantiateInstallPlan
-                    cabalStoreDirLayout
-                    installDirs
-                    elaboratedShared
-                    elaboratedPlan
-            liftIO $ debugNoWrap verbosity (showElaboratedInstallPlan instantiatedPlan)
-            return (instantiatedPlan, elaboratedShared)
 
       -- Improve the elaborated install plan. The elaborated plan consists
       -- mostly of source packages (with full nix-style hashed ids). Where
