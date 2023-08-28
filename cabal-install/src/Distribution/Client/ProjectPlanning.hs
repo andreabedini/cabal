@@ -601,10 +601,7 @@ rebuildInstallPlan
             rerunIfChanged
               verbosity
               fileMonitorElaboratedPlan
-              ( projectConfigMonitored
-              , localPackages
-              , systemSearchPath
-              )
+              (projectConfigMonitored, localPackages, systemSearchPath)
               $ scopeA verbosity distDirLayout cabalStoreDirLayout projectConfig localPackages mbInstalledPackages
 
           -- The improved plan changes each time we install something, whereas
@@ -736,30 +733,53 @@ scopeA
         (configuredPrograms progdb)
         (getMapMappend (projectConfigSpecificPackage projectConfig))
 
-    -- TODO: [required eventually] find/configure other programs that the
-    -- user specifies.
+    let corePackageDbs = applyPackageDbFlags [GlobalPackageDB] (projectConfigPackageDBs projectConfigShared)
+    installedPkgIndex <-
+      getInstalledPackages
+        verbosity
+        compiler
+        progdb
+        platform
+        corePackageDbs
 
-    -- TODO: [required eventually] find/configure all build-tools
-    -- but note that some of them may be built as part of the plan.
+    let solverSettings = resolveSolverSettings projectConfig
+    (sourcePkgDb, totalIndexState, activeRepos) <-
+      getSourcePackages
+        verbosity
+        withRepoCtx
+        (solverSettingIndexState solverSettings)
+        (solverSettingActiveRepos solverSettings)
 
-    (solverPlan, pkgConfigDB, totalIndexState, activeRepos) <-
-      let
-        solverSettings = resolveSolverSettings projectConfig
-        localPackagesEnabledStanzas = getLocalPackagesEnabledStanzas projectConfig localPackages
-       in
+    pkgConfigDB <- getPkgConfigDb verbosity progdb
+
+    let localPackagesEnabledStanzas = getLocalPackagesEnabledStanzas projectConfig localPackages
+
+    solverPlan  <- do
+        -- Run the solver to get the initial install plan.
+        -- This is expensive so we cache it independently.
         rerunIfChanged
           verbosity
           fileMonitorSolverPlan
           (solverSettings, localPackages, localPackagesEnabledStanzas, compiler, platform, programDbSignature progdb)
-          $ phaseRunSolver
-            verbosity
-            projectConfig
-            compilerEtc
-            localPackages
-            localPackagesEnabledStanzas
-            (fromMaybe mempty mbInstalledPackages)
-            solverSettings
-            withRepoCtx
+          $ do
+
+            liftIO $ notice verbosity "Resolving dependencies..."
+
+            return $ foldProgress
+                      (\step rest -> Step (SolverMessage step) rest)
+                      (\err -> Fail (SolverFailure (SolverFailureReport projectConfig compiler platform localPackages) err))
+                      (\plan -> Done plan) $
+                        planPackages
+                          verbosity
+                          compiler
+                          platform
+                          Modular
+                          solverSettings
+                          (fromMaybe empty mbInstalledPackages <> installedPkgIndex)
+                          sourcePkgDb
+                          pkgConfigDB
+                          localPackages
+                          localPackagesEnabledStanzas
 
     liftIO $ debug verbosity "Elaborating the install plan..."
 
@@ -815,77 +835,8 @@ scopeA
           projectConfigShared
           projectConfigBuildOnly
 
--- Run the solver to get the initial install plan.
--- This is expensive so we cache it independently.
---
-phaseRunSolver
-  :: Verbosity
-  -> ProjectConfig
-  -> (Compiler, Platform, ProgramDb)
-  -> [PackageSpecifier UnresolvedSourcePackage]
-  -> Map PackageName (Map OptionalStanza Bool)
-  -> InstalledPackageIndex
-  -> SolverSettings
-  -> (forall a. (RepoContext -> IO a) -> IO a)
-  -> Rebuild (SolverInstallPlan, PkgConfigDb, IndexUtils.TotalIndexState, IndexUtils.ActiveRepos)
-phaseRunSolver
-  verbosity
-  projectConfig@ProjectConfig{projectConfigShared}
-  (compiler, platform, progdb)
-  localPackages
-  localPackagesEnabledStanzas
-  installedPackages
-  solverSettings
-  withRepoCtx =
-    do
-      installedPkgIndex <-
-        getInstalledPackages
-          verbosity
-          compiler
-          progdb
-          platform
-          corePackageDbs
-      (sourcePkgDb, tis, ar) <-
-        getSourcePackages
-          verbosity
-          withRepoCtx
-          (solverSettingIndexState solverSettings)
-          (solverSettingActiveRepos solverSettings)
-      pkgConfigDB <- getPkgConfigDb verbosity progdb
 
-      -- TODO: [code cleanup] it'd be better if the Compiler contained the
-      -- ConfiguredPrograms that it needs, rather than relying on the progdb
-      -- since we don't need to depend on all the programs here, just the
-      -- ones relevant for the compiler.
-
-      liftIO $ do
-        notice verbosity "Resolving dependencies..."
-        planOrError <-
-          foldProgress logMsg (pure . Left) (pure . Right) $
-            planPackages
-              verbosity
-              compiler
-              platform
-              Modular
-              solverSettings
-              (installedPackages <> installedPkgIndex)
-              sourcePkgDb
-              pkgConfigDB
-              localPackages
-              localPackagesEnabledStanzas
-        case planOrError of
-          Left msg -> do
-            reportPlanningFailure projectConfig compiler platform localPackages
-            die' verbosity msg
-          Right plan -> return (plan, pkgConfigDB, tis, ar)
-    where
-      corePackageDbs :: [PackageDB]
-      corePackageDbs =
-        applyPackageDbFlags
-          [GlobalPackageDB]
-          (projectConfigPackageDBs projectConfigShared)
-
-      logMsg message rest = debugNoWrap verbosity message >> rest
+      -- logMsg message rest = debugNoWrap verbosity message >> rest
 
 -- Elaborate the solver's install plan to get a fully detailed plan. This
 -- version of the plan has the final nix-style hashed ids.
@@ -944,6 +895,12 @@ phaseElaboratePlan
               elaboratedPlan
 
       return (instantiatedPlan, elaboratedShared)
+
+data SolverMessage a = SolverMessage a
+data SolverFailure a = SolverFailure SolverFailureReport a
+
+type LocalPackages = [PackageSpecifier UnresolvedSourcePackage]
+data SolverFailureReport = SolverFailureReport ProjectConfig Compiler Platform LocalPackages
 
 -- | If a 'PackageSpecifier' refers to a single package, return Just that
 -- package.
