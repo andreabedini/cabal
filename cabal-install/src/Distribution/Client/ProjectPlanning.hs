@@ -590,14 +590,6 @@ rebuildInstallPlan
   mbInstalledPackages =
     runRebuild distProjectRootDirectory $ do
       systemSearchPath <- liftIO $ getSystemSearchPath
-      let projectConfigMonitored = projectConfig{projectConfigBuildOnly = mempty}
-
-      let withRepoCtx =
-            projectConfigWithSolverRepoContext
-              verbosity
-              projectConfigShared
-              projectConfigBuildOnly
-
       -- The overall improved plan is cached
       rerunIfChanged
         verbosity
@@ -808,6 +800,14 @@ rebuildInstallPlan
 
           return (improvedPlan, elaboratedPlan, elaboratedShared, totalIndexState, activeRepos)
     where
+      projectConfigMonitored = projectConfig{projectConfigBuildOnly = mempty}
+
+      withRepoCtx =
+        projectConfigWithSolverRepoContext
+          verbosity
+          projectConfigShared
+          projectConfigBuildOnly
+
       fileMonitorSolverPlan = newFileMonitorInCacheDir "solver-plan"
       fileMonitorSourceHashes = newFileMonitorInCacheDir "source-hashes"
       fileMonitorElaboratedPlan = newFileMonitorInCacheDir "elaborated-plan"
