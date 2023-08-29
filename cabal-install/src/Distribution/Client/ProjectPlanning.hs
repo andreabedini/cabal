@@ -500,9 +500,9 @@ configureCompiler
     rerunIfChanged
       verbosity
       fileMonitorCompiler
-      ( hcFlavor
-      , hcPath
-      , hcPkg
+      ( projectConfigHcFlavor
+      , projectConfigHcPath
+      , projectConfigHcPkg
       , systemSearchPath
       , packageConfigProgramPaths
       , packageConfigProgramPathExtra
@@ -512,9 +512,9 @@ configureCompiler
         result@(_, _, progdb') <-
           liftIO $
             Cabal.configCompilerEx
-              hcFlavor
-              hcPath
-              hcPkg
+              (flagToMaybe projectConfigHcFlavor)
+              (flagToMaybe projectConfigHcPath)
+              (flagToMaybe projectConfigHcPkg)
               progdb
               verbosity
 
@@ -528,9 +528,6 @@ configureCompiler
 
         return result
     where
-      hcFlavor = flagToMaybe projectConfigHcFlavor
-      hcPath = flagToMaybe projectConfigHcPath
-      hcPkg = flagToMaybe projectConfigHcPkg
       progdb =
         userSpecifyPaths (Map.toList (getMapLast packageConfigProgramPaths))
           . modifyProgramSearchPath
@@ -589,13 +586,40 @@ rebuildInstallPlan
   localPackages
   mbInstalledPackages =
     runRebuild distProjectRootDirectory $ do
+      -- Configure the compiler we're using.
+      --
+      -- This is moderately expensive and doesn't change that often, so it is cached
+      -- independently.
+      (compiler, platform, progdb) <- configureCompiler verbosity distDirLayout projectConfig
+
+      -- Configuring other programs.
+      --
+      -- Having configred the compiler, now we configure all the remaining
+      -- programs. This is to check we can find them, and to monitor them for
+      -- changes.
+      --
+      -- TODO: [required eventually] we don't actually do this yet.
+      --
+      -- We rely on the fact that the previous phase added the program config for
+      -- all local packages, but that all the programs configured so far are the
+      -- compiler program or related util programs.
+      --
+      -- Users are allowed to specify program locations independently for
+      -- each package (e.g. to use a particular version of a pre-processor
+      -- for some packages). However they cannot do this for the compiler
+      -- itself as that's just not going to work. So we check for this.
+      liftIO $
+        checkBadPerPackageCompilerPaths
+          (configuredPrograms progdb)
+          (getMapMappend projectConfigSpecificPackage)
+
       systemSearchPath <- liftIO $ getSystemSearchPath
+
       -- The overall improved plan is cached
       rerunIfChanged
         verbosity
         fileMonitorImprovedPlan
-        -- react to changes in the project config,
-        -- the package .cabal files and the path
+        -- react to changes in the project config, the package .cabal files and the path
         (projectConfigMonitored, localPackages, systemSearchPath)
         $ do
           -- And so is the elaborated plan that the improved plan based on
@@ -603,39 +627,8 @@ rebuildInstallPlan
             rerunIfChanged
               verbosity
               fileMonitorElaboratedPlan
-              ( projectConfigMonitored
-              , localPackages
-              , systemSearchPath
-              )
+              (projectConfigMonitored, localPackages, systemSearchPath)
               $ do
-                -- Configure the compiler we're using.
-                --
-                -- This is moderately expensive and doesn't change that often so we cache
-                -- it independently.
-                --
-                (compiler, platform, progdb) <- configureCompiler verbosity distDirLayout projectConfig
-
-                -- Configuring other programs.
-                --
-                -- Having configred the compiler, now we configure all the remaining
-                -- programs. This is to check we can find them, and to monitor them for
-                -- changes.
-                --
-                -- TODO: [required eventually] we don't actually do this yet.
-                --
-                -- We rely on the fact that the previous phase added the program config for
-                -- all local packages, but that all the programs configured so far are the
-                -- compiler program or related util programs.
-                --
-                -- Users are allowed to specify program locations independently for
-                -- each package (e.g. to use a particular version of a pre-processor
-                -- for some packages). However they cannot do this for the compiler
-                -- itself as that's just not going to work. So we check for this.
-                liftIO $
-                  checkBadPerPackageCompilerPaths
-                    (configuredPrograms progdb)
-                    (getMapMappend projectConfigSpecificPackage)
-
                 -- TODO: [required eventually] find/configure other programs that the
                 -- user specifies.
 
