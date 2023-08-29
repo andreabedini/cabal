@@ -724,13 +724,18 @@ rebuildInstallPlan
                 defaultInstallDirs <- liftIO $ userInstallDirTemplates compiler
                 let installDirs = fmap Cabal.fromFlag $ (fmap Flag defaultInstallDirs) <> (projectConfigInstallDirs projectConfigShared)
 
-                (elaboratedPlan, elaboratedShared) <-
+                let elaboratedShared =
+                      ElaboratedSharedConfig
+                        { pkgConfigPlatform = platform
+                        , pkgConfigCompiler = compiler
+                        , pkgConfigCompilerProgs = progdb
+                        , pkgConfigReplOptions = mempty
+                        }
+                elaboratedPlan <-
                   liftIO . runLogProgress verbosity $
                     elaborateInstallPlan
                       verbosity
-                      platform
-                      compiler
-                      progdb
+                      elaboratedShared
                       pkgConfigDB
                       distDirLayout
                       cabalStoreDirLayout
@@ -1494,9 +1499,7 @@ planPackages
 -- matching that of the classic @cabal install --user@ or @--global@
 elaborateInstallPlan
   :: Verbosity
-  -> Platform
-  -> Compiler
-  -> ProgramDb
+  -> ElaboratedSharedConfig
   -> PkgConfigDb
   -> DistDirLayout
   -> StoreDirLayout
@@ -1508,14 +1511,16 @@ elaborateInstallPlan
   -> PackageConfig
   -> PackageConfig
   -> Map PackageName PackageConfig
-  -> LogProgress (ElaboratedInstallPlan, ElaboratedSharedConfig)
+  -> LogProgress ElaboratedInstallPlan
 elaborateInstallPlan
   verbosity
-  platform
-  compiler
-  compilerprogdb
+  elaboratedSharedConfig@ElaboratedSharedConfig
+    { pkgConfigPlatform = platform
+    , pkgConfigCompilerProgs = compilerprogdb
+    , pkgConfigCompiler = compiler
+    }
   pkgConfigDB
-  distDirLayout@DistDirLayout{..}
+  distDirLayout@DistDirLayout{distPackageDB}
   storeDirLayout@StoreDirLayout{storePackageDBStack}
   solverPlan
   localPackages
@@ -1524,18 +1529,23 @@ elaborateInstallPlan
   sharedPackageConfig
   allPackagesConfig
   localPackagesConfig
-  perPackageConfig = do
-    x <- elaboratedInstallPlan
-    return (x, elaboratedSharedConfig)
+  perPackageConfig =
+    flip InstallPlan.fromSolverInstallPlanWithProgress solverPlan $ \mapDep planpkg ->
+      case planpkg of
+        SolverInstallPlan.PreExisting pkg ->
+          return [InstallPlan.PreExisting (instSolverPkgIPI pkg)]
+        SolverInstallPlan.Configured pkg ->
+          let inplace_doc
+                | shouldBuildInplaceOnly pkg = text "inplace"
+                | otherwise = Disp.empty
+           in addProgressCtx
+                ( text "In the"
+                    <+> inplace_doc
+                    <+> text "package"
+                    <+> quotes (pretty (packageId pkg))
+                )
+                $ map InstallPlan.Configured <$> elaborateSolverToComponents mapDep pkg
     where
-      elaboratedSharedConfig =
-        ElaboratedSharedConfig
-          { pkgConfigPlatform = platform
-          , pkgConfigCompiler = compiler
-          , pkgConfigCompilerProgs = compilerprogdb
-          , pkgConfigReplOptions = mempty
-          }
-
       preexistingInstantiatedPkgs :: Map UnitId FullUnitId
       preexistingInstantiatedPkgs =
         Map.fromList (mapMaybe f (SolverInstallPlan.toList solverPlan))
@@ -1551,25 +1561,6 @@ elaborateInstallPlan
                     )
                   )
           f _ = Nothing
-
-      elaboratedInstallPlan
-        :: LogProgress (InstallPlan.GenericInstallPlan IPI.InstalledPackageInfo ElaboratedConfiguredPackage)
-      elaboratedInstallPlan =
-        flip InstallPlan.fromSolverInstallPlanWithProgress solverPlan $ \mapDep planpkg ->
-          case planpkg of
-            SolverInstallPlan.PreExisting pkg ->
-              return [InstallPlan.PreExisting (instSolverPkgIPI pkg)]
-            SolverInstallPlan.Configured pkg ->
-              let inplace_doc
-                    | shouldBuildInplaceOnly pkg = text "inplace"
-                    | otherwise = Disp.empty
-               in addProgressCtx
-                    ( text "In the"
-                        <+> inplace_doc
-                        <+> text "package"
-                        <+> quotes (pretty (packageId pkg))
-                    )
-                    $ map InstallPlan.Configured <$> elaborateSolverToComponents mapDep pkg
 
       -- NB: We don't INSTANTIATE packages at this point.  That's
       -- a post-pass.  This makes it simpler to compute dependencies.
@@ -2060,11 +2051,8 @@ elaborateInstallPlan
                 stanzas
                 deps0
                 _exe_deps0
-              ) =
-          elaboratedPackage
+              ) = ElaboratedConfiguredPackage{..}
           where
-            elaboratedPackage = ElaboratedConfiguredPackage{..}
-
             -- These get filled in later
             elabUnitId = error "elaborateSolverToCommon: elabUnitId"
             elabComponentId = error "elaborateSolverToCommon: elabComponentId"
