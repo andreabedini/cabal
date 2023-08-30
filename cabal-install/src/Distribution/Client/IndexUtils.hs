@@ -822,6 +822,15 @@ withIndexEntries
   -> ([NoIndexCacheEntry] -> IO a)
   -> IO a
 withIndexEntries _ (RepoIndex repoCtxt repo@RepoSecure{}) callback _ =
+  withIndexEntriesSecure repoCtxt repo callback
+withIndexEntries verbosity (RepoIndex _ (RepoLocalNoIndex localRepo _)) _ callback =
+  withIndexEntriesLocalNoIndex verbosity localRepo callback
+withIndexEntries verbosity index@(RepoIndex _ (RepoRemote _ _)) callback _ =
+  -- this uses index because it calls indexFile
+  withIndexEntriesLegacy verbosity index callback
+
+withIndexEntriesSecure :: RepoContext -> Repo -> ([IndexCacheEntry] -> IO a) -> IO a
+withIndexEntriesSecure repoCtxt repo callback =
   repoContextWithSecureRepo repoCtxt repo $ \repoSecure ->
     Sec.withIndex repoSecure $ \Sec.IndexCallbacks{..} -> do
       -- Incrementally (lazily) read all the entries in the tar file in order,
@@ -855,7 +864,9 @@ withIndexEntries _ (RepoIndex repoCtxt repo@RepoSecure{}) callback _ =
           fromMaybe (error "withIndexEntries: invalid timestamp") $
             epochTimeToTimestamp $
               Sec.indexEntryTime sie
-withIndexEntries verbosity (RepoIndex _repoCtxt (RepoLocalNoIndex (LocalRepo name localDir _) _cacheDir)) _ callback = do
+
+withIndexEntriesLocalNoIndex :: Verbosity -> LocalRepo -> ([NoIndexCacheEntry] -> IO b) -> IO b
+withIndexEntriesLocalNoIndex verbosity (LocalRepo name localDir _) callback = do
   dirContents <- listDirectory localDir
   let contentSet = Set.fromList dirContents
 
@@ -934,7 +945,9 @@ withIndexEntries verbosity (RepoIndex _repoCtxt (RepoLocalNoIndex (LocalRepo nam
       where
         filename = prettyShow pkgId FilePath.Posix.</> prettyShow (packageName pkgId) ++ ".cabal"
     readCabalEntry _ _ x = x
-withIndexEntries verbosity index callback _ = do
+
+withIndexEntriesLegacy :: Verbosity -> Index -> ([IndexCacheEntry] -> IO r) -> IO r
+withIndexEntriesLegacy verbosity index callback =
   -- non-secure repositories
   withFile (indexFile index) ReadMode $ \h -> do
     bs <- maybeDecompress `fmap` BS.hGetContents h
