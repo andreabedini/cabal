@@ -373,14 +373,14 @@ getSourcePackagesAtIndexState verbosity repoCtxt mb_idxState mb_activeRepos = do
             ]
 
   let addIndex
-        :: PackageIndex UnresolvedSourcePackage
-        -> (RepoData, CombineStrategy)
-        -> PackageIndex UnresolvedSourcePackage
+        :: PackageIndex pkg
+        -> (RepoData pkg, CombineStrategy)
+        -> PackageIndex pkg
       addIndex acc (RepoData _ _ _ _, CombineStrategySkip) = acc
       addIndex acc (RepoData _ _ idx _, CombineStrategyMerge) = PackageIndex.merge acc idx
       addIndex acc (RepoData _ _ idx _, CombineStrategyOverride) = PackageIndex.override acc idx
 
-  let pkgs :: PackageIndex UnresolvedSourcePackage
+  let pkgs :: PackageIndex (SourcePackage loc)
       pkgs = foldl' addIndex mempty pkgss'
 
   -- Note: preferences combined without using CombineStrategy
@@ -406,10 +406,10 @@ getSourcePackagesAtIndexState verbosity repoCtxt mb_idxState mb_activeRepos = do
     )
 
 -- auxiliary data used in getSourcePackagesAtIndexState
-data RepoData = RepoData
-  { rdRepoName :: RepoName
+data RepoData pkg = RepoData
+   { rdRepoName :: RepoName
   , rdTimeStamp :: Timestamp
-  , rdIndex :: PackageIndex UnresolvedSourcePackage
+  , rdIndex :: PackageIndex pkg
   , rdPreferences :: [Dependency]
   }
 
