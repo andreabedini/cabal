@@ -635,13 +635,7 @@ rebuildInstallPlan
                 -- TODO: [required eventually] find/configure all build-tools
                 -- but note that some of them may be built as part of the plan.
 
-                let corePackageDbs :: [PackageDB]
-                    corePackageDbs =
-                      applyPackageDbFlags
-                        [GlobalPackageDB]
-                        (projectConfigPackageDBs projectConfigShared)
-
-                    localPackagesEnabledStanzas = getLocalPackagesEnabledStanzas projectConfig localPackages
+                let localPackagesEnabledStanzas = getLocalPackagesEnabledStanzas projectConfig localPackages
 
                     solverSettings = resolveSolverSettings projectConfig
                     logMsg message rest = debugNoWrap verbosity message >> rest
@@ -660,15 +654,19 @@ rebuildInstallPlan
                     , programDbSignature progdb
                     )
                     $ do
+                      -- adds monitored files
                       installedPkgIndex <-
                         getInstalledPackages
                           verbosity
                           compiler
                           progdb
                           platform
-                          corePackageDbs
+                          $ applyPackageDbFlags
+                            [GlobalPackageDB]
+                            (projectConfigPackageDBs projectConfigShared)
 
                       (sourcePkgDb, tis, ar) <-
+                        -- adds monitored files
                         getSourcePackages
                           verbosity
                           withRepoCtx
@@ -683,12 +681,6 @@ rebuildInstallPlan
                       -- ones relevant for the compiler.
 
                       liftIO $ do
-                        solver <-
-                          chooseSolver
-                            verbosity
-                            (solverSettingSolver solverSettings)
-                            (compilerInfo compiler)
-
                         let installedPackages = fromMaybe mempty mbInstalledPackages
                         notice verbosity "Resolving dependencies..."
                         foldProgress
@@ -702,7 +694,7 @@ rebuildInstallPlan
                             verbosity
                             compiler
                             platform
-                            solver
+                            Modular
                             solverSettings
                             (installedPackages <> installedPkgIndex)
                             sourcePkgDb
@@ -731,6 +723,7 @@ rebuildInstallPlan
                         , pkgConfigCompilerProgs = progdb
                         , pkgConfigReplOptions = mempty
                         }
+
                 elaboratedPlan <-
                   liftIO . runLogProgress verbosity $
                     elaborateInstallPlan
@@ -784,13 +777,17 @@ rebuildInstallPlan
           -- the underlying elaborated plan only changes when input config
           -- changes, so it's worth caching them separately.
           liftIO $ debug verbosity "Improving the install plan..."
+
           let compid = compilerId (pkgConfigCompiler elaboratedShared)
           storePkgIdSet <- getStoreEntries cabalStoreDirLayout compid
+
           let improvedPlan =
                 improveInstallPlanWithInstalledPackages
                   storePkgIdSet
                   elaboratedPlan
+
           liftIO $ debugNoWrap verbosity (showElaboratedInstallPlan improvedPlan)
+
           -- TODO: [nice to have] having checked which packages from the store
           -- we're using, it may be sensible to sanity check those packages
           -- by loading up the compiler package db and checking everything
