@@ -214,7 +214,6 @@ symlinkBinaries
           InstallDirs.defaultInstallDirs
             compilerFlavor
             (fromFlag (configUserInstall configFlags))
-            (PackageDescription.hasLibs pkg)
         let templateDirs =
               InstallDirs.combineInstallDirs
                 fromFlagOrDefault

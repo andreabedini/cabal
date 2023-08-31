@@ -628,7 +628,6 @@ configure (pkg_descr0, pbi) cfg = do
       use_external_internal_deps
       (compilerFlavor comp)
       (fromFlag (configUserInstall cfg))
-      (hasLibs pkg_descr)
   let installDirs :: InstallDirTemplates
       installDirs =
         combineInstallDirs

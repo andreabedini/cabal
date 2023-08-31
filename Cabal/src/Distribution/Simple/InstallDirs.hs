@@ -175,24 +175,23 @@ type InstallDirTemplates = InstallDirs PathTemplate
 -- ---------------------------------------------------------------------------
 -- Default installation directories
 
-defaultInstallDirs :: CompilerFlavor -> Bool -> Bool -> IO InstallDirTemplates
+defaultInstallDirs :: CompilerFlavor -> Bool -> IO InstallDirTemplates
 defaultInstallDirs = defaultInstallDirs' False
 
 defaultInstallDirs'
   :: Bool {- use external internal deps -}
   -> CompilerFlavor
   -> Bool
-  -> Bool
   -> IO InstallDirTemplates
-defaultInstallDirs' True comp userInstall hasLibs = do
-  dflt <- defaultInstallDirs' False comp userInstall hasLibs
+defaultInstallDirs' True comp userInstall = do
+  dflt <- defaultInstallDirs' False comp userInstall
   -- Be a bit more hermetic about per-component installs
   return
     dflt
       { datasubdir = toPathTemplate $ "$abi" </> "$libname"
       , docdir = toPathTemplate $ "$datadir" </> "doc" </> "$abi" </> "$libname"
       }
-defaultInstallDirs' False comp userInstall _hasLibs = do
+defaultInstallDirs' False comp userInstall = do
   installPrefix <-
     if userInstall
       then do

@@ -1249,7 +1249,6 @@ regenerateHaddockIndex
           InstallDirs.defaultInstallDirs
             (compilerFlavor comp)
             (fromFlag (configUserInstall configFlags))
-            True
         let indexFileTemplate = fromFlag (installHaddockIndex installFlags)
             indexFile = substHaddockIndexFileName defaultDirs indexFileTemplate
 
@@ -1993,7 +1992,7 @@ installUnpackedPackage
 
       addDefaultInstallDirs :: ConfigFlags -> IO ConfigFlags
       addDefaultInstallDirs configFlags' = do
-        defInstallDirs <- InstallDirs.defaultInstallDirs flavor userInstall False
+        defInstallDirs <- InstallDirs.defaultInstallDirs flavor userInstall
         return $
           configFlags'
             { configInstallDirs =
@@ -2120,7 +2119,6 @@ withWin32SelfUpgrade verbosity uid configFlags cinfo platform pkg action = do
     InstallDirs.defaultInstallDirs
       compFlavor
       (fromFlag (configUserInstall configFlags))
-      (PackageDescription.hasLibs pkg)
 
   Win32SelfUpgrade.possibleSelfUpgrade
     verbosity

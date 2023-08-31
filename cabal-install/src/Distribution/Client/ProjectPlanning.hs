@@ -4033,7 +4033,6 @@ userInstallDirTemplates compiler = do
   InstallDirs.defaultInstallDirs
     (compilerFlavor compiler)
     True -- user install
-    False -- unused
 
 storePackageInstallDirs
   :: StoreDirLayout

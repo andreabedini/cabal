@@ -1069,8 +1069,8 @@ writeConfigFile file comments vals = do
 -- overriding.
 commentSavedConfig :: IO SavedConfig
 commentSavedConfig = do
-  userInstallDirs <- defaultInstallDirs defaultCompiler True True
-  globalInstallDirs <- defaultInstallDirs defaultCompiler False True
+  userInstallDirs <- defaultInstallDirs defaultCompiler True
+  globalInstallDirs <- defaultInstallDirs defaultCompiler False
   let conf0 =
         mempty
           { savedGlobalFlags =
