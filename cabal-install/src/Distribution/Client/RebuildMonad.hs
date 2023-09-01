@@ -62,9 +62,10 @@ import Prelude ()
 
 import Distribution.Client.FileMonitor
 import Distribution.Client.Glob hiding (matchFileGlob)
+import Distribution.Client.Logging
 import qualified Distribution.Client.Glob as Glob (matchFileGlob)
 
-import Distribution.Simple.Utils (debug)
+import Distribution.Simple.Utils ()
 
 import Control.Concurrent.MVar (MVar, modifyMVar, newMVar)
 import Control.Monad.Reader as Reader
@@ -115,30 +116,28 @@ askRoot = Rebuild Reader.ask
 -- Do not share 'FileMonitor's between different uses of 'rerunIfChanged'.
 rerunIfChanged
   :: (Binary a, Structured a, Binary b, Structured b)
-  => Verbosity
+  => LogAction Rebuild (Message String)
   -> FileMonitor a b
   -> a
   -> Rebuild b
   -> Rebuild b
-rerunIfChanged verbosity monitor key action = do
+rerunIfChanged logger monitor key action = do
   rootDir <- askRoot
   changed <- liftIO $ checkFileMonitorChanged monitor rootDir key
   case changed of
     MonitorUnchanged result files -> do
-      liftIO $
-        debug verbosity $
-          "File monitor '"
-            ++ monitorName
-            ++ "' unchanged."
+      debug logger $
+        "File monitor '"
+          ++ monitorName
+          ++ "' unchanged."
       monitorFiles files
       return result
     MonitorChanged reason -> do
-      liftIO $
-        debug verbosity $
-          "File monitor '"
-            ++ monitorName
-            ++ "' changed: "
-            ++ showReason reason
+      debug logger $
+        "File monitor '"
+          ++ monitorName
+          ++ "' changed: "
+          ++ showReason reason
       startTime <- liftIO $ beginUpdateFileMonitor
       (result, files) <- liftIO $ unRebuild rootDir action
       liftIO $

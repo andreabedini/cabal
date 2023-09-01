@@ -90,6 +90,7 @@ import Distribution.Client.FetchUtils
 import qualified Distribution.Client.IndexUtils as IndexUtils
 import qualified Distribution.Client.InstallPlan as InstallPlan
 import Distribution.Client.JobControl
+import Distribution.Client.Logging
 import Distribution.Client.Setup hiding (cabalVersion, packageName)
 import Distribution.Client.SetupWrapper
 import qualified Distribution.Client.SolverInstallPlan as SolverInstallPlan
@@ -176,7 +177,7 @@ import Distribution.Backpack.LinkedComponent
 import Distribution.Backpack.ModuleShape
 import Distribution.Types.ComponentInclude
 
-import Distribution.Simple.Utils
+import Distribution.Simple.Utils hiding (die', notice, debug, warn, info)
 import Distribution.Version
 
 import Distribution.Compat.Graph (IsNode (..))
@@ -372,6 +373,7 @@ rebuildProjectConfig
   -> HttpTransport
   -> DistDirLayout
   -> ProjectConfig
+  -> LogAction IO (Message String)
   -> IO
       ( ProjectConfig
       , [PackageSpecifier UnresolvedSourcePackage]
@@ -386,7 +388,9 @@ rebuildProjectConfig
     , distProjectCacheDirectory
     , distProjectFile
     }
-  cliConfig = do
+  cliConfig
+  loggerIO
+  = do
     systemSearchPath <- liftIO $ getSystemSearchPath
 
     let fileMonitorProjectConfig = newFileMonitor (distProjectCacheFile "config")
@@ -409,22 +413,22 @@ rebuildProjectConfig
           fileMonitorProjectConfig
           fileMonitorProjectConfigKey -- todo check deps too?
         $ do
-          liftIO $ info verbosity "Project settings changed, reconfiguring..."
+          info logger "Project settings changed, reconfiguring..."
           projectConfigSkeleton <- phaseReadProjectConfig
           let fetchCompiler = do
                 -- have to create the cache directory before configuring the compiler
                 liftIO $ createDirectoryIfMissingVerbose verbosity True distProjectCacheDirectory
-                (compiler, Platform arch os, _) <- configureCompiler verbosity distDirLayout (fst (PD.ignoreConditions projectConfigSkeleton) <> cliConfig)
+                (compiler, Platform arch os, _) <-
+                  configureCompiler verbosity distDirLayout (fst (PD.ignoreConditions projectConfigSkeleton) <> cliConfig) logger
                 pure (os, arch, compilerInfo compiler)
 
           projectConfig <- instantiateProjectConfigSkeletonFetchingCompiler fetchCompiler mempty projectConfigSkeleton
           when (projectConfigDistDir (projectConfigShared $ projectConfig) /= NoFlag) $
-            liftIO $
-              warn verbosity "The builddir option is not supported in project and config files. It will be ignored."
+            warn logger "The builddir option is not supported in project and config files. It will be ignored."
           localPackages <- phaseReadLocalPackages (projectConfig <> cliConfig)
           return (projectConfig, localPackages)
 
-    info verbosity $
+    info loggerIO $
       unlines $
         ("this build was affected by the following (project) config files:" :) $
           [ "- " ++ path
@@ -433,6 +437,8 @@ rebuildProjectConfig
 
     return (projectConfig <> cliConfig, localPackages)
     where
+      logger = liftLogIO loggerIO
+
       ProjectConfigShared{projectConfigHcFlavor, projectConfigHcPath, projectConfigHcPkg, projectConfigIgnoreProject, projectConfigConfigFile} =
         projectConfigShared cliConfig
 
@@ -475,6 +481,7 @@ configureCompiler
   :: Verbosity
   -> DistDirLayout
   -> ProjectConfig
+  -> LogAction Rebuild (Message String)
   -> Rebuild (Compiler, Platform, ProgramDb)
 configureCompiler
   verbosity
@@ -493,7 +500,9 @@ configureCompiler
         { packageConfigProgramPaths
         , packageConfigProgramPathExtra
         }
-    } = do
+    }
+    logger
+    = do
     let fileMonitorCompiler = newFileMonitor . distProjectCacheFile $ "compiler"
 
     systemSearchPath <- liftIO $ getSystemSearchPath
@@ -508,7 +517,7 @@ configureCompiler
       , packageConfigProgramPathExtra
       )
       $ do
-        liftIO $ info verbosity "Compiler settings changed, reconfiguring..."
+        info logger "Compiler settings changed, reconfiguring..."
         result@(_, _, progdb') <-
           liftIO $
             Cabal.configCompilerEx
@@ -564,6 +573,7 @@ rebuildInstallPlan
   -> ProjectConfig
   -> [PackageSpecifier UnresolvedSourcePackage]
   -> Maybe InstalledPackageIndex
+  -> LogAction IO (Message String)
   -> IO
       ( ElaboratedInstallPlan -- with store packages
       , ElaboratedInstallPlan -- with source packages
@@ -584,13 +594,15 @@ rebuildInstallPlan
     , projectConfigBuildOnly
     }
   localPackages
-  mbInstalledPackages =
+  mbInstalledPackages
+  loggerIO
+  =
     runRebuild distProjectRootDirectory $ do
       -- Configure the compiler we're using.
       --
       -- This is moderately expensive and doesn't change that often, so it is cached
       -- independently.
-      (compiler, platform, progdb) <- configureCompiler verbosity distDirLayout projectConfig
+      (compiler, platform, progdb) <- configureCompiler verbosity distDirLayout projectConfig logger
 
       -- Configuring other programs.
       --
@@ -617,7 +629,7 @@ rebuildInstallPlan
 
       -- The overall improved plan is cached
       rerunIfChanged
-        verbosity
+        logger
         fileMonitorImprovedPlan
         -- react to changes in the project config, the package .cabal files and the path
         (projectConfigMonitored, localPackages, systemSearchPath)
@@ -625,7 +637,7 @@ rebuildInstallPlan
           -- And so is the elaborated plan that the improved plan based on
           (elaboratedPlan, elaboratedShared, totalIndexState, activeRepos) <-
             rerunIfChanged
-              verbosity
+              logger
               fileMonitorElaboratedPlan
               (projectConfigMonitored, localPackages, systemSearchPath)
               $ do
@@ -644,7 +656,7 @@ rebuildInstallPlan
                 -- This is expensive so we cache it independently.
                 (solverPlan, pkgConfigDB, totalIndexState, activeRepos) <-
                   rerunIfChanged
-                    verbosity
+                    logger
                     fileMonitorSolverPlan
                     ( solverSettings
                     , localPackages
@@ -682,16 +694,16 @@ rebuildInstallPlan
 
                       liftIO $ do
                         let installedPackages = fromMaybe mempty mbInstalledPackages
-                        notice verbosity "Resolving dependencies..."
+                        notice loggerIO "Resolving dependencies..."
                         foldProgress
                           logMsg
                           ( \errmsg -> do
                               reportPlanningFailure projectConfig compiler platform localPackages
-                              die' verbosity errmsg
+                              die' loggerIO errmsg
                           )
                           (\plan -> return (plan, pkgConfigDB, tis, ar))
                           $ planPackages
-                            verbosity
+                            _
                             compiler
                             platform
                             Modular
@@ -704,14 +716,14 @@ rebuildInstallPlan
 
                 sourcePackageHashes <-
                   rerunIfChanged
-                    verbosity
+                    logger
                     fileMonitorSourceHashes
                     (packageLocationsSignature solverPlan)
-                    $ getPackageSourceHashes verbosity withRepoCtx solverPlan
+                    $ getPackageSourceHashes logger withRepoCtx solverPlan
 
                 -- Elaborate the solver's install plan to get a fully detailed plan. This
                 -- version of the plan has the final nix-style hashed ids.
-                liftIO $ debug verbosity "Elaborating the install plan..."
+                liftIO $ debug loggerIO "Elaborating the install plan..."
 
                 defaultInstallDirs <- liftIO $ userInstallDirTemplates compiler
                 let installDirs = fmap Cabal.fromFlag $ (fmap Flag defaultInstallDirs) <> (projectConfigInstallDirs projectConfigShared)
@@ -756,7 +768,7 @@ rebuildInstallPlan
                 -- of the build rather than just the input environment).
                 --
                 liftIO $ do
-                  debug verbosity "Updating plan.json"
+                  debug loggerIO "Updating plan.json"
                   writePlanExternalRepresentation
                     distDirLayout
                     elaboratedPlan
@@ -776,7 +788,7 @@ rebuildInstallPlan
           -- The improved plan changes each time we install something, whereas
           -- the underlying elaborated plan only changes when input config
           -- changes, so it's worth caching them separately.
-          liftIO $ debug verbosity "Improving the install plan..."
+          debug logger "Improving the install plan..."
 
           let compid = compilerId (pkgConfigCompiler elaboratedShared)
           storePkgIdSet <- getStoreEntries cabalStoreDirLayout compid
@@ -795,6 +807,8 @@ rebuildInstallPlan
 
           return (improvedPlan, elaboratedPlan, elaboratedShared, totalIndexState, activeRepos)
     where
+      logger = liftLogIO loggerIO
+
       projectConfigMonitored = projectConfig{projectConfigBuildOnly = mempty}
 
       withRepoCtx =
@@ -994,11 +1008,11 @@ packageLocationsSignature solverPlan =
 --
 -- Note that we don't get hashes for local unpacked packages.
 getPackageSourceHashes
-  :: Verbosity
+  :: LogAction Rebuild String
   -> (forall a. (RepoContext -> IO a) -> IO a)
   -> SolverInstallPlan
   -> Rebuild (Map PackageId PackageSourceHash)
-getPackageSourceHashes verbosity withRepoCtx solverPlan = do
+getPackageSourceHashes logger withRepoCtx solverPlan = do
   -- Determine if and where to get the package's source hash from.
   --
   let allPkgLocations :: [(PackageId, PackageLocation (Maybe FilePath))]
@@ -1048,7 +1062,7 @@ getPackageSourceHashes verbosity withRepoCtx solverPlan = do
     liftIO $
       withRepoCtx $ \repoctx -> forM repoTarballPkgsWithMetadataUnvalidated $
         \x@(pkg, repo) ->
-          verifyFetchedTarball verbosity repoctx repo pkg >>= \b -> case b of
+          verifyFetchedTarball logger repoctx repo pkg >>= \b -> case b of
             True -> return $ Left x
             False -> return $ Right x
 

@@ -62,11 +62,7 @@ import Distribution.Package
   , packageVersion
   )
 import Distribution.Simple.Utils
-  ( debug
-  , die'
-  , info
-  , notice
-  , warn
+  (
   )
 import Distribution.Verbosity
   ( verboseUnmarkOutput
@@ -101,6 +97,7 @@ import System.IO
 import qualified Hackage.Security.Client as Sec
 import qualified Hackage.Security.Util.Checked as Sec
 import qualified Hackage.Security.Util.Path as Sec
+import Distribution.Client.Logging
 
 -- ------------------------------------------------------------
 
@@ -151,14 +148,14 @@ checkRepoTarballFetched repo pkgid = do
     then return (Just file)
     else return Nothing
 
-verifyFetchedTarball :: Verbosity -> RepoContext -> Repo -> PackageId -> IO Bool
-verifyFetchedTarball verbosity repoCtxt repo pkgid =
+verifyFetchedTarball :: LogAction IO (Message String) -> RepoContext -> Repo -> PackageId -> IO Bool
+verifyFetchedTarball logger repoCtxt repo pkgid =
   let file = packageFile repo pkgid
       handleError :: IO Bool -> IO Bool
       handleError act = do
         res <- Safe.try act
         case res of
-          Left e -> warn verbosity ("Error verifying fetched tarball " ++ file ++ ", will redownload: " ++ show (e :: SomeException)) >> pure False
+          Left e -> warn logger ("Error verifying fetched tarball " ++ file ++ ", will redownload: " ++ show (e :: SomeException)) >> pure False
           Right b -> pure b
    in handleError $ do
         exists <- doesFileExist file
@@ -169,7 +166,7 @@ verifyFetchedTarball verbosity repoCtxt repo pkgid =
             RepoSecure{} ->
               repoContextWithSecureRepo repoCtxt repo $ \repoSecure ->
                 Sec.withIndex repoSecure $ \callbacks ->
-                  let warnAndFail s = warn verbosity ("Fetched tarball " ++ file ++ " does not match server, will redownload: " ++ s) >> return False
+                  let warnAndFail s = warn logger ("Fetched tarball " ++ file ++ " does not match server, will redownload: " ++ s) >> return False
                    in -- the do block in parens is due to dealing with the checked exceptions mechanism.
                       ( do
                           fileInfo <- Sec.indexLookupFileInfo callbacks pkgid
@@ -188,11 +185,11 @@ verifyFetchedTarball verbosity repoCtxt repo pkgid =
 
 -- | Fetch a package if we don't have it already.
 fetchPackage
-  :: Verbosity
+  :: LogAction IO (Message String)
   -> RepoContext
   -> UnresolvedPkgLoc
   -> IO ResolvedPkgLoc
-fetchPackage verbosity repoCtxt loc = case loc of
+fetchPackage logger repoCtxt loc = case loc of
   LocalUnpackedPackage dir ->
     return (LocalUnpackedPackage dir)
   LocalTarballPackage file ->
@@ -207,57 +204,60 @@ fetchPackage verbosity repoCtxt loc = case loc of
     path <- downloadTarballPackage uri
     return (RemoteTarballPackage uri path)
   RepoTarballPackage repo pkgid Nothing -> do
-    local <- fetchRepoTarball verbosity repoCtxt repo pkgid
+    local <- fetchRepoTarball logger repoCtxt repo pkgid
     return (RepoTarballPackage repo pkgid local)
   RemoteSourceRepoPackage _repo Nothing ->
-    die' verbosity "fetchPackage: source repos not supported"
+    die' logger "fetchPackage: source repos not supported"
   where
     downloadTarballPackage :: URI -> IO FilePath
     downloadTarballPackage uri = do
       transport <- repoContextGetTransport repoCtxt
-      transportCheckHttps verbosity transport uri
-      notice verbosity ("Downloading " ++ show uri)
+      transportCheckHttps logger transport uri
+      notice logger ("Downloading " ++ show uri)
       tmpdir <- getTemporaryDirectory
       (path, hnd) <- openTempFile tmpdir "cabal-.tar.gz"
       hClose hnd
-      _ <- downloadURI transport verbosity uri path
+      _ <- downloadURI transport logger uri path
       return path
 
 -- | Fetch a repo package if we don't have it already.
-fetchRepoTarball :: Verbosity -> RepoContext -> Repo -> PackageId -> IO FilePath
-fetchRepoTarball verbosity' repoCtxt repo pkgid = do
+fetchRepoTarball
+  :: LogAction IO (Message String)
+  -> RepoContext -> Repo -> PackageId -> IO FilePath
+fetchRepoTarball logger' repoCtxt repo pkgid = do
   fetched <- doesFileExist (packageFile repo pkgid)
   if fetched
     then do
-      info verbosity $ prettyShow pkgid ++ " has already been downloaded."
+      info logger $ prettyShow pkgid ++ " has already been downloaded."
       return (packageFile repo pkgid)
     else do
-      progressMessage verbosity ProgressDownloading (prettyShow pkgid)
+      progressMessage logger ProgressDownloading (prettyShow pkgid)
       res <- downloadRepoPackage
-      progressMessage verbosity ProgressDownloaded (prettyShow pkgid)
+      progressMessage logger ProgressDownloaded (prettyShow pkgid)
       return res
   where
     -- whether we download or not is non-deterministic
-    verbosity = verboseUnmarkOutput verbosity'
+    -- FIXME:
+    logger = verboseUnmarkOutput logger'
 
     downloadRepoPackage :: IO FilePath
     downloadRepoPackage = case repo of
       RepoLocalNoIndex{} -> return (packageFile repo pkgid)
       RepoRemote{..} -> do
         transport <- repoContextGetTransport repoCtxt
-        remoteRepoCheckHttps verbosity transport repoRemote
+        remoteRepoCheckHttps logger transport repoRemote
         let uri = packageURI repoRemote pkgid
             dir = packageDir repo pkgid
             path = packageFile repo pkgid
         createDirectoryIfMissing True dir
-        _ <- downloadURI transport verbosity uri path
+        _ <- downloadURI transport logger uri path
         return path
       RepoSecure{} -> repoContextWithSecureRepo repoCtxt repo $ \rep -> do
         let dir = packageDir repo pkgid
             path = packageFile repo pkgid
         createDirectoryIfMissing True dir
         Sec.uncheckClientErrors $ do
-          info verbosity ("Writing " ++ path)
+          info logger ("Writing " ++ path)
           Sec.downloadPackage' rep pkgid path
         return path
 
@@ -345,14 +345,14 @@ asyncFetchPackages verbosity repoCtxt pkglocs body = do
 -- download phase so we end up using 'waitAsyncFetchPackage' twice on
 -- the same package. C.f. #4461.
 waitAsyncFetchPackage
-  :: Verbosity
+  :: LogAction IO (Message String)
   -> AsyncFetchMap
   -> UnresolvedPkgLoc
   -> IO ResolvedPkgLoc
-waitAsyncFetchPackage verbosity downloadMap srcloc =
+waitAsyncFetchPackage logger downloadMap srcloc =
   case Map.lookup srcloc downloadMap of
     Just hnd -> do
-      debug verbosity $ "Waiting for download of " ++ show srcloc
+      debug logger $ "Waiting for download of " ++ show srcloc
       either throwIO return =<< readMVar hnd
     Nothing -> fail "waitAsyncFetchPackage: package not being downloaded"
 

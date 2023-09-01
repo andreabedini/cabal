@@ -86,7 +86,7 @@ import Distribution.System
 
 -- | Fetch a list of packages and their dependencies.
 fetch
-  :: Verbosity
+  :: logger
   -> PackageDBStack
   -> RepoContext
   -> Compiler
@@ -96,10 +96,10 @@ fetch
   -> FetchFlags
   -> [UserTarget]
   -> IO ()
-fetch verbosity _ _ _ _ _ _ _ [] =
-  notice verbosity "No packages requested. Nothing to do."
+fetch logger _ _ _ _ _ _ _ [] =
+  notice logger "No packages requested. Nothing to do."
 fetch
-  verbosity
+  logger
   packageDBs
   repoCtxt
   comp
@@ -108,22 +108,22 @@ fetch
   _
   fetchFlags
   userTargets = do
-    traverse_ (checkTarget verbosity) userTargets
+    traverse_ (checkTarget logger) userTargets
 
-    installedPkgIndex <- getInstalledPackages verbosity comp packageDBs progdb
-    sourcePkgDb <- getSourcePackages verbosity repoCtxt
-    pkgConfigDb <- readPkgConfigDb verbosity progdb
+    installedPkgIndex <- getInstalledPackages logger comp packageDBs progdb
+    sourcePkgDb <- getSourcePackages logger repoCtxt
+    pkgConfigDb <- readPkgConfigDb logger progdb
 
     pkgSpecifiers <-
       resolveUserTargets
-        verbosity
+        logger
         repoCtxt
         (packageIndex sourcePkgDb)
         userTargets
 
     pkgs <-
       planPackages
-        verbosity
+        logger
         comp
         platform
         fetchFlags
@@ -138,23 +138,23 @@ fetch
       -- will need to be changed because for remote tarballs we fetch them
       -- at the earlier phase.
 
-        notice verbosity $
+        notice logger $
           "No packages need to be fetched. "
             ++ "All the requested packages are already local "
             ++ "or cached locally."
       else
         if dryRun
           then
-            notice verbosity $
+            notice logger $
               unlines $
                 "The following packages would be fetched:"
                   : map (prettyShow . packageId) pkgs'
-          else traverse_ (fetchPackage verbosity repoCtxt . srcpkgSource) pkgs'
+          else traverse_ (fetchPackage logger repoCtxt . srcpkgSource) pkgs'
     where
       dryRun = fromFlag (fetchDryRun fetchFlags)
 
 planPackages
-  :: Verbosity
+  :: logger
   -> Compiler
   -> Platform
   -> FetchFlags
@@ -164,7 +164,7 @@ planPackages
   -> [PackageSpecifier UnresolvedSourcePackage]
   -> IO [UnresolvedSourcePackage]
 planPackages
-  verbosity
+  logger
   comp
   platform
   fetchFlags
@@ -175,12 +175,12 @@ planPackages
     | includeDependencies = do
         solver <-
           chooseSolver
-            verbosity
+            logger
             (fromFlag (fetchSolver fetchFlags))
             (compilerInfo comp)
-        notice verbosity "Resolving dependencies..."
+        notice logger "Resolving dependencies..."
         installPlan <-
-          foldProgress logMsg (die' verbosity) return $
+          foldProgress logMsg (die' logger) return $
             resolveDependencies
               platform
               (compilerInfo comp)
@@ -196,7 +196,7 @@ planPackages
               SolverInstallPlan.toList installPlan
           ]
     | otherwise =
-        either (die' verbosity . unlines . map show) return $
+        either (die' logger . unlines . map show) return $
           resolveWithoutDependencies resolverParams
     where
       resolverParams :: DepResolverParams
@@ -215,7 +215,7 @@ planPackages
           . setStrongFlags strongFlags
           . setAllowBootLibInstalls allowBootLibInstalls
           . setOnlyConstrained onlyConstrained
-          . setSolverVerbosity verbosity
+          . setSolverVerbosity logger
           . addConstraints
             [ let pc =
                     PackageConstraint
@@ -232,7 +232,7 @@ planPackages
           $ standardInstallPolicy installedPkgIndex sourcePkgDb pkgSpecifiers
 
       includeDependencies = fromFlag (fetchDeps fetchFlags)
-      logMsg message rest = debug verbosity message >> rest
+      logMsg message rest = debug logger message >> rest
 
       stanzas =
         [TestStanzas | testsEnabled]
@@ -251,26 +251,26 @@ planPackages
       allowBootLibInstalls = fromFlag (fetchAllowBootLibInstalls fetchFlags)
       onlyConstrained = fromFlag (fetchOnlyConstrained fetchFlags)
 
-checkTarget :: Verbosity -> UserTarget -> IO ()
-checkTarget verbosity target = case target of
+checkTarget :: LogAction IO (Message String) UserTarget -> IO ()
+checkTarget logger target = case target of
   UserTargetRemoteTarball _uri ->
-    die' verbosity $
+    die' logger $
       "The 'fetch' command does not yet support remote tarballs. "
         ++ "In the meantime you can use the 'unpack' commands."
   _ -> return ()
 
-fetchPackage :: Verbosity -> RepoContext -> PackageLocation a -> IO ()
-fetchPackage verbosity repoCtxt pkgsrc = case pkgsrc of
+fetchPackage :: LogAction IO (Message String) RepoContext -> PackageLocation a -> IO ()
+fetchPackage logger repoCtxt pkgsrc = case pkgsrc of
   LocalUnpackedPackage _dir -> return ()
   LocalTarballPackage _file -> return ()
   RemoteTarballPackage _uri _ ->
-    die' verbosity $
+    die' logger $
       "The 'fetch' command does not yet support remote tarballs. "
         ++ "In the meantime you can use the 'unpack' commands."
   RemoteSourceRepoPackage _repo _ ->
-    die' verbosity $
+    die' logger $
       "The 'fetch' command does not yet support remote "
         ++ "source repositories."
   RepoTarballPackage repo pkgid _ -> do
-    _ <- fetchRepoTarball verbosity repoCtxt repo pkgid
+    _ <- fetchRepoTarball logger repoCtxt repo pkgid
     return ()
