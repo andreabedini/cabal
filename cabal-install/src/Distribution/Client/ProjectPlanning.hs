@@ -177,7 +177,7 @@ import Distribution.Backpack.LinkedComponent
 import Distribution.Backpack.ModuleShape
 import Distribution.Types.ComponentInclude
 
-import Distribution.Simple.Utils hiding (die', notice, debug, warn, info)
+import Distribution.Simple.Utils hiding (debug, die', info, notice, warn)
 import Distribution.Version
 
 import Distribution.Compat.Graph (IsNode (..))
@@ -281,7 +281,8 @@ sanityCheckElaboratedConfiguredPackage
       -- the stanzas explicitly disabled should not be available
       . assert
         ( optStanzaSetNull $
-            optStanzaKeysFilteredByValue (maybe False not) elabStanzasRequested `optStanzaSetIntersection` elabStanzasAvailable
+            optStanzaKeysFilteredByValue (maybe False not) elabStanzasRequested
+              `optStanzaSetIntersection` elabStanzasAvailable
         )
       -- either a package is built inplace, or we are not attempting to
       -- build any test suites or benchmarks (we never build these
@@ -389,53 +390,53 @@ rebuildProjectConfig
     , distProjectFile
     }
   cliConfig
-  loggerIO
-  = do
-    systemSearchPath <- liftIO $ getSystemSearchPath
+  loggerIO =
+    do
+      systemSearchPath <- liftIO $ getSystemSearchPath
 
-    let fileMonitorProjectConfig = newFileMonitor (distProjectCacheFile "config")
+      let fileMonitorProjectConfig = newFileMonitor (distProjectCacheFile "config")
 
-    fileMonitorProjectConfigKey <- do
-      configPath <- getConfigFilePath projectConfigConfigFile
-      return
-        ( configPath
-        , distProjectFile ""
-        , (projectConfigHcFlavor, projectConfigHcPath, projectConfigHcPkg)
-        , systemSearchPath
-        , packageConfigProgramPaths
-        , packageConfigProgramPathExtra
-        )
+      fileMonitorProjectConfigKey <- do
+        configPath <- getConfigFilePath projectConfigConfigFile
+        return
+          ( configPath
+          , distProjectFile ""
+          , (projectConfigHcFlavor, projectConfigHcPath, projectConfigHcPkg)
+          , systemSearchPath
+          , packageConfigProgramPaths
+          , packageConfigProgramPathExtra
+          )
 
-    (projectConfig, localPackages) <-
-      runRebuild distProjectRootDirectory
-        $ rerunIfChanged
-          verbosity
-          fileMonitorProjectConfig
-          fileMonitorProjectConfigKey -- todo check deps too?
-        $ do
-          info logger "Project settings changed, reconfiguring..."
-          projectConfigSkeleton <- phaseReadProjectConfig
-          let fetchCompiler = do
-                -- have to create the cache directory before configuring the compiler
-                liftIO $ createDirectoryIfMissingVerbose verbosity True distProjectCacheDirectory
-                (compiler, Platform arch os, _) <-
-                  configureCompiler verbosity distDirLayout (fst (PD.ignoreConditions projectConfigSkeleton) <> cliConfig) logger
-                pure (os, arch, compilerInfo compiler)
+      (projectConfig, localPackages) <-
+        runRebuild distProjectRootDirectory
+          $ rerunIfChanged
+            verbosity
+            fileMonitorProjectConfig
+            fileMonitorProjectConfigKey -- todo check deps too?
+          $ do
+            info logger "Project settings changed, reconfiguring..."
+            projectConfigSkeleton <- phaseReadProjectConfig
+            let fetchCompiler = do
+                  -- have to create the cache directory before configuring the compiler
+                  liftIO $ createDirectoryIfMissingVerbose verbosity True distProjectCacheDirectory
+                  (compiler, Platform arch os, _) <-
+                    configureCompiler verbosity distDirLayout (fst (PD.ignoreConditions projectConfigSkeleton) <> cliConfig) logger
+                  pure (os, arch, compilerInfo compiler)
 
-          projectConfig <- instantiateProjectConfigSkeletonFetchingCompiler fetchCompiler mempty projectConfigSkeleton
-          when (projectConfigDistDir (projectConfigShared $ projectConfig) /= NoFlag) $
-            warn logger "The builddir option is not supported in project and config files. It will be ignored."
-          localPackages <- phaseReadLocalPackages (projectConfig <> cliConfig)
-          return (projectConfig, localPackages)
+            projectConfig <- instantiateProjectConfigSkeletonFetchingCompiler fetchCompiler mempty projectConfigSkeleton
+            when (projectConfigDistDir (projectConfigShared $ projectConfig) /= NoFlag) $
+              warn logger "The builddir option is not supported in project and config files. It will be ignored."
+            localPackages <- phaseReadLocalPackages (projectConfig <> cliConfig)
+            return (projectConfig, localPackages)
 
-    info loggerIO $
-      unlines $
-        ("this build was affected by the following (project) config files:" :) $
-          [ "- " ++ path
-          | Explicit path <- Set.toList $ projectConfigProvenance projectConfig
-          ]
+      info loggerIO $
+        unlines $
+          ("this build was affected by the following (project) config files:" :) $
+            [ "- " ++ path
+            | Explicit path <- Set.toList $ projectConfigProvenance projectConfig
+            ]
 
-    return (projectConfig <> cliConfig, localPackages)
+      return (projectConfig <> cliConfig, localPackages)
     where
       logger = liftLogIO loggerIO
 
@@ -501,41 +502,41 @@ configureCompiler
         , packageConfigProgramPathExtra
         }
     }
-    logger
-    = do
-    let fileMonitorCompiler = newFileMonitor . distProjectCacheFile $ "compiler"
+  logger =
+    do
+      let fileMonitorCompiler = newFileMonitor . distProjectCacheFile $ "compiler"
 
-    systemSearchPath <- liftIO $ getSystemSearchPath
-    rerunIfChanged
-      verbosity
-      fileMonitorCompiler
-      ( projectConfigHcFlavor
-      , projectConfigHcPath
-      , projectConfigHcPkg
-      , systemSearchPath
-      , packageConfigProgramPaths
-      , packageConfigProgramPathExtra
-      )
-      $ do
-        info logger "Compiler settings changed, reconfiguring..."
-        result@(_, _, progdb') <-
-          liftIO $
-            Cabal.configCompilerEx
-              (flagToMaybe projectConfigHcFlavor)
-              (flagToMaybe projectConfigHcPath)
-              (flagToMaybe projectConfigHcPkg)
-              progdb
-              verbosity
+      systemSearchPath <- liftIO $ getSystemSearchPath
+      rerunIfChanged
+        verbosity
+        fileMonitorCompiler
+        ( projectConfigHcFlavor
+        , projectConfigHcPath
+        , projectConfigHcPkg
+        , systemSearchPath
+        , packageConfigProgramPaths
+        , packageConfigProgramPathExtra
+        )
+        $ do
+          info logger "Compiler settings changed, reconfiguring..."
+          result@(_, _, progdb') <-
+            liftIO $
+              Cabal.configCompilerEx
+                (flagToMaybe projectConfigHcFlavor)
+                (flagToMaybe projectConfigHcPath)
+                (flagToMaybe projectConfigHcPkg)
+                progdb
+                verbosity
 
-        -- Note that we added the user-supplied program locations and args
-        -- for /all/ programs, not just those for the compiler prog and
-        -- compiler-related utils. In principle we don't know which programs
-        -- the compiler will configure (and it does vary between compilers).
-        -- We do know however that the compiler will only configure the
-        -- programs it cares about, and those are the ones we monitor here.
-        monitorFiles (programsMonitorFiles progdb')
+          -- Note that we added the user-supplied program locations and args
+          -- for /all/ programs, not just those for the compiler prog and
+          -- compiler-related utils. In principle we don't know which programs
+          -- the compiler will configure (and it does vary between compilers).
+          -- We do know however that the compiler will only configure the
+          -- programs it cares about, and those are the ones we monitor here.
+          monitorFiles (programsMonitorFiles progdb')
 
-        return result
+          return result
     where
       progdb =
         userSpecifyPaths (Map.toList (getMapLast packageConfigProgramPaths))
@@ -595,8 +596,7 @@ rebuildInstallPlan
     }
   localPackages
   mbInstalledPackages
-  loggerIO
-  =
+  loggerIO =
     runRebuild distProjectRootDirectory $ do
       -- Configure the compiler we're using.
       --
@@ -737,8 +737,9 @@ rebuildInstallPlan
                         }
 
                 elaboratedPlan <-
-                  liftIO . runLogProgress verbosity $
-                    elaborateInstallPlan
+                  liftIO
+                    . runLogProgress verbosity
+                    $ elaborateInstallPlan
                       verbosity
                       elaboratedShared
                       pkgConfigDB
@@ -934,7 +935,8 @@ getInstalledPackages
   -> PackageDBStack
   -> Rebuild InstalledPackageIndex
 getInstalledPackages verbosity compiler progdb platform packagedbs = do
-  monitorFiles . map monitorFileOrDirectory
+  monitorFiles
+    . map monitorFileOrDirectory
     =<< liftIO
       ( IndexUtils.getInstalledPackagesMonitorFiles
           verbosity
@@ -976,9 +978,10 @@ getSourcePackages
 getSourcePackages verbosity withRepoCtx idxState activeRepos = do
   (sourcePkgDbWithTIS, repos) <-
     liftIO $
-      withRepoCtx $ \repoctx -> do
-        sourcePkgDbWithTIS <- IndexUtils.getSourcePackagesAtIndexState verbosity repoctx idxState activeRepos
-        return (sourcePkgDbWithTIS, repoContextRepos repoctx)
+      withRepoCtx $
+        \repoctx -> do
+          sourcePkgDbWithTIS <- IndexUtils.getSourcePackagesAtIndexState verbosity repoctx idxState activeRepos
+          return (sourcePkgDbWithTIS, repoContextRepos repoctx)
 
   traverse_ needIfExists
     . IndexUtils.getSourcePackagesMonitorFiles
@@ -1060,11 +1063,12 @@ getPackageSourceHashes logger withRepoCtx solverPlan = do
 
   (repoTarballPkgsWithMetadata, repoTarballPkgsToDownloadWithMeta) <- fmap partitionEithers $
     liftIO $
-      withRepoCtx $ \repoctx -> forM repoTarballPkgsWithMetadataUnvalidated $
-        \x@(pkg, repo) ->
-          verifyFetchedTarball logger repoctx repo pkg >>= \b -> case b of
-            True -> return $ Left x
-            False -> return $ Right x
+      withRepoCtx $
+        \repoctx -> forM repoTarballPkgsWithMetadataUnvalidated $
+          \x@(pkg, repo) ->
+            verifyFetchedTarball logger repoctx repo pkg >>= \b -> case b of
+              True -> return $ Left x
+              False -> return $ Right x
 
   -- For tarballs from repos that do not have hashes available we now have
   -- to check if the packages were downloaded already.
@@ -1097,8 +1101,8 @@ getPackageSourceHashes logger withRepoCtx solverPlan = do
         -- the hashes for the packages
         --
         hashesFromRepoMetadata <-
-          Sec.uncheckClientErrors $ -- TODO: [code cleanup] wrap in our own exceptions
-            fmap (Map.fromList . concat) $
+          Sec.uncheckClientErrors $
+            fmap (Map.fromList . concat) $ -- TODO: [code cleanup] wrap in our own exceptions
               sequence
                 -- Reading the repo index is expensive so we group the packages by repo
                 [ repoContextWithSecureRepo repoctx repo $ \secureRepo ->
@@ -1555,7 +1559,8 @@ elaborateInstallPlan
                     <+> text "package"
                     <+> quotes (pretty (packageId pkg))
                 )
-                $ map InstallPlan.Configured <$> elaborateSolverToComponents mapDep pkg
+                $ map InstallPlan.Configured
+                  <$> elaborateSolverToComponents mapDep pkg
     where
       preexistingInstantiatedPkgs :: Map UnitId FullUnitId
       preexistingInstantiatedPkgs =
@@ -1600,7 +1605,8 @@ elaborateInstallPlan
                 checkPerPackageOk comps not_per_component_reasons
                 return
                   [ elaborateSolverToPackage spkg g $
-                      comps ++ maybeToList setupComponent
+                      comps
+                        ++ maybeToList setupComponent
                   ]
           Left cns ->
             dieProgress $
@@ -1865,7 +1871,8 @@ elaborateInstallPlan
               external_exe_dep_pkgs =
                 concatMap mapDep $
                   ordNubBy (pkgName . packageId) $
-                    external_exe_dep_sids ++ external_lib_dep_sids
+                    external_exe_dep_sids
+                      ++ external_lib_dep_sids
 
               external_exe_map =
                 Map.fromList $
@@ -1884,7 +1891,8 @@ elaborateInstallPlan
               external_lc_map =
                 Map.fromList $
                   map mkShapeMapping $
-                    external_lib_dep_pkgs ++ concatMap mapDep external_exe_dep_sids
+                    external_lib_dep_pkgs
+                      ++ concatMap mapDep external_exe_dep_sids
 
               compPkgConfigDependencies =
                 [ ( pn
@@ -1936,7 +1944,8 @@ elaborateInstallPlan
               case elabPkgOrComp elab of
                 -- Monolithic mode: all exes of the package
                 ElabPackage _ ->
-                  unUnqualComponentName . PD.exeName
+                  unUnqualComponentName
+                    . PD.exeName
                     <$> PD.executables (elabPkgDescription elab)
                 -- Per-component mode: just the selected exe
                 ElabComponent comp ->
@@ -2729,8 +2738,9 @@ instantiateInstallPlan storeDirLayout defaultInstallDirs elaboratedShared plan =
             -- component depends on any inplace packages, it itself must
             -- be indefinite!  There is no substitution here, we can't
             -- post facto add inplace deps
-            return . InstallPlan.Configured $
-              epkg
+            return
+              . InstallPlan.Configured
+              $ epkg
                 { elabPkgOrComp =
                     ElabComponent
                       elab_comp
