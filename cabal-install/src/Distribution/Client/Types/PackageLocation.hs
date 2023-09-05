@@ -15,13 +15,14 @@ import Network.URI (URI)
 
 import Distribution.Types.PackageId (PackageId)
 
+import Distribution.Client.HashValue (HashValue)
 import Distribution.Client.Types.Repo
 import Distribution.Client.Types.SourceRepo (SourceRepoMaybe)
 import Distribution.Solver.Types.SourcePackage (SourcePackage)
 
-type UnresolvedPkgLoc = PackageLocation (Maybe FilePath)
+type UnresolvedPkgLoc = PackageLocation (Maybe (HashValue, FilePath))
 
-type ResolvedPkgLoc = PackageLocation FilePath
+type ResolvedPkgLoc = PackageLocation (HashValue, FilePath)
 
 data PackageLocation local
   = -- | An unpacked package in the given dir, or current dir
