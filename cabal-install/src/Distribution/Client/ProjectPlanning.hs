@@ -98,7 +98,6 @@ import Distribution.Client.Utils (incVersion)
 import Distribution.Utils.LogProgress
 import Distribution.Utils.MapAccum
 import Distribution.Utils.NubList
-import qualified Hackage.Security.Client as Sec
 
 import qualified Distribution.Client.BuildReports.Storage as BuildReports
   ( fromPlanningFailure
@@ -119,9 +118,6 @@ import Distribution.Solver.Types.SolverPackage
 import Distribution.Solver.Types.SourcePackage
 
 import Distribution.CabalSpecVersion
-
--- TODO: [code cleanup] eliminate
--- TODO: [code cleanup] eliminate
 
 import qualified Distribution.InstalledPackageInfo as IPI
 import Distribution.ModuleName
@@ -182,12 +178,11 @@ import Distribution.Compat.Graph (IsNode (..))
 import qualified Distribution.Compat.Graph as Graph
 
 import Control.Exception (assert)
-import Control.Monad (forM, sequence)
+import Control.Monad (sequence)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State as State (State, execState, runState, state)
 import Data.Foldable (fold)
 import Data.List (deleteBy, groupBy)
-import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import System.FilePath
@@ -1046,7 +1041,7 @@ getPkgConfigDb verbosity progdb = do
 -- | Select the config values to monitor for changes package source hashes.
 packageLocationsSignature
   :: SolverInstallPlan
-  -> [(PackageId, PackageLocation (Maybe FilePath))]
+  -> [(PackageId, UnresolvedPkgLoc)]
 packageLocationsSignature solverPlan =
   [ (packageId pkg, srcpkgSource pkg)
   | SolverInstallPlan.Configured (SolverPackage{solverPkgSource = pkg}) <-
@@ -1065,158 +1060,60 @@ getPackageSourceHashes
 getPackageSourceHashes verbosity withRepoCtx solverPlan = do
   -- Determine if and where to get the package's source hash from.
   --
-  let allPkgLocations :: [(PackageId, PackageLocation (Maybe FilePath))]
+  let allPkgLocations :: [(PackageId, UnresolvedPkgLoc)]
       allPkgLocations =
         [ (packageId pkg, srcpkgSource pkg)
         | SolverInstallPlan.Configured (SolverPackage{solverPkgSource = pkg}) <-
             SolverInstallPlan.toList solverPlan
         ]
 
-      -- Tarballs that were local in the first place.
-      -- We'll hash these tarball files directly.
-      localTarballPkgs :: [(PackageId, FilePath)]
-      localTarballPkgs =
-        [ (pkgid, tarball)
-        | (pkgid, LocalTarballPackage tarball) <- allPkgLocations
+  -- Tarballs that were local in the first place.
+  -- We'll hash these tarball files directly.
+  localTarballPkgs <- liftIO $
+    sequence
+    [ do
+        hash <- readFileHashValue path
+        return (pkgid, hash, path)
+    | (pkgid, LocalTarballPackage path) <- allPkgLocations
+    ]
+
+  -- tarballs from source-repository-package stanzas
+  let sourceRepoTarballPkgs =
+        [ (pkgid, hash, path)
+        | (pkgid, RemoteSourceRepoPackage _ (Just (hash, path))) <- allPkgLocations
         ]
 
-      -- Tarballs from remote URLs. We must have downloaded these already
-      -- (since we extracted the .cabal file earlier)
-      remoteTarballPkgs =
-        [ (pkgid, tarball)
-        | (pkgid, RemoteTarballPackage _ (Just tarball)) <- allPkgLocations
+  repoTarballPkgsNewlyDownloaded <- liftIO $ withRepoCtx $ \repoctx ->
+    sequence
+      [ do
+        (hash, path) <- fetchRepoTarball verbosity repoctx repo pkgid
+        return (pkgid, hash, path)
+      | (pkgid, RepoTarballPackage repo _ Nothing) <- allPkgLocations
+      ]
+
+  let repoTarballPkgsAlreadyDownloaded =
+        [ (pkgid, hash, path)
+        | (pkgid, RepoTarballPackage _ _ (Just (hash, path))) <- allPkgLocations
         ]
-
-      -- tarballs from source-repository-package stanzas
-      sourceRepoTarballPkgs =
-        [ (pkgid, tarball)
-        | (pkgid, RemoteSourceRepoPackage _ (Just tarball)) <- allPkgLocations
-        ]
-
-      -- Tarballs from repositories, either where the repository provides
-      -- hashes as part of the repo metadata, or where we will have to
-      -- download and hash the tarball.
-      repoTarballPkgsWithMetadataUnvalidated :: [(PackageId, Repo)]
-      repoTarballPkgsWithoutMetadata :: [(PackageId, Repo)]
-      ( repoTarballPkgsWithMetadataUnvalidated
-        , repoTarballPkgsWithoutMetadata
-        ) =
-          partitionEithers
-            [ case repo of
-              RepoSecure{} -> Left (pkgid, repo)
-              _ -> Right (pkgid, repo)
-            | (pkgid, RepoTarballPackage repo _ _) <- allPkgLocations
-            ]
-
-  (repoTarballPkgsWithMetadata, repoTarballPkgsToDownloadWithMeta) <- fmap partitionEithers $
-    liftIO $
-      withRepoCtx $ \repoctx -> forM repoTarballPkgsWithMetadataUnvalidated $
-        \x@(pkg, repo) ->
-          verifyFetchedTarball verbosity repoctx repo pkg >>= \b -> case b of
-            True -> return $ Left x
-            False -> return $ Right x
-
-  -- For tarballs from repos that do not have hashes available we now have
-  -- to check if the packages were downloaded already.
-  --
-  ( repoTarballPkgsToDownloadWithNoMeta
-    , repoTarballPkgsDownloaded
-    ) <-
-    fmap partitionEithers $
-      liftIO $
-        sequence
-          [ do
-            mtarball <- checkRepoTarballFetched repo pkgid
-            case mtarball of
-              Nothing -> return (Left (pkgid, repo))
-              Just tarball -> return (Right (pkgid, tarball))
-          | (pkgid, repo) <- repoTarballPkgsWithoutMetadata
-          ]
-
-  let repoTarballPkgsToDownload = repoTarballPkgsToDownloadWithMeta ++ repoTarballPkgsToDownloadWithNoMeta
-  ( hashesFromRepoMetadata
-    , repoTarballPkgsNewlyDownloaded
-    ) <-
-    -- Avoid having to initialise the repository (ie 'withRepoCtx') if we
-    -- don't have to. (The main cost is configuring the http client.)
-    if null repoTarballPkgsToDownload && null repoTarballPkgsWithMetadata
-      then return (Map.empty, [])
-      else liftIO $ withRepoCtx $ \repoctx -> do
-        -- For tarballs from repos that do have hashes available as part of the
-        -- repo metadata we now load up the index for each repo and retrieve
-        -- the hashes for the packages
-        --
-        hashesFromRepoMetadata <-
-          Sec.uncheckClientErrors $ -- TODO: [code cleanup] wrap in our own exceptions
-            fmap (Map.fromList . concat) $
-              sequence
-                -- Reading the repo index is expensive so we group the packages by repo
-                [ repoContextWithSecureRepo repoctx repo $ \secureRepo ->
-                  Sec.withIndex secureRepo $ \repoIndex ->
-                    sequence
-                      [ do
-                        hash <-
-                          Sec.trusted
-                            <$> Sec.indexLookupHash repoIndex pkgid -- strip off Trusted tag
-
-                        -- Note that hackage-security currently uses SHA256
-                        -- but this API could in principle give us some other
-                        -- choice in future.
-                        return (pkgid, hashFromTUF hash)
-                      | pkgid <- pkgids
-                      ]
-                | (repo, pkgids) <-
-                    map (\grp@((_, repo) :| _) -> (repo, map fst (NE.toList grp)))
-                      . NE.groupBy ((==) `on` (remoteRepoName . repoRemote . snd))
-                      . sortBy (compare `on` (remoteRepoName . repoRemote . snd))
-                      $ repoTarballPkgsWithMetadata
-                ]
-
-        -- For tarballs from repos that do not have hashes available, download
-        -- the ones we previously determined we need.
-        --
-        repoTarballPkgsNewlyDownloaded <-
-          sequence
-            [ do
-              tarball <- fetchRepoTarball verbosity repoctx repo pkgid
-              return (pkgid, tarball)
-            | (pkgid, repo) <- repoTarballPkgsToDownload
-            ]
-
-        return
-          ( hashesFromRepoMetadata
-          , repoTarballPkgsNewlyDownloaded
-          )
 
   -- Hash tarball files for packages where we have to do that. This includes
   -- tarballs that were local in the first place, plus tarballs from repos,
   -- either previously cached or freshly downloaded.
   --
-  let allTarballFilePkgs :: [(PackageId, FilePath)]
+  let allTarballFilePkgs :: [(PackageId, HashValue, FilePath)]
       allTarballFilePkgs =
         localTarballPkgs
-          ++ remoteTarballPkgs
           ++ sourceRepoTarballPkgs
-          ++ repoTarballPkgsDownloaded
           ++ repoTarballPkgsNewlyDownloaded
-  hashesFromTarballFiles <-
-    liftIO $
-      fmap Map.fromList $
-        sequence
-          [ do
-            srchash <- readFileHashValue tarball
-            return (pkgid, srchash)
-          | (pkgid, tarball) <- allTarballFilePkgs
-          ]
+          ++ repoTarballPkgsAlreadyDownloaded
+
   monitorFiles
-    [ monitorFile tarball
-    | (_pkgid, tarball) <- allTarballFilePkgs
+    [ monitorFile path
+    | (_pkgid, _, path) <- allTarballFilePkgs
     ]
 
   -- Return the combination
-  return $!
-    hashesFromRepoMetadata
-      <> hashesFromTarballFiles
+  return $! Map.fromList [ (pkgid, hash) | (pkgid, hash, _) <- allTarballFilePkgs]
 
 -- | Append the given package databases to an existing PackageDBStack.
 -- A @Nothing@ entry will clear everything before it.
@@ -2125,7 +2022,37 @@ elaborateInstallPlan
               ) =
           elaboratedPackage
           where
-            elaboratedPackage = ElaboratedConfiguredPackage{..}
+            elaboratedPackage = ElaboratedConfiguredPackage
+                {elabUnitId, elabComponentId, elabInstantiatedWith,
+                elabLinkedInstantiatedWith, elabIsCanonical, elabPkgSourceId,
+                elabModuleShape, elabFlagAssignment, elabFlagDefaults,
+                elabPkgDescription, elabPkgSourceLocation, elabPkgSourceHash,
+                elabLocalToProject, elabBuildStyle, elabEnabledSpec,
+                elabStanzasAvailable, elabStanzasRequested, elabPackageDbs,
+                elabSetupPackageDBStack, elabBuildPackageDBStack,
+                elabRegisterPackageDBStack, elabInplaceSetupPackageDBStack,
+                elabInplaceBuildPackageDBStack, elabInplaceRegisterPackageDBStack,
+                elabPkgDescriptionOverride, elabVanillaLib, elabSharedLib,
+                elabStaticLib, elabDynExe, elabFullyStaticExe, elabGHCiLib,
+                elabProfLib, elabProfExe, elabProfLibDetail, elabProfExeDetail,
+                elabCoverage, elabOptimization, elabSplitObjs, elabSplitSections,
+                elabStripLibs, elabStripExes, elabDebugInfo, elabDumpBuildInfo,
+                elabProgramPaths, elabProgramArgs, elabProgramPathExtra,
+                elabConfigureScriptArgs, elabExtraLibDirs, elabExtraLibDirsStatic,
+                elabExtraFrameworkDirs, elabExtraIncludeDirs, elabProgPrefix,
+                elabProgSuffix, elabInstallDirs, elabHaddockHoogle,
+                elabHaddockHtml, elabHaddockHtmlLocation, elabHaddockForeignLibs,
+                elabHaddockForHackage, elabHaddockExecutables,
+                elabHaddockTestSuites, elabHaddockBenchmarks, elabHaddockInternal,
+                elabHaddockCss, elabHaddockLinkedSource, elabHaddockQuickJump,
+                elabHaddockHscolourCss, elabHaddockContents, elabHaddockIndex,
+                elabHaddockBaseUrl, elabHaddockLib, elabHaddockOutputDir,
+                elabTestMachineLog, elabTestHumanLog, elabTestShowDetails,
+                elabTestKeepTix, elabTestWrapper, elabTestFailWhenNoTestSuites,
+                elabTestTestOptions, elabBenchmarkOptions, elabSetupScriptStyle,
+                elabSetupScriptCliVersion, elabConfigureTargets, elabBuildTargets,
+                elabTestTargets, elabBenchTargets, elabReplTarget,
+                elabHaddockTargets, elabBuildHaddocks, elabPkgOrComp}
 
             -- These get filled in later
             elabUnitId = error "elaborateSolverToCommon: elabUnitId"

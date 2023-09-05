@@ -1,3 +1,4 @@
+{-# LANGUAGE NamedFieldPuns #-}
 -----------------------------------------------------------------------------
 -----------------------------------------------------------------------------
 {-# LANGUAGE RecordWildCards #-}
@@ -99,6 +100,7 @@ import System.IO
   )
 
 import Distribution.Client.Errors
+import Distribution.Client.HashValue (HashValue, hashFromTUF, readFileHashValue)
 import qualified Hackage.Security.Client as Sec
 import qualified Hackage.Security.Util.Checked as Sec
 import qualified Hackage.Security.Util.Path as Sec
@@ -125,23 +127,24 @@ isFetched loc = case loc of
 checkFetched
   :: UnresolvedPkgLoc
   -> IO (Maybe ResolvedPkgLoc)
-checkFetched loc = case loc of
-  LocalUnpackedPackage dir ->
-    return (Just $ LocalUnpackedPackage dir)
-  LocalTarballPackage file ->
-    return (Just $ LocalTarballPackage file)
-  RemoteTarballPackage uri (Just file) ->
-    return (Just $ RemoteTarballPackage uri file)
-  RepoTarballPackage repo pkgid (Just file) ->
-    return (Just $ RepoTarballPackage repo pkgid file)
-  RemoteSourceRepoPackage repo (Just file) ->
-    return (Just $ RemoteSourceRepoPackage repo file)
-  RemoteTarballPackage _uri Nothing -> return Nothing
-  RemoteSourceRepoPackage _repo Nothing -> return Nothing
-  RepoTarballPackage repo pkgid Nothing ->
-    fmap
-      (fmap (RepoTarballPackage repo pkgid))
-      (checkRepoTarballFetched repo pkgid)
+checkFetched loc =
+  -- FIXME: remove IO once we know this works
+  -- NOTE: this is traverse, isn't it?
+  return
+    $ case loc of
+      LocalUnpackedPackage dir ->
+        Just $ LocalUnpackedPackage dir
+      LocalTarballPackage file ->
+        Just $ LocalTarballPackage file
+      RemoteTarballPackage uri (Just file) ->
+        Just $ RemoteTarballPackage uri file
+      RepoTarballPackage repo pkgid (Just file) ->
+        Just $ RepoTarballPackage repo pkgid file
+      RemoteSourceRepoPackage repo (Just file) ->
+        Just $ RemoteSourceRepoPackage repo file
+      RemoteTarballPackage _uri Nothing -> Nothing
+      RemoteSourceRepoPackage _repo Nothing -> Nothing
+      RepoTarballPackage _repo _pkgid Nothing -> Nothing
 
 -- | Like 'checkFetched' but for the specific case of a 'RepoTarballPackage'.
 checkRepoTarballFetched :: Repo -> PackageId -> IO (Maybe FilePath)
@@ -213,7 +216,7 @@ fetchPackage verbosity repoCtxt loc = case loc of
   RemoteSourceRepoPackage _repo Nothing ->
     dieWithException verbosity FetchPackageErr
   where
-    downloadTarballPackage :: URI -> IO FilePath
+    downloadTarballPackage :: URI -> IO (HashValue, FilePath)
     downloadTarballPackage uri = do
       transport <- repoContextGetTransport repoCtxt
       transportCheckHttps verbosity transport uri
@@ -222,45 +225,82 @@ fetchPackage verbosity repoCtxt loc = case loc of
       (path, hnd) <- openTempFile tmpdir "cabal-.tar.gz"
       hClose hnd
       _ <- downloadURI transport verbosity uri path
-      return path
+      hash <- readFileHashValue path
+      return (hash, path)
 
--- | Fetch a repo package if we don't have it already.
-fetchRepoTarball :: Verbosity -> RepoContext -> Repo -> PackageId -> IO FilePath
+-- | Fetch a package from a repository.
+--
+-- Returns the path and the hash of the downloaded package tarball.
+--
+-- In case the file already exists:
+--
+-- - For secure repositories, we verify the correct hash and redownload
+--   only if the verification fails.
+--
+-- - For local and legacy repositories: we never redownload.
+fetchRepoTarball :: Verbosity -> RepoContext -> Repo -> PackageId -> IO (HashValue, FilePath)
 fetchRepoTarball verbosity' repoCtxt repo pkgid = do
-  fetched <- doesFileExist (packageFile repo pkgid)
-  if fetched
-    then do
-      info verbosity $ prettyShow pkgid ++ " has already been downloaded."
-      return (packageFile repo pkgid)
-    else do
-      progressMessage verbosity ProgressDownloading (prettyShow pkgid)
-      res <- downloadRepoPackage
-      progressMessage verbosity ProgressDownloaded (prettyShow pkgid)
-      return res
+  case repo of
+    RepoLocalNoIndex{} -> do
+      -- NOTE: for a local repository there's nothing to fetch, the
+      -- package must be there
+      --
+      -- NOTE: we don't have a place to store this hash so we have to recompute it
+      hash <- readFileHashValue path
+      return (hash, path)
+    RepoRemote{repoRemote} -> do
+      fetched <- doesFileExist path
+      if fetched
+        then info verbosity $ prettyShow pkgid ++ " has already been downloaded."
+        else do
+          progressMessage verbosity ProgressDownloading (prettyShow pkgid)
+          transport <- repoContextGetTransport repoCtxt
+          remoteRepoCheckHttps verbosity transport repoRemote
+          let uri = packageURI repoRemote pkgid
+          createDirectoryIfMissing True dir
+          _ <- downloadURI transport verbosity uri path
+          progressMessage verbosity ProgressDownloaded (prettyShow pkgid)
+      -- NOTE: we don't have a place to store this hash so we have to recompute it
+      hash <- readFileHashValue path
+      return (hash, path)
+    RepoSecure{} -> repoContextWithSecureRepo repoCtxt repo $ \secureRepo ->
+      Sec.withIndex secureRepo $ \repoIndex -> do
+        anyVerificationFailure <-
+          Sec.handleChecked (\(e :: Sec.InvalidPackageException) -> return $ Just (show e)) $
+          Sec.handleChecked (\(e :: Sec.VerificationError) -> return $ Just (show e)) $
+          do
+            fileInfo <- Sec.indexLookupFileInfo repoIndex pkgid
+            sz <- Sec.FileLength . fromInteger <$> getFileSize path
+            if sz /= Sec.fileInfoLength (Sec.trusted fileInfo)
+              then return $ Just "file length mismatch"
+              else do
+                hashMatches <- Sec.compareTrustedFileInfo (Sec.trusted fileInfo) <$> Sec.computeFileInfo (Sec.Path path :: Sec.Path Sec.Absolute)
+                return
+                  $ if hashMatches then Nothing else (Just "file hash mismatch")
+        for_ anyVerificationFailure $ \failure -> do
+          warn verbosity $ "Fetched tarball " ++ path ++ " does not match server (" ++ failure ++ "), will redownload."
+          createDirectoryIfMissing True dir
+          progressMessage verbosity ProgressDownloading (prettyShow pkgid)
+          Sec.uncheckClientErrors $ do
+            info verbosity ("Writing " ++ path)
+            Sec.downloadPackage' secureRepo pkgid path
+          progressMessage verbosity ProgressDownloaded (prettyShow pkgid)
+        -- this is the same hash that would be in fileInfo but fileInfo is
+        -- not guaranteed to have one. We leave hackage-security the
+        -- responsibility to error out if fileInfo is missing the hash.
+        --
+        -- NOTE: indexLookupHash can throw InvalidPackageException and VerificationError
+        -- I don't know how to handle those exceptions here so we rethrow
+        hash <-
+          Sec.uncheckClientErrors $
+          Sec.trusted <$> Sec.indexLookupHash repoIndex pkgid
+        return (hashFromTUF hash, path)
   where
     -- whether we download or not is non-deterministic
     verbosity = verboseUnmarkOutput verbosity'
 
-    downloadRepoPackage :: IO FilePath
-    downloadRepoPackage = case repo of
-      RepoLocalNoIndex{} -> return (packageFile repo pkgid)
-      RepoRemote{..} -> do
-        transport <- repoContextGetTransport repoCtxt
-        remoteRepoCheckHttps verbosity transport repoRemote
-        let uri = packageURI repoRemote pkgid
-            dir = packageDir repo pkgid
-            path = packageFile repo pkgid
-        createDirectoryIfMissing True dir
-        _ <- downloadURI transport verbosity uri path
-        return path
-      RepoSecure{} -> repoContextWithSecureRepo repoCtxt repo $ \rep -> do
-        let dir = packageDir repo pkgid
-            path = packageFile repo pkgid
-        createDirectoryIfMissing True dir
-        Sec.uncheckClientErrors $ do
-          info verbosity ("Writing " ++ path)
-          Sec.downloadPackage' rep pkgid path
-        return path
+    path = packageFile repo pkgid
+    dir = packageDir repo pkgid
 
 -- | Downloads an index file to [config-dir/packages/serv-id] without
 -- hackage-security. You probably don't want to call this directly;
@@ -303,7 +343,7 @@ type AsyncFetchMap =
 asyncFetchPackages
   :: Verbosity
   -> RepoContext
-  -> [UnresolvedPkgLoc]
+  -> [PackageLocation ()]
   -> (AsyncFetchMap -> IO a)
   -> IO a
 asyncFetchPackages verbosity repoCtxt pkglocs body = do
@@ -325,8 +365,8 @@ asyncFetchPackages verbosity repoCtxt pkglocs body = do
           -- It is essential that we don't catch async exceptions here,
           -- specifically 'AsyncCancelled' thrown at us from 'concurrently'.
           result <-
-            Safe.try $
-              fetchPackage (verboseUnmarkOutput verbosity) repoCtxt pkgloc
+            Safe.try
+              $ fetchPackage (verboseUnmarkOutput verbosity) repoCtxt (fmap (const Nothing) pkgloc)
           putMVar var result
 
   (_, res) <-
