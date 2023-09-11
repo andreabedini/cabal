@@ -1,8 +1,8 @@
 .PHONY : all lexer sdpx lib exe doctest
 .PHONY : phony
 
-CABALBUILD := cabal v2-build
-CABALRUN   := cabal v2-run
+CABALBUILD := cabal build
+CABALRUN   := cabal run
 
 # default rules
 
@@ -19,33 +19,11 @@ init: ## Set up git hooks and ignored revisions
 	## TODO
 
 style: ## Run the code styler
-	@find Cabal Cabal-syntax cabal-install -name '*.hs' \
-		! -path Cabal-syntax/src/Distribution/Fields/Lexer.hs \
-		! -path Cabal-syntax/src/Distribution/SPDX/LicenseExceptionId.hs \
-		! -path Cabal-syntax/src/Distribution/SPDX/LicenseId.hs \
-		! -path Cabal/src/Distribution/Simple/Build/Macros/Z.hs \
-		! -path Cabal/src/Distribution/Simple/Build/PathsModule/Z.hs \
-		| xargs -P $(PROCS) -I {} fourmolu -q -i {}
+	@fourmolu -q -i Cabal Cabal-syntax cabal-install
 
 style-modified: ## Run the code styler on modified files
 	@git ls-files --modified Cabal Cabal-syntax cabal-install \
-		-X Cabal-syntax/src/Distribution/Fields/Lexer.hs \
-		-X Cabal-syntax/src/Distribution/SPDX/LicenseExceptionId.hs \
-		-X Cabal-syntax/src/Distribution/SPDX/LicenseId.hs \
-		-X Cabal/src/Distribution/Simple/Build/Macros/Z.hs \
-		-X Cabal/src/Distribution/Simple/Build/PathsModule/Z.hs \
 		| grep '.hs$$' | xargs -P $(PROCS) -I {} fourmolu -q -i {}
-
-# source generation: Lexer
-
-LEXER_HS:=Cabal-syntax/src/Distribution/Fields/Lexer.hs
-
-lexer : $(LEXER_HS)
-
-$(LEXER_HS) : templates/Lexer.x
-	alex --latin1 --ghc -o $@ $^
-	cat -s $@ > Lexer.tmp
-	mv Lexer.tmp $@
 
 # source generation: SPDX
 
@@ -57,10 +35,10 @@ spdx : $(SPDX_LICENSE_HS) $(SPDX_EXCEPTION_HS)
 SPDX_LICENSE_VERSIONS:=3.0 3.2 3.6 3.9 3.10 3.16
 
 $(SPDX_LICENSE_HS) : templates/SPDX.LicenseId.template.hs cabal-dev-scripts/src/GenUtils.hs cabal-dev-scripts/src/GenSPDX.hs license-list-data/licenses-3.0.json license-list-data/licenses-3.2.json
-	cabal v2-run --builddir=dist-newstyle-meta --project-file=cabal.project.meta gen-spdx -- templates/SPDX.LicenseId.template.hs $(SPDX_LICENSE_VERSIONS:%=license-list-data/licenses-%.json) $(SPDX_LICENSE_HS)
+	cabal run --builddir=dist-newstyle-meta --project-file=cabal.project.meta gen-spdx -- templates/SPDX.LicenseId.template.hs $(SPDX_LICENSE_VERSIONS:%=license-list-data/licenses-%.json) $(SPDX_LICENSE_HS)
 
 $(SPDX_EXCEPTION_HS) : templates/SPDX.LicenseExceptionId.template.hs cabal-dev-scripts/src/GenUtils.hs cabal-dev-scripts/src/GenSPDXExc.hs license-list-data/exceptions-3.0.json license-list-data/exceptions-3.2.json
-	cabal v2-run --builddir=dist-newstyle-meta --project-file=cabal.project.meta gen-spdx-exc -- templates/SPDX.LicenseExceptionId.template.hs $(SPDX_LICENSE_VERSIONS:%=license-list-data/exceptions-%.json) $(SPDX_EXCEPTION_HS)
+	cabal run --builddir=dist-newstyle-meta --project-file=cabal.project.meta gen-spdx-exc -- templates/SPDX.LicenseExceptionId.template.hs $(SPDX_LICENSE_VERSIONS:%=license-list-data/exceptions-%.json) $(SPDX_EXCEPTION_HS)
 
 # source generation: templates
 
@@ -70,10 +48,10 @@ TEMPLATE_PATHS:=Cabal/src/Distribution/Simple/Build/PathsModule/Z.hs
 templates : phony $(TEMPLATE_MACROS) $(TEMPLATE_PATHS)
 
 $(TEMPLATE_MACROS) : templates/cabal_macros.template.h cabal-dev-scripts/src/GenCabalMacros.hs
-	cabal v2-run --builddir=dist-newstyle-meta --project-file=cabal.project.meta gen-cabal-macros -- $< $@
+	cabal run --builddir=dist-newstyle-meta --project-file=cabal.project.meta gen-cabal-macros -- $< $@
 
 $(TEMPLATE_PATHS) : templates/Paths_pkg.template.hs cabal-dev-scripts/src/GenPathsModule.hs
-	cabal v2-run --builddir=dist-newstyle-meta --project-file=cabal.project.meta gen-paths-module -- $< $@
+	cabal run --builddir=dist-newstyle-meta --project-file=cabal.project.meta gen-paths-module -- $< $@
 
 # generated docs
 
@@ -83,15 +61,15 @@ buildinfo-fields-reference : phony
 
 # analyse-imports
 analyse-imports : phony
-	find Cabal-syntax/src Cabal/src cabal-install/src -type f -name '*.hs' | xargs cabal v2-run --builddir=dist-newstyle-meta --project-file=cabal.project.meta analyse-imports --
+	find Cabal-syntax/src Cabal/src cabal-install/src -type f -name '*.hs' | xargs cabal run --builddir=dist-newstyle-meta --project-file=cabal.project.meta analyse-imports --
 
 # ghcid
 
 ghcid-lib :
-	ghcid -c 'cabal v2-repl Cabal'
+	ghcid -c 'cabal repl Cabal'
 
 ghcid-cli :
-	ghcid -c 'cabal v2-repl cabal-install'
+	ghcid -c 'cabal repl cabal-install'
 
 # Artem, 2023-02-03, https://github.com/haskell/cabal/issues/8504
 # The new and prefered way to call the doctest tool (as of now) is based on cabal repl --with-ghc=doctest.
@@ -171,7 +149,7 @@ validate-dockerfiles : .docker/validate-8.4.4.dockerfile
 validate-dockerfiles : .docker/validate-8.2.2.dockerfile
 
 .docker/validate-%.dockerfile : .docker/validate.dockerfile.zinza cabal-dev-scripts/src/GenValidateDockerfile.hs
-	cabal v2-run --builddir=dist-newstyle-meta --project-file=cabal.project.meta gen-validate-dockerfile -- $* $< $@
+	cabal run --builddir=dist-newstyle-meta --project-file=cabal.project.meta gen-validate-dockerfile -- $* $< $@
 
 # This is good idea anyway
 # and we have a test relying on this limit being sufficiently small
@@ -209,10 +187,10 @@ tags :
 ##############################################################################
 
 bootstrap-json-%: phony
-	cabal v2-build --project=cabal.project.release --with-compiler=ghc-$* --dry-run cabal-install:exe:cabal
+	cabal build --project=cabal.project.release --with-compiler=ghc-$* --dry-run cabal-install:exe:cabal
 	cp dist-newstyle/cache/plan.json bootstrap/linux-$*.plan.json
 	@# -v0 to avoid build output on stdout
-	cd bootstrap && cabal v2-run -v0 cabal-bootstrap-gen -- linux-$*.plan.json \
+	cd bootstrap && cabal run -v0 cabal-bootstrap-gen -- linux-$*.plan.json \
 		| python3 -m json.tool > linux-$*.json
 
 BOOTSTRAP_GHC_VERSIONS := 8.10.7 9.0.2 9.2.7 9.4.4
@@ -222,36 +200,16 @@ bootstrap-jsons: $(BOOTSTRAP_GHC_VERSIONS:%=bootstrap-json-%)
 # documentation
 ##############################################################################
 
-# TODO: when we have sphinx-build2 ?
-SPHINXCMD:=sphinx-build
-# Flag -n ("nitpick") warns about broken references
-# Flag -W turns warnings into errors
-# Flag --keep-going continues after errors
-SPHINX_FLAGS:=-n -W --keep-going -E
-SPHINX_HTML_OUTDIR:=dist-newstyle/doc/users-guide
-USERGUIDE_STAMP:=$(SPHINX_HTML_OUTDIR)/index.html
+.PHONY: users-guide
+users-guide:
+	$(MAKE) -C doc users-guide
 
-# do pip install every time so we have up to date requirements when we build
-users-guide: .python-sphinx-virtualenv $(USERGUIDE_STAMP)
-$(USERGUIDE_STAMP) : doc/*.rst
-	mkdir -p $(SPHINX_HTML_OUTDIR)
-	(. ./.python-sphinx-virtualenv/bin/activate && pip install -r doc/requirements.txt && $(SPHINXCMD) $(SPHINX_FLAGS) doc $(SPHINX_HTML_OUTDIR))
-
-.python-sphinx-virtualenv:
-	python3 -m venv .python-sphinx-virtualenv
-	(. ./.python-sphinx-virtualenv/bin/activate)
-
-# This goal is intended for manual invocation, always rebuilds.
 .PHONY: users-guide-requirements
-users-guide-requirements: doc/requirements.txt
+users-guide-requirements:
+	$(MAKE) -C doc users-guide-requirements
 
-.PHONY: doc/requirements.txt
-doc/requirements.txt: .python-sphinx-virtualenv
-	. .python-sphinx-virtualenv/bin/activate \
-	  && make -C doc build-and-check-requirements
-
-ifeq ($(UNAME), Darwin)
-    PROCS := $(shell sysctl -n hw.logicalcpu)
+ifeq ($(shell uname), Darwin)
+PROCS := $(shell sysctl -n hw.logicalcpu)
 else
-    PROCS := $(shell nproc)
+PROCS := $(shell nproc)
 endif
