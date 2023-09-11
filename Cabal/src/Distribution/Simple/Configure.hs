@@ -1,10 +1,10 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE LambdaCase #-}
 
 -----------------------------------------------------------------------------
 
@@ -154,18 +154,21 @@ import Text.PrettyPrint
   , comma
   , hsep
   , nest
+  , parens
   , punctuate
   , quotes
   , render
   , renderStyle
   , sep
+  , space
   , text
-  , ($+$), vcat, parens, space
+  , vcat
+  , ($+$)
   )
 
 import qualified Data.Maybe as M
 import qualified Data.Set as Set
-import Distribution.AllowNewer ( RelaxDepMod(..), RelaxKind(..), removeBound, AllowNewer(..), AllowOlder(..), RelaxedDep(..))
+import Distribution.AllowNewer (AllowNewer (..), AllowOlder (..), RelaxDepMod (..), RelaxKind (..), RelaxedDep (..), removeBound)
 import qualified Distribution.Compat.NonEmptySet as NES
 import Distribution.Types.AnnotatedId
 
@@ -298,8 +301,8 @@ writePersistBuildConfig
   -> IO ()
 writePersistBuildConfig distPref lbi = do
   createDirectoryIfMissing False distPref
-  writeFileAtomic (localBuildInfoFile distPref) $
-    BLC8.unlines [showHeader pkgId, structuredEncode lbi]
+  writeFileAtomic (localBuildInfoFile distPref)
+    $ BLC8.unlines [showHeader pkgId, structuredEncode lbi]
   where
     pkgId = localPackage lbi
 
@@ -445,8 +448,8 @@ configure (pkg_descr0, pbi) cfg = do
         (Just (configInstantiateWith cfg))
 
   -- configCID is only valid for per-component configure
-  when (isJust (flagToMaybe (configCID cfg)) && isNothing mb_cname) $
-    die' verbosity "--cid is only supported for per-component configure"
+  when (isJust (flagToMaybe (configCID cfg)) && isNothing mb_cname)
+    $ die' verbosity "--cid is only supported for per-component configure"
 
   checkDeprecatedFlags verbosity cfg
   checkExactConfiguration verbosity pkg_descr0 cfg
@@ -517,13 +520,13 @@ configure (pkg_descr0, pbi) cfg = do
     )
     $ die' verbosity
     $ "--enable-tests/--enable-benchmarks are incompatible with"
-      ++ " explicitly specifying a component to configure."
+    ++ " explicitly specifying a component to configure."
 
   -- Some sanity checks related to dynamic/static linking.
-  when (fromFlag (configDynExe cfg) && fromFlag (configFullyStaticExe cfg)) $
-    die' verbosity $
-      "--enable-executable-dynamic and --enable-executable-static"
-        ++ " are incompatible with each other."
+  when (fromFlag (configDynExe cfg) && fromFlag (configFullyStaticExe cfg))
+    $ die' verbosity
+    $ "--enable-executable-dynamic and --enable-executable-static"
+    ++ " are incompatible with each other."
 
   -- allConstraints:  The set of all 'Dependency's we have.  Used ONLY
   --                  to 'configureFinalizedPackage'.
@@ -541,8 +544,8 @@ configure (pkg_descr0, pbi) cfg = do
   ( allConstraints :: [PackageVersionConstraint]
     , requiredDepsMap :: Map (PackageName, ComponentName) InstalledPackageInfo
     ) <-
-    either (die' verbosity) return $
-      combinedConstraints
+    either (die' verbosity) return
+      $ combinedConstraints
         (configConstraints cfg)
         (configDependencies cfg)
         installedPackageSet
@@ -586,13 +589,13 @@ configure (pkg_descr0, pbi) cfg = do
       compPlatform
       pkg_descr0
 
-  debug verbosity $
-    "Finalized package description:\n"
-      ++ showPackageDescription pkg_descr
+  debug verbosity
+    $ "Finalized package description:\n"
+    ++ showPackageDescription pkg_descr
 
   let cabalFileDir =
-        maybe "." takeDirectory $
-          flagToMaybe (configCabalFilePath cfg)
+        maybe "." takeDirectory
+          $ flagToMaybe (configCabalFilePath cfg)
 
   checkCompilerProblems verbosity comp pkg_descr enabled
 
@@ -654,44 +657,44 @@ configure (pkg_descr0, pbi) cfg = do
   -- Check languages and extensions
   -- TODO: Move this into a helper function.
   let langlist =
-        nub $
-          catMaybes $
-            map
-              defaultLanguage
-              (enabledBuildInfos pkg_descr enabled)
+        nub
+          $ catMaybes
+          $ map
+            defaultLanguage
+            (enabledBuildInfos pkg_descr enabled)
   let langs = unsupportedLanguages comp langlist
-  when (not (null langs)) $
-    die' verbosity $
-      "The package "
-        ++ prettyShow (packageId pkg_descr0)
-        ++ " requires the following languages which are not "
-        ++ "supported by "
-        ++ prettyShow (compilerId comp)
-        ++ ": "
-        ++ intercalate ", " (map prettyShow langs)
+  when (not (null langs))
+    $ die' verbosity
+    $ "The package "
+    ++ prettyShow (packageId pkg_descr0)
+    ++ " requires the following languages which are not "
+    ++ "supported by "
+    ++ prettyShow (compilerId comp)
+    ++ ": "
+    ++ intercalate ", " (map prettyShow langs)
   let extlist =
-        nub $
-          concatMap
+        nub
+          $ concatMap
             allExtensions
             (enabledBuildInfos pkg_descr enabled)
   let exts = unsupportedExtensions comp extlist
-  when (not (null exts)) $
-    die' verbosity $
-      "The package "
-        ++ prettyShow (packageId pkg_descr0)
-        ++ " requires the following language extensions which are not "
-        ++ "supported by "
-        ++ prettyShow (compilerId comp)
-        ++ ": "
-        ++ intercalate ", " (map prettyShow exts)
+  when (not (null exts))
+    $ die' verbosity
+    $ "The package "
+    ++ prettyShow (packageId pkg_descr0)
+    ++ " requires the following language extensions which are not "
+    ++ "supported by "
+    ++ prettyShow (compilerId comp)
+    ++ ": "
+    ++ intercalate ", " (map prettyShow exts)
 
   -- Check foreign library build requirements
   let flibs = [flib | CFLib flib <- enabledComponents pkg_descr enabled]
   let unsupportedFLibs = unsupportedForeignLibs comp compPlatform flibs
-  when (not (null unsupportedFLibs)) $
-    die' verbosity $
-      "Cannot build some foreign libraries: "
-        ++ intercalate "," unsupportedFLibs
+  when (not (null unsupportedFLibs))
+    $ die' verbosity
+    $ "Cannot build some foreign libraries: "
+    ++ intercalate "," unsupportedFLibs
 
   -- Configure certain external build tools, see below for which ones.
   let requiredBuildTools = do
@@ -736,8 +739,8 @@ configure (pkg_descr0, pbi) cfg = do
   ( buildComponents :: [ComponentLocalBuildInfo]
     , packageDependsIndex :: InstalledPackageIndex
     ) <-
-    runLogProgress verbosity $
-      configureComponentLocalBuildInfos
+    runLogProgress verbosity
+      $ configureComponentLocalBuildInfos
         verbosity
         use_external_internal_deps
         enabled
@@ -830,9 +833,9 @@ configure (pkg_descr0, pbi) cfg = do
   withGHCiLib_ <-
     case fromFlagOrDefault ghciLibByDefault (configGHCiLib cfg) of
       True | not compilerSupportsGhciLibs -> do
-        warn verbosity $
-          "--enable-library-for-ghci is no longer supported on Windows with"
-            ++ " GHC 9.4 and later; ignoring..."
+        warn verbosity
+          $ "--enable-library-for-ghci is no longer supported on Windows with"
+          ++ " GHC 9.4 and later; ignoring..."
         return False
       v -> return v
 
@@ -865,11 +868,11 @@ configure (pkg_descr0, pbi) cfg = do
 
       withFullyStaticExe_ = fromFlag $ configFullyStaticExe cfg
 
-  when (withDynExe_ && not withSharedLib_) $
-    warn verbosity $
-      "Executables will use dynamic linking, but a shared library "
-        ++ "is not being built. Linking will fail if any executables "
-        ++ "depend on the library."
+  when (withDynExe_ && not withSharedLib_)
+    $ warn verbosity
+    $ "Executables will use dynamic linking, but a shared library "
+    ++ "is not being built. Linking will fail if any executables "
+    ++ "depend on the library."
 
   setProfLBI <- configureProfiling verbosity cfg comp
 
@@ -884,10 +887,10 @@ configure (pkg_descr0, pbi) cfg = do
             NoDebugInfo -> return defaultStrip
             _ -> case f cfg of
               Flag True -> do
-                warn verbosity $
-                  "Setting debug-info implies "
-                    ++ s
-                    ++ "-stripping: False"
+                warn verbosity
+                  $ "Setting debug-info implies "
+                  ++ s
+                  ++ "-stripping: False"
                 return False
               _ -> return False
 
@@ -970,26 +973,28 @@ configure (pkg_descr0, pbi) cfg = do
   -- in scripts that *really* want ${pkgroot}. See haskell/cabal/#4872
   unless
     ( isAbsolute (prefix dirs)
-        || "${pkgroot}" `isPrefixOf` prefix dirs
+        || "${pkgroot}"
+        `isPrefixOf` prefix dirs
     )
     $ die' verbosity
-    $ "expected an absolute directory name for --prefix: " ++ prefix dirs
+    $ "expected an absolute directory name for --prefix: "
+    ++ prefix dirs
 
-  when ("${pkgroot}" `isPrefixOf` prefix dirs) $
-    warn verbosity $
-      "Using ${pkgroot} in prefix "
-        ++ prefix dirs
-        ++ " will not work if you rely on the Path_* module "
-        ++ " or other hard coded paths.  Cabal does not yet "
-        ++ " support fully  relocatable builds! "
-        ++ " See #462 #2302 #2994 #3305 #3473 #3586 #3909"
-        ++ " #4097 #4291 #4872"
+  when ("${pkgroot}" `isPrefixOf` prefix dirs)
+    $ warn verbosity
+    $ "Using ${pkgroot} in prefix "
+    ++ prefix dirs
+    ++ " will not work if you rely on the Path_* module "
+    ++ " or other hard coded paths.  Cabal does not yet "
+    ++ " support fully  relocatable builds! "
+    ++ " See #462 #2302 #2994 #3305 #3473 #3586 #3909"
+    ++ " #4097 #4291 #4872"
 
-  info verbosity $
-    "Using "
-      ++ prettyShow currentCabalId
-      ++ " compiled by "
-      ++ prettyShow currentCompilerId
+  info verbosity
+    $ "Using "
+    ++ prettyShow currentCabalId
+    ++ " compiled by "
+    ++ prettyShow currentCompilerId
   info verbosity $ "Using compiler: " ++ showCompilerId comp
   info verbosity $ "Using install prefix: " ++ prefix dirs
 
@@ -1087,11 +1092,11 @@ checkExactConfiguration verbosity pkg_descr0 cfg =
     let cmdlineFlags = map fst (unFlagAssignment (configConfigurationsFlags cfg))
         allFlags = map flagName . genPackageFlags $ pkg_descr0
         diffFlags = allFlags \\ cmdlineFlags
-    when (not . null $ diffFlags) $
-      die' verbosity $
-        "'--exact-configuration' was given, "
-          ++ "but the following flags were not specified: "
-          ++ intercalate ", " (map show diffFlags)
+    unless (null diffFlags)
+      $ die' verbosity
+      $ "'--exact-configuration' was given, "
+      ++ "but the following flags were not specified: "
+      ++ intercalate ", " (map show diffFlags)
 
 -- | Create a PackageIndex that makes *any libraries that might be*
 -- defined internally to this package look like installed packages, in
@@ -1154,12 +1159,13 @@ dependencySatisfiable
             internalDepSatisfiable
           else -- Backward compatibility for the old sublibrary syntax
 
-            ( sublibs == mainLibSet
+            ( sublibs
+                == mainLibSet
                 && Map.member
                   ( pn
-                  , CLibName $
-                      LSubLibName $
-                        packageNameToUnqualComponentName depName
+                  , CLibName
+                      $ LSubLibName
+                      $ packageNameToUnqualComponentName depName
                   )
                   requiredDepsMap
             )
@@ -1186,7 +1192,7 @@ dependencySatisfiable
         Set.isSubsetOf (NES.toSet sublibs) packageLibraries
 
       internalDepSatisfiableExternally =
-        all (not . null . PackageIndex.lookupInternalDependency installedPackageSet pn vr) sublibs
+        not (any (null . PackageIndex.lookupInternalDependency installedPackageSet pn vr) sublibs)
 
       -- Check whether a library exists and is visible.
       -- We don't disambiguate between dependency on non-existent or private
@@ -1195,7 +1201,8 @@ dependencySatisfiable
         maybe
           False -- Does not even exist (wasn't in the depsMap)
           ( \ipi ->
-              IPI.libVisibility ipi == LibraryVisibilityPublic
+              IPI.libVisibility ipi
+                == LibraryVisibilityPublic
                 -- If the override is enabled, the visibility does
                 -- not matter (it's handled externally)
                 || allow_private_deps
@@ -1204,7 +1211,8 @@ dependencySatisfiable
                 -- This is only triggered when passing a component
                 -- of the same package as --dependency, such as in:
                 -- cabal-testsuite/PackageTests/ConfigureComponent/SubLib/setup-explicit.test.hs
-                || pkgName (IPI.sourcePackageId ipi) == pn
+                || pkgName (IPI.sourcePackageId ipi)
+                == pn
           )
           maybeIPI
           -- Don't check if it's visible, we promise to build it before we need it.
@@ -1277,36 +1285,42 @@ configureFinalizedPackage
         pkg_descr0 of
         Right r -> return r
         Left missing ->
-          die' verbosity $ render $
-            text "Encountered missing or private dependencies:\n"
-            <> (nest 4 . vcat $ do
+          die' verbosity
+            $ render
+            $ text "Encountered missing or private dependencies:\n"
+            <> ( nest 4 . vcat $ do
                   d <- missing
                   let relaxations =
-                        map (\case
-                          RelaxDepModNone -> "lower bound ignored"
-                          RelaxDepModCaret -> "lower bound caret modified")
-                        (maybeToList $ extractLower $ depPkgName d)
-                        <>
-                        map (\case
-                          RelaxDepModNone -> text "upper bound ignored"
-                          RelaxDepModCaret -> text "upper bound caret modified")
-                        (maybeToList $ extractUpper $ depPkgName d)
+                        map
+                          ( \case
+                              RelaxDepModNone -> "lower bound ignored"
+                              RelaxDepModCaret -> "lower bound caret modified"
+                          )
+                          (maybeToList $ extractLower $ depPkgName d)
+                          <> map
+                            ( \case
+                                RelaxDepModNone -> text "upper bound ignored"
+                                RelaxDepModCaret -> text "upper bound caret modified"
+                            )
+                            (maybeToList $ extractUpper $ depPkgName d)
 
-                  return $ pretty (simplifyDependency d) <+>
-                    if not (null relaxations) then space <+> parens (hsep $ punctuate comma relaxations) else mempty)
+                  return
+                    $ pretty (simplifyDependency d)
+                    <+> if not (null relaxations) then space <+> parens (hsep $ punctuate comma relaxations) else mempty
+               )
 
     -- add extra include/lib dirs as specified in cfg
     -- we do it here so that those get checked too
     let pkg_descr = addExtraIncludeLibDirs pkg_descr0'
 
-    unless (nullFlagAssignment flags) $
-      info verbosity $
-        "Flags chosen: "
-          ++ intercalate
-            ", "
-            [ unFlagName fn ++ "=" ++ prettyShow value
-            | (fn, value) <- unFlagAssignment flags
-            ]
+    unless (nullFlagAssignment flags)
+      $ info verbosity
+      $ "Flags chosen: "
+      ++ intercalate
+        ", "
+        [ unFlagName fn ++ "=" ++ prettyShow value
+        | (fn, value) <- unFlagAssignment flags
+        ]
 
     return (pkg_descr, flags)
     where
@@ -1369,8 +1383,8 @@ checkCompilerProblems verbosity comp pkg_descr enabled = do
     )
     $ die' verbosity
     $ "Your compiler does not support thinning and renaming on "
-      ++ "package flags.  To use this feature you must use "
-      ++ "GHC 7.9 or later."
+    ++ "package flags.  To use this feature you must use "
+    ++ "GHC 7.9 or later."
 
   when
     ( any (not . null . reexportedModules) (allLibraries pkg_descr)
@@ -1378,7 +1392,7 @@ checkCompilerProblems verbosity comp pkg_descr enabled = do
     )
     $ die' verbosity
     $ "Your compiler does not support module re-exports. To use "
-      ++ "this feature you must use GHC 7.9 or later."
+    ++ "this feature you must use GHC 7.9 or later."
 
   when
     ( any (not . null . signatures) (allLibraries pkg_descr)
@@ -1386,7 +1400,7 @@ checkCompilerProblems verbosity comp pkg_descr enabled = do
     )
     $ die' verbosity
     $ "Your compiler does not support Backpack. To use "
-      ++ "this feature you must use GHC 8.1 or later."
+    ++ "this feature you must use GHC 8.1 or later."
 
 -- | Select dependencies for the package.
 configureDependencies
@@ -1413,8 +1427,8 @@ configureDependencies
     let failedDeps :: [FailedDependency]
         allPkgDeps :: [ResolvedDependency]
         (failedDeps, allPkgDeps) =
-          partitionEithers $
-            concat
+          partitionEithers
+            $ concat
               [ fmap (\s -> (dep, s)) <$> status
               | dep <- enabledBuildDepends pkg_descr enableSpec
               , let status =
@@ -1451,10 +1465,10 @@ configureDependencies
       )
       $ die' verbosity
       $ "The field 'build-depends: "
-        ++ intercalate ", " (map (prettyShow . packageName) internalPkgDeps)
-        ++ "' refers to a library which is defined within the same "
-        ++ "package. To use this feature the package must specify at "
-        ++ "least 'cabal-version: >= 1.8'."
+      ++ intercalate ", " (map (prettyShow . packageName) internalPkgDeps)
+      ++ "' refers to a library which is defined within the same "
+      ++ "package. To use this feature the package must specify at "
+      ++ "least 'cabal-version: >= 1.8'."
 
     reportFailedDependencies verbosity failedDeps
     reportSelectedDependencies verbosity allPkgDeps
@@ -1488,8 +1502,8 @@ configureCoverage verbosity cfg comp = do
               { libCoverage = False
               , exeCoverage = False
               }
-      when (tryExeCoverage || tryLibCoverage) $
-        warn
+      when (tryExeCoverage || tryLibCoverage)
+        $ warn
           verbosity
           ( "The compiler "
               ++ showCompilerId comp
@@ -1582,8 +1596,8 @@ configureProfiling verbosity cfg comp = do
                 , withProfExe = False
                 , withProfExeDetail = ProfDetailNone
                 }
-        when (tryExeProfiling || tryLibProfiling) $
-          warn
+        when (tryExeProfiling || tryLibProfiling)
+          $ warn
             verbosity
             ( "The compiler "
                 ++ showCompilerId comp
@@ -1592,8 +1606,8 @@ configureProfiling verbosity cfg comp = do
             )
         return (False, apply)
 
-  when exeProfWithoutLibProf $
-    warn
+  when exeProfWithoutLibProf
+    $ warn
       verbosity
       ( "Executables will be built with profiling, but library "
           ++ "profiling is disabled. Linking will fail if any executables "
@@ -1741,8 +1755,8 @@ reportSelectedDependencies
   -> [ResolvedDependency]
   -> IO ()
 reportSelectedDependencies verbosity deps =
-  info verbosity $
-    unlines
+  info verbosity
+    $ unlines
       [ "Dependency "
         ++ prettyShow (simplifyDependency dep)
         ++ ": using "
@@ -1790,11 +1804,11 @@ getInstalledPackages
   -> ProgramDb
   -> IO InstalledPackageIndex
 getInstalledPackages verbosity comp packageDBs progdb = do
-  when (null packageDBs) $
-    die' verbosity $
-      "No package databases have been specified. If you use "
-        ++ "--package-db=clear, you must follow it with --package-db= "
-        ++ "with 'global', 'user' or a specific file."
+  when (null packageDBs)
+    $ die' verbosity
+    $ "No package databases have been specified. If you use "
+    ++ "--package-db=clear, you must follow it with --package-db= "
+    ++ "with 'global', 'user' or a specific file."
 
   info verbosity "Reading installed packages..."
   -- do not check empty packagedbs (ghc-pkg would error out)
@@ -1806,15 +1820,17 @@ getInstalledPackages verbosity comp packageDBs progdb = do
     HaskellSuite{} ->
       HaskellSuite.getInstalledPackages verbosity packageDBs' progdb
     flv ->
-      die' verbosity $
-        "don't know how to find the installed packages for "
-          ++ prettyShow flv
+      die' verbosity
+        $ "don't know how to find the installed packages for "
+        ++ prettyShow flv
   where
     packageDBExists (SpecificPackageDB path) = do
       exists <- doesPathExist path
-      unless exists $
-        warn verbosity $
-          "Package db " <> path <> " does not exist yet"
+      unless exists
+        $ warn verbosity
+        $ "Package db "
+        <> path
+        <> " does not exist yet"
       return exists
     -- Checking the user and global package dbs is more complicated and needs
     -- way more data. Also ghc-pkg won't error out unless the user/global
@@ -1860,10 +1876,10 @@ getInstalledPackagesMonitorFiles verbosity comp packageDBs progdb platform =
         progdb
         packageDBs
     other -> do
-      warn verbosity $
-        "don't know how to find change monitoring files for "
-          ++ "the installed package databases for "
-          ++ prettyShow other
+      warn verbosity
+        $ "don't know how to find change monitoring files for "
+        ++ "the installed package databases for "
+        ++ prettyShow other
       return []
 
 -- | The user interface specifies the package dbs to use with a combination of
@@ -1903,12 +1919,12 @@ combinedConstraints
       , Map (PackageName, ComponentName) InstalledPackageInfo
       )
 combinedConstraints constraints dependencies installedPackages = do
-  unless (null badComponentIds) $
-    Left $
-      render $
-        text "The following package dependencies were requested"
-          $+$ nest 4 (dispDependencies badComponentIds)
-          $+$ text "however the given installed package instance does not exist."
+  unless (null badComponentIds)
+    $ Left
+    $ render
+    $ text "The following package dependencies were requested"
+    $+$ nest 4 (dispDependencies badComponentIds)
+    $+$ text "however the given installed package instance does not exist."
 
   -- TODO: we don't check that all dependencies are used!
 
@@ -2124,20 +2140,20 @@ configurePkgconfigPackages verbosity pkg_descr progdb enabled
       return $ setCompBI comp (compBI comp `mappend` bi)
 
     -- Adds pkgconfig dependencies to the build info for a library
-    addPkgConfigBILib = addPkgConfigBI libBuildInfo $
-      \lib bi -> lib{libBuildInfo = bi}
+    addPkgConfigBILib = addPkgConfigBI libBuildInfo
+      $ \lib bi -> lib{libBuildInfo = bi}
 
     -- Adds pkgconfig dependencies to the build info for an executable
-    addPkgConfigBIExe = addPkgConfigBI buildInfo $
-      \exe bi -> exe{buildInfo = bi}
+    addPkgConfigBIExe = addPkgConfigBI buildInfo
+      $ \exe bi -> exe{buildInfo = bi}
 
     -- Adds pkgconfig dependencies to the build info for a test suite
-    addPkgConfigBITest = addPkgConfigBI testBuildInfo $
-      \test bi -> test{testBuildInfo = bi}
+    addPkgConfigBITest = addPkgConfigBI testBuildInfo
+      $ \test bi -> test{testBuildInfo = bi}
 
     -- Adds pkgconfig dependencies to the build info for a benchmark
-    addPkgConfigBIBench = addPkgConfigBI benchmarkBuildInfo $
-      \bench bi -> bench{benchmarkBuildInfo = bi}
+    addPkgConfigBIBench = addPkgConfigBI benchmarkBuildInfo
+      $ \bench bi -> bench{benchmarkBuildInfo = bi}
 
     pkgconfigBuildInfo :: [PkgconfigDependency] -> IO BuildInfo
     pkgconfigBuildInfo [] = return mempty
@@ -2231,8 +2247,8 @@ checkForeignDeps pkg lbi verbosity =
   where
     allHeaders = collectField includes
     allLibs =
-      collectField $
-        if withFullyStaticExe lbi
+      collectField
+        $ if withFullyStaticExe lbi
           then extraLibsStatic
           else extraLibs
 
@@ -2257,20 +2273,24 @@ checkForeignDeps pkg lbi verbosity =
       let relIncDirs = filter (not . isAbsolute) (collectField includeDirs)
           isHeader = isSuffixOf ".h"
       genHeaders <- for relIncDirs $ \dir ->
-        fmap (dir </>) . filter isHeader
-          <$> listDirectory (buildDir lbi </> dir) `catchIO` (\_ -> return [])
+        fmap (dir </>)
+          . filter isHeader
+          <$> listDirectory (buildDir lbi </> dir)
+          `catchIO` (\_ -> return [])
       srcHeaders <- for relIncDirs $ \dir ->
-        fmap (dir </>) . filter isHeader
-          <$> listDirectory (baseDir lbi </> dir) `catchIO` (\_ -> return [])
+        fmap (dir </>)
+          . filter isHeader
+          <$> listDirectory (baseDir lbi </> dir)
+          `catchIO` (\_ -> return [])
       let commonHeaders = concat genHeaders `intersect` concat srcHeaders
       for_ commonHeaders $ \hdr -> do
-        warn verbosity $
-          "Duplicate header found in "
-            ++ (buildDir lbi </> hdr)
-            ++ " and "
-            ++ (baseDir lbi </> hdr)
-            ++ "; removing "
-            ++ (baseDir lbi </> hdr)
+        warn verbosity
+          $ "Duplicate header found in "
+          ++ (buildDir lbi </> hdr)
+          ++ " and "
+          ++ (baseDir lbi </> hdr)
+          ++ "; removing "
+          ++ (baseDir lbi </> hdr)
         removeFile (baseDir lbi </> hdr)
 
     findOffendingHdr =
@@ -2357,8 +2377,8 @@ checkForeignDeps pkg lbi verbosity =
     commonLdArgs =
       [ "-L" ++ dir
       | dir <-
-          ordNub $
-            collectField
+          ordNub
+            $ collectField
               ( if withFullyStaticExe lbi
                   then extraLibDirsStatic
                   else extraLibDirs
@@ -2380,9 +2400,9 @@ checkForeignDeps pkg lbi verbosity =
     makeLdArgs libs = ["-l" ++ lib | lib <- libs] ++ commonLdArgs
 
     makeProgram hdrs =
-      unlines $
-        ["#include \"" ++ hdr ++ "\"" | hdr <- hdrs]
-          ++ ["int main(int argc, char** argv) { return 0; }"]
+      unlines
+        $ ["#include \"" ++ hdr ++ "\"" | hdr <- hdrs]
+        ++ ["int main(int argc, char** argv) { return 0; }"]
 
     collectField f = concatMap f allBi
     allBi = enabledBuildInfos pkg (componentEnabledSpec lbi)
@@ -2409,8 +2429,8 @@ checkForeignDeps pkg lbi verbosity =
     explainErrors Nothing [] = return () -- should be impossible!
     explainErrors _ _
       | isNothing . lookupProgram gccProgram . withPrograms $ lbi =
-          die' verbosity $
-            unlines
+          die' verbosity
+            $ unlines
               [ "No working gcc"
               , "This package depends on foreign library but we cannot "
                   ++ "find a working C compiler. If you have it in a "
@@ -2418,33 +2438,33 @@ checkForeignDeps pkg lbi verbosity =
                   ++ "flag to specify it."
               ]
     explainErrors hdr libs =
-      die' verbosity $
-        unlines $
-          [ if plural
+      die' verbosity
+        $ unlines
+        $ [ if plural
             then "Missing dependencies on foreign libraries:"
             else "Missing dependency on a foreign library:"
           | missing
           ]
-            ++ case hdr of
-              Just (Left h) -> ["* Missing (or bad) header file: " ++ h]
-              _ -> []
-            ++ case libs of
-              [] -> []
-              [lib] -> ["* Missing (or bad) C library: " ++ lib]
-              _ ->
-                [ "* Missing (or bad) C libraries: "
-                    ++ intercalate ", " libs
-                ]
-            ++ [if plural then messagePlural else messageSingular | missing]
-            ++ case hdr of
-              Just (Left _) -> [headerCppMessage]
-              Just (Right h) ->
-                [ (if missing then "* " else "")
-                    ++ "Bad header file: "
-                    ++ h
-                , headerCcMessage
-                ]
-              _ -> []
+        ++ case hdr of
+          Just (Left h) -> ["* Missing (or bad) header file: " ++ h]
+          _ -> []
+        ++ case libs of
+          [] -> []
+          [lib] -> ["* Missing (or bad) C library: " ++ lib]
+          _ ->
+            [ "* Missing (or bad) C libraries: "
+                ++ intercalate ", " libs
+            ]
+        ++ [if plural then messagePlural else messageSingular | missing]
+        ++ case hdr of
+          Just (Left _) -> [headerCppMessage]
+          Just (Right h) ->
+            [ (if missing then "* " else "")
+                ++ "Bad header file: "
+                ++ h
+            , headerCcMessage
+            ]
+          _ -> []
       where
         plural = length libs >= 2
         -- Is there something missing? (as opposed to broken)
@@ -2529,30 +2549,30 @@ checkRelocatable verbosity pkg lbi =
     -- and RPATH, make sure you add your OS to RPATH-support list of:
     -- Distribution.Simple.GHC.getRPaths
     checkOS =
-      unless (os `elem` [OSX, Linux]) $
-        die' verbosity $
-          "Operating system: "
-            ++ prettyShow os
-            ++ ", does not support relocatable builds"
+      unless (os `elem` [OSX, Linux])
+        $ die' verbosity
+        $ "Operating system: "
+        ++ prettyShow os
+        ++ ", does not support relocatable builds"
       where
         (Platform _ os) = hostPlatform lbi
 
     -- Check if the Compiler support relocatable builds
     checkCompiler =
-      unless (compilerFlavor comp `elem` [GHC]) $
-        die' verbosity $
-          "Compiler: "
-            ++ show comp
-            ++ ", does not support relocatable builds"
+      unless (compilerFlavor comp `elem` [GHC])
+        $ die' verbosity
+        $ "Compiler: "
+        ++ show comp
+        ++ ", does not support relocatable builds"
       where
         comp = compiler lbi
 
     -- Check if all the install dirs are relative to same prefix
     packagePrefixRelative =
-      unless (relativeInstallDirs installDirs) $
-        die' verbosity $
-          "Installation directories are not prefix_relative:\n"
-            ++ show installDirs
+      unless (relativeInstallDirs installDirs)
+        $ die' verbosity
+        $ "Installation directories are not prefix_relative:\n"
+        ++ show installDirs
       where
         -- NB: should be good enough to check this against the default
         -- component ID, but if we wanted to be strictly correct we'd
@@ -2592,9 +2612,9 @@ checkRelocatable verbosity pkg lbi =
                 -- @shortRelativePath prefix pkgroot@ will return a path with
                 -- @..@s and following check will fail without @canonicalizePath@.
                 canonicalized <- canonicalizePath libdir
-                unless (p `isPrefixOf` canonicalized) $
-                  die' verbosity $
-                    msg libdir
+                unless (p `isPrefixOf` canonicalized)
+                  $ die' verbosity
+                  $ msg libdir
           | otherwise =
               return ()
         -- NB: should be good enough to check this against the default
