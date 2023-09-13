@@ -165,7 +165,7 @@ import Text.PrettyPrint
 
 import qualified Data.Maybe as M
 import qualified Data.Set as Set
-import Distribution.AllowNewer (AllowNewer (..), AllowOlder (..), RelaxDepMod (..), RelaxKind (..), RelaxedDep (..), removeBound)
+import Distribution.AllowNewer (AllowNewer (..), AllowOlder (..), RelaxDepMod (..), RelaxKind (..), RelaxedDep (..), RelaxedDeps (..), removeBound)
 import qualified Distribution.Compat.NonEmptySet as NES
 import Distribution.Simple.Errors
 import Distribution.Types.AnnotatedId
@@ -1237,13 +1237,25 @@ configureFinalizedPackage
   enabled
   allConstraints
   satisfies
-  comp
-  compPlatform
-  pkg_descr0 = do
+  compiler
+  platform
+  gpd = do
     let
-      pkgId = package $ packageDescription pkg_descr0
-      extractUpper d = foldMap (_ . unAllowNewer) $ configAllowNewer cfg
-      extractLower d = foldMap (_ . unAllowOlder) $ configAllowOlder cfg
+      pkgId = package $ packageDescription gpd
+
+      f :: RelaxedDeps -> PackageName -> Maybe RelaxDepMod
+      f (RelaxedDeps (Left rdm)) =
+        const $ Just rdm
+      f (RelaxedDeps (Right rdeps)) =
+        let rdepsMap = Map.fromList [(pn, rdm) | RelaxedDep rdm pn <- NEL.toList rdeps]
+         in flip Map.lookup rdepsMap
+
+      extractUpper :: PackageName -> Maybe RelaxDepMod
+      extractUpper d = flagElim _ (flip f d . unAllowNewer) $ configAllowNewer cfg
+
+      extractLower :: PackageName -> Maybe RelaxDepMod
+      extractLower d = foldMap (flip f d . unAllowOlder) $ configAllowOlder cfg
+
       satisfiesRelaxed =
         satisfies
           . (\d -> maybe d (relax RelaxUpper d) $ extractUpper (depPkgName d))
@@ -1254,10 +1266,10 @@ configureFinalizedPackage
         (configConfigurationsFlags cfg)
         enabled
         satisfiesRelaxed
-        compPlatform
-        (compilerInfo comp)
+        platform
+        (compilerInfo compiler)
         allConstraints
-        pkg_descr0 of
+        gpd of
         Right r -> return r
         Left missing ->
           dieWithException verbosity $ EncounteredMissingDependency missing

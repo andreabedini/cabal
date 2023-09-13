@@ -1,7 +1,7 @@
 -----------------------------------------------------------------------------
+{-# LANGUAGE DeriveGeneric #-}
 
 -- | Utilities to relax version bounds on dependencies
-{-# LANGUAGE DeriveGeneric #-}
 module Distribution.AllowNewer
   ( AllowNewer (..)
   , AllowOlder (..)
@@ -18,13 +18,13 @@ import Distribution.Compat.Prelude
 
 import Distribution.Version
 
-import Distribution.Parsec ( Parsec (parsec))
+import Distribution.Parsec (Parsec (parsec))
 import Distribution.Types.PackageName (PackageName, mkPackageName)
 
+import qualified Data.List.NonEmpty as NE
 import qualified Distribution.Compat.CharParsing as P
 import Distribution.Pretty (Pretty (pretty))
 import qualified Text.PrettyPrint as Disp
-import qualified Data.List.NonEmpty as NE
 
 data RelaxKind = RelaxLower | RelaxUpper
 
@@ -67,8 +67,8 @@ instance Semigroup RelaxedDeps where
   RelaxedDeps lhs <> RelaxedDeps rhs = RelaxedDeps (lhs <> rhs)
 
 mkRelaxedDeps :: NE.NonEmpty RelaxedDep -> RelaxedDeps
-mkRelaxedDeps xs = RelaxedDeps $ 
-  case find (\(RelaxedDep _ pn) -> pn == mkPackageName "all") xs of
+mkRelaxedDeps xs = RelaxedDeps
+  $ case find (\(RelaxedDep _ pn) -> pn == mkPackageName "all") xs of
     Nothing -> Right xs
     Just (RelaxedDep rdm _pn) -> Left rdm
 
