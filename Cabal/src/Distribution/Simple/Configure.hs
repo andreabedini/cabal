@@ -148,26 +148,13 @@ import qualified System.Info
   ( compilerName
   , compilerVersion
   )
-import Text.PrettyPrint
-  ( Doc
-  , char
-  , hsep
-  , nest
-  , parens
-  , punctuate
-  , quotes
-  , renderStyle
-  , space
-  , text
-  , vcat
-  , ($+$)
-  )
 
 import qualified Data.Maybe as M
 import qualified Data.Set as Set
 import Distribution.AllowNewer (AllowNewer (..), AllowOlder (..), RelaxDepMod (..), RelaxKind (..), RelaxedDep (..), RelaxedDeps (..), removeBound)
 import qualified Distribution.Compat.NonEmptySet as NES
 import Distribution.Simple.Errors
+import Distribution.Simple.Flag (flagElim)
 import Distribution.Types.AnnotatedId
 
 type UseExternalInternalDeps = Bool
@@ -1241,25 +1228,20 @@ configureFinalizedPackage
   platform
   gpd = do
     let
-      pkgId = package $ packageDescription gpd
-
-      f :: RelaxedDeps -> PackageName -> Maybe RelaxDepMod
-      f (RelaxedDeps (Left rdm)) =
-        const $ Just rdm
-      f (RelaxedDeps (Right rdeps)) =
-        let rdepsMap = Map.fromList [(pn, rdm) | RelaxedDep rdm pn <- NEL.toList rdeps]
-         in flip Map.lookup rdepsMap
-
-      extractUpper :: PackageName -> Maybe RelaxDepMod
-      extractUpper d = flagElim _ (flip f d . unAllowNewer) $ configAllowNewer cfg
-
-      extractLower :: PackageName -> Maybe RelaxDepMod
-      extractLower d = foldMap (flip f d . unAllowOlder) $ configAllowOlder cfg
+      a :: RelaxKind -> RelaxedDeps -> Dependency -> Dependency
+      a relKind (RelaxedDeps (Left rdm)) d =
+        relax relKind d rdm
+      a relKind (RelaxedDeps (Right deps)) d =
+        let m = Map.fromList [(pn', rdm) | RelaxedDep rdm pn' <- toList deps]
+         in maybe d (relax relKind d) (Map.lookup (depPkgName d) m)
 
       satisfiesRelaxed =
-        satisfies
-          . (\d -> maybe d (relax RelaxUpper d) $ extractUpper (depPkgName d))
-          . (\d -> maybe d (relax RelaxLower d) $ extractLower (depPkgName d))
+        let relaxUpper :: Dependency -> Dependency
+            relaxUpper = flagElim id (a RelaxUpper . unAllowNewer) (configAllowNewer cfg)
+
+            relaxLower :: Dependency -> Dependency
+            relaxLower = flagElim id (a RelaxLower . unAllowOlder) (configAllowOlder cfg)
+         in satisfies . relaxUpper . relaxLower
 
     (pkg_descr0', flags) <-
       case finalizePD
@@ -1273,30 +1255,6 @@ configureFinalizedPackage
         Right r -> return r
         Left missing ->
           dieWithException verbosity $ EncounteredMissingDependency missing
-    -- FIXME:
-    -- die' verbosity
-    --   $ render
-    --   $ text "Encountered missing or private dependencies:\n"
-    --   <> ( nest 4 . vcat $ do
-    --         d <- missing
-    --         let relaxations =
-    --               map
-    --                 ( \case
-    --                     RelaxDepModNone -> "lower bound ignored"
-    --                     RelaxDepModCaret -> "lower bound caret modified"
-    --                 )
-    --                 (maybeToList $ extractLower $ depPkgName d)
-    --                 <> map
-    --                   ( \case
-    --                       RelaxDepModNone -> text "upper bound ignored"
-    --                       RelaxDepModCaret -> text "upper bound caret modified"
-    --                   )
-    --                   (maybeToList $ extractUpper $ depPkgName d)
-    --
-    --         return
-    --           $ pretty (simplifyDependency d)
-    --           <+> if not (null relaxations) then space <+> parens (hsep $ punctuate comma relaxations) else mempty
-    --      )
 
     -- add extra include/lib dirs as specified in cfg
     -- we do it here so that those get checked too
