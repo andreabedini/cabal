@@ -61,6 +61,7 @@ import qualified Text.PrettyPrint as Disp
 import Distribution.Compat.Semigroup (Last' (..), Option' (..))
 import Distribution.Compat.Stack
 
+import Distribution.AllowNewer (AllowNewer (..), AllowOlder (..), RelaxDepMod (..), RelaxDeps (..), RelaxedDep (..))
 import Distribution.Simple.Setup.Common
 
 -- ------------------------------------------------------------
@@ -220,6 +221,12 @@ data ConfigFlags = ConfigFlags
   -- ^ Allow depending on private sublibraries. This is used by external
   -- tools (like cabal-install) so they can add multiple-public-libraries
   -- compatibility to older ghcs by checking visibility externally.
+  , configAllowNewer :: Flag AllowNewer
+  -- ^ Ignore upper bounds on all or some dependencies.
+  -- Nothing means option not set.
+  , configAllowOlder :: Flag AllowOlder
+  -- ^ Ignore lower bounds on all or some dependencies.
+  -- Nothing means option not set.
   }
   deriving (Generic, Read, Show, Typeable)
 
@@ -828,6 +835,36 @@ configureOptions showOrParseArgs =
           configAllowDependingOnPrivateLibs
           (\v flags -> flags{configAllowDependingOnPrivateLibs = v})
           trueArg
+       , option
+          ""
+          ["allow-older"]
+          ( "Ignore lower bounds in all dependencies or for the given DEPS."
+              ++ " DEPS is a comma or space separated list of DEP or PKG:DEP,"
+              ++ " where PKG or DEP can be *."
+          )
+          (fmap unAllowOlder . configAllowOlder)
+          (\v flags -> flags{configAllowOlder = fmap AllowOlder v})
+          ( optArg
+              "DEPS"
+              (Flag <$> parsecToReadEErr unexpectMsgString parsec)
+              ("all", Flag $ RelaxDeps (Just RelaxDepModNone) [])
+              relaxDepsPrinter
+          )
+       , option
+          ""
+          ["allow-newer"]
+          ( "Ignore upper bounds in all dependencies or for the given DEPS."
+              ++ " DEPS is a comma or space separated list of DEP or PKG:DEP,"
+              ++ " where PKG or DEP can be *."
+          )
+          (fmap unAllowNewer . configAllowNewer)
+          (\v flags -> flags{configAllowNewer = fmap AllowNewer v})
+          ( optArg
+              "DEPS"
+              (Flag <$> parsecToReadEErr unexpectMsgString parsec)
+              ("all", Flag $ RelaxDeps (Just RelaxDepModNone) [])
+              relaxDepsPrinter
+          )
        ]
   where
     liftInstallDirs =
@@ -841,6 +878,13 @@ configureOptions showOrParseArgs =
         d
         (fmap fromPathTemplate . get)
         (set . fmap toPathTemplate)
+
+-- FIXME: I don't understand this
+relaxDepsPrinter :: Flag RelaxDeps -> [Maybe String]
+relaxDepsPrinter NoFlag = []
+relaxDepsPrinter (Flag (RelaxDeps mdef deps)) =
+  fmap (\rdm -> prettyShow $ RelaxedDep rdm $ mkPackageName "all") mdef
+    : map (Just . prettyShow) deps
 
 readPackageDbList :: String -> [Maybe PackageDB]
 readPackageDbList str = [readPackageDb str]

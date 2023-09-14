@@ -159,8 +159,10 @@ import Text.PrettyPrint
 
 import qualified Data.Maybe as M
 import qualified Data.Set as Set
+import Distribution.AllowNewer (AllowNewer (..), AllowOlder (..), RelaxDepMod (..), RelaxDeps (..), RelaxKind (..), RelaxedDep (..), removeBound)
 import qualified Distribution.Compat.NonEmptySet as NES
 import Distribution.Simple.Errors
+import Distribution.Simple.Flag (flagElim)
 import Distribution.Types.AnnotatedId
 
 type UseExternalInternalDeps = Bool
@@ -1182,6 +1184,10 @@ dependencySatisfiable
           maybeIPI = Map.lookup (depName, CLibName lib) requiredDepsMap
           promised = isJust $ Map.lookup (depName, CLibName lib) promisedDeps
 
+relax :: RelaxKind -> Dependency -> RelaxDepMod -> Dependency
+relax relKind (Dependency pkgName verRange cs) rdm =
+  Dependency pkgName (removeBound relKind rdm verRange) cs
+
 -- | Finalize a generic package description.  The workhorse is
 -- 'finalizePD' but there's a bit of other nattering
 -- about necessary.
@@ -1206,18 +1212,32 @@ configureFinalizedPackage
   enabled
   allConstraints
   satisfies
-  comp
-  compPlatform
-  pkg_descr0 = do
+  compiler
+  platform
+  gpd = do
+    let
+      a :: RelaxKind -> RelaxDeps -> Dependency -> Dependency
+      a relKind (RelaxDeps mdef deps) d =
+        let m = Map.fromList [(pn', rdm) | RelaxedDep rdm pn' <- toList deps]
+         in maybe d (relax relKind d) (Map.lookup (depPkgName d) m <|> mdef)
+
+      satisfiesRelaxed =
+        let relaxUpper :: Dependency -> Dependency
+            relaxUpper = flagElim id (a RelaxUpper . unAllowNewer) (configAllowNewer cfg)
+
+            relaxLower :: Dependency -> Dependency
+            relaxLower = flagElim id (a RelaxLower . unAllowOlder) (configAllowOlder cfg)
+         in satisfies . relaxUpper . relaxLower
+
     (pkg_descr0', flags) <-
       case finalizePD
         (configConfigurationsFlags cfg)
         enabled
-        satisfies
-        compPlatform
-        (compilerInfo comp)
+        satisfiesRelaxed
+        platform
+        (compilerInfo compiler)
         allConstraints
-        pkg_descr0 of
+        gpd of
         Right r -> return r
         Left missing ->
           dieWithException verbosity $ EncounteredMissingDependency missing

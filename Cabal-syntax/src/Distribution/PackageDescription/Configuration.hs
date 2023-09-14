@@ -61,7 +61,6 @@ import Distribution.Utils.Generic
 import Distribution.Utils.Path
 import Distribution.Version
 
-import qualified Data.Map.Lazy as Map
 import Data.Tree (Tree (Node))
 
 ------------------------------------------------------------------------------
@@ -167,16 +166,9 @@ instance Semigroup d => Semigroup (DepTestRslt d) where
 -- on all branches is returned.
 -- [TODO: Could also be specified with a function argument.]
 --
--- TODO: The current algorithm is rather naive.  A better approach would be to:
+-- Note: this algorithm is rather naive. A better approach, based on constraint
+-- solving, is implemented in cabal-install.
 --
--- * Rule out possible paths, by taking a look at the associated dependencies.
---
--- * Infer the required values for the conditions of these paths, and
---   calculate the required domains for the variables used in these
---   conditions.  Then picking a flag assignment would be linear (I guess).
---
--- This would require some sort of SAT solving, though, thus it's not
--- implemented unless we really need it.
 resolveWithFlags
   :: [(FlagName, [Bool])]
   -- ^ Domain for each flag name, will be tested in order.
@@ -196,14 +188,14 @@ resolveWithFlags
   -- ^ Either the missing dependencies (error case), or a pair of
   -- (set of build targets with dependencies, chosen flag assignments)
 resolveWithFlags dom enabled os arch impl constrs trees checkDeps =
-  either (Left . fromDepMapUnion) Right $ explore (build mempty dom)
+  either (Left . fromDepMapJoin) Right $ explore (build mempty dom)
   where
     -- simplify trees by (partially) evaluating all conditions and converting
     -- dependencies to dependency maps.
-    simplifiedTrees :: [CondTree FlagName DependencyMap PDTagged]
+    simplifiedTrees :: [CondTree FlagName DependencyMapMeet PDTagged]
     simplifiedTrees =
       map
-        ( mapTreeConstrs toDepMap -- convert to maps
+        ( mapTreeConstrs toDepMapMeet -- convert to maps
             . addBuildableConditionPDTagged
             . mapTreeConds (fst . simplifyWithSysParams os arch impl)
         )
@@ -216,20 +208,19 @@ resolveWithFlags dom enabled os arch impl constrs trees checkDeps =
     -- computation overhead in the successful case.
     explore
       :: Tree FlagAssignment
-      -> Either DepMapUnion (TargetSet PDTagged, FlagAssignment)
+      -> Either DependencyMapJoin (TargetSet PDTagged, FlagAssignment)
     explore (Node flags ts) =
       let targetSet =
             TargetSet $
-              flip map simplifiedTrees $
-                -- apply additional constraints to all dependencies
-                first (`constrainBy` constrs)
-                  . simplifyCondTree (env flags)
+              -- apply additional constraints to all dependencies
+              map (first (`constrainBy` constrs) . simplifyCondTree (env flags))
+              simplifiedTrees
           deps = overallDependencies enabled targetSet
-       in case checkDeps (fromDepMap deps) of
+       in case checkDeps (fromDepMapMeet deps) of
             DepOk
               | null ts -> Right (targetSet, flags)
               | otherwise -> tryAll $ map explore ts
-            MissingDeps mds -> Left (toDepMapUnion mds)
+            MissingDeps mds -> Left (toDepMapJoin mds)
 
     -- Builds a tree of all possible flag assignments.  Internal nodes
     -- have only partial assignments.
@@ -238,18 +229,18 @@ resolveWithFlags dom enabled os arch impl constrs trees checkDeps =
     build assigned ((fn, vals) : unassigned) =
       Node assigned $ map (\v -> build (insertFlagAssignment fn v assigned) unassigned) vals
 
-    tryAll :: [Either DepMapUnion a] -> Either DepMapUnion a
+    tryAll :: [Either DependencyMapJoin a] -> Either DependencyMapJoin a
     tryAll = foldr mp mz
 
     -- special version of `mplus' for our local purposes
-    mp :: Either DepMapUnion a -> Either DepMapUnion a -> Either DepMapUnion a
+    mp :: Either DependencyMapJoin a -> Either DependencyMapJoin a -> Either DependencyMapJoin a
     mp m@(Right _) _ = m
     mp _ m@(Right _) = m
     mp (Left xs) (Left ys) = Left (xs <> ys)
 
     -- `mzero'
-    mz :: Either DepMapUnion a
-    mz = Left (DepMapUnion Map.empty)
+    mz :: Either DependencyMapJoin a
+    mz = Left mempty
 
     env :: FlagAssignment -> FlagName -> Either FlagName Bool
     env flags flag = (maybe (Left flag) Right . lookupFlagAssignment flag) flags
@@ -323,27 +314,6 @@ extractConditions f gpkg =
     , extractCondition (f . benchmarkBuildInfo) . snd <$> condBenchmarks gpkg
     ]
 
--- | A map of package constraints that combines version ranges using 'unionVersionRanges'.
-newtype DepMapUnion = DepMapUnion {unDepMapUnion :: Map PackageName (VersionRange, NonEmptySet LibraryName)}
-
-instance Semigroup DepMapUnion where
-  DepMapUnion x <> DepMapUnion y =
-    DepMapUnion $
-      Map.unionWith unionVersionRanges' x y
-
-unionVersionRanges'
-  :: (VersionRange, NonEmptySet LibraryName)
-  -> (VersionRange, NonEmptySet LibraryName)
-  -> (VersionRange, NonEmptySet LibraryName)
-unionVersionRanges' (vr, cs) (vr', cs') = (unionVersionRanges vr vr', cs <> cs')
-
-toDepMapUnion :: [Dependency] -> DepMapUnion
-toDepMapUnion ds =
-  DepMapUnion $ Map.fromListWith unionVersionRanges' [(p, (vr, cs)) | Dependency p vr cs <- ds]
-
-fromDepMapUnion :: DepMapUnion -> [Dependency]
-fromDepMapUnion m = [Dependency p vr cs | (p, (vr, cs)) <- Map.toList (unDepMapUnion m)]
-
 freeVars :: CondTree ConfVar c a -> [FlagName]
 freeVars t = [f | PackageFlag f <- freeVars' t]
   where
@@ -359,11 +329,11 @@ freeVars t = [f | PackageFlag f <- freeVars' t]
 ------------------------------------------------------------------------------
 
 -- | A set of targets with their package dependencies
-newtype TargetSet a = TargetSet [(DependencyMap, a)]
+newtype TargetSet a = TargetSet [(DependencyMapMeet, a)]
 
 -- | Combine the target-specific dependencies in a TargetSet to give the
 -- dependencies for the package as a whole.
-overallDependencies :: ComponentRequestedSpec -> TargetSet PDTagged -> DependencyMap
+overallDependencies :: ComponentRequestedSpec -> TargetSet PDTagged -> DependencyMapMeet
 overallDependencies enabled (TargetSet targets) = mconcat depss
   where
     (depss, _) = unzip $ filter (removeDisabledSections . snd) targets
@@ -401,7 +371,7 @@ flattenTaggedTargets (TargetSet targets) = foldr untag (Nothing, []) targets
       (PDNull, x) -> x -- actually this should not happen, but let's be liberal
       where
         redoBD :: L.HasBuildInfo a => a -> a
-        redoBD = set L.targetBuildDepends $ fromDepMap depMap
+        redoBD = set L.targetBuildDepends $ fromDepMapMeet depMap
 
 ------------------------------------------------------------------------------
 -- Convert GenericPackageDescription to PackageDescription
@@ -510,6 +480,7 @@ finalizePD
       )
     where
       -- Combine lib, exes, and tests into one list of @CondTree@s with tagged data
+      condTrees :: [CondTree ConfVar [Dependency] PDTagged]
       condTrees =
         maybeToList (fmap (mapTreeData Lib) mb_lib0)
           ++ map (\(name, tree) -> mapTreeData (SubComp name . CLib) tree) sub_libs0
@@ -518,29 +489,22 @@ finalizePD
           ++ map (\(name, tree) -> mapTreeData (SubComp name . CTest) tree) tests0
           ++ map (\(name, tree) -> mapTreeData (SubComp name . CBench) tree) bms0
 
+      flagChoices :: [(FlagName, [Bool])]
       flagChoices = map (\(MkPackageFlag n _ d manual) -> (n, d2c manual n d)) flags
+
+      d2c :: Bool -> FlagName -> Bool -> [Bool]
       d2c manual n b = case lookupFlagAssignment n userflags of
         Just val -> [val]
         Nothing
           | manual -> [b]
           | otherwise -> [b, not b]
-      -- flagDefaults = map (\(n,x:_) -> (n,x)) flagChoices
+
+      check :: [Dependency] -> DepTestRslt [Dependency]
       check ds =
         let missingDeps = filter (not . satisfyDep) ds
          in if null missingDeps
               then DepOk
               else MissingDeps missingDeps
-
-{-
-let tst_p = (CondNode [1::Int] [Distribution.Package.Dependency "a" AnyVersion] [])
-let tst_p2 = (CondNode [1::Int] [Distribution.Package.Dependency "a" (EarlierVersion (Version [1,0] [])), Distribution.Package.Dependency "a" (LaterVersion (Version [2,0] []))] [])
-
-let p_index = Distribution.Simple.PackageIndex.fromList [Distribution.Package.PackageIdentifier "a" (Version [0,5] []), Distribution.Package.PackageIdentifier "a" (Version [2,5] [])]
-let look = not . null . Distribution.Simple.PackageIndex.lookupDependency p_index
-let looks ds = mconcat $ map (\d -> if look d then DepOk else MissingDeps [d]) ds
-resolveWithFlags [] Distribution.System.Linux Distribution.System.I386 (Distribution.Compiler.GHC,Version [6,8,2] []) [tst_p] looks   ===>  Right ...
-resolveWithFlags [] Distribution.System.Linux Distribution.System.I386 (Distribution.Compiler.GHC,Version [6,8,2] []) [tst_p2] looks  ===>  Left ...
--}
 
 -- | Flatten a generic package description by ignoring all conditions and just
 -- join the field descriptors into on package description.  Note, however,
