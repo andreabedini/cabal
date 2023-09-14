@@ -199,14 +199,14 @@ resolveWithFlags
   -- ^ Either the missing dependencies (error case), or a pair of
   -- (set of build targets with dependencies, chosen flag assignments)
 resolveWithFlags dom enabled os arch impl constrs trees checkDeps =
-  explore (build mempty dom)
+  either (Left . fromDepMapJoin) Right $ explore (build mempty dom)
   where
     -- simplify trees by (partially) evaluating all conditions and converting
     -- dependencies to dependency maps.
-    simplifiedTrees :: [CondTree FlagName DependencyMap PDTagged]
+    simplifiedTrees :: [CondTree FlagName DependencyMapMeet PDTagged]
     simplifiedTrees =
       map
-        ( mapTreeConstrs toDepMap -- convert to maps
+        ( mapTreeConstrs toDepMapMeet -- convert to maps
             . addBuildableConditionPDTagged
             . mapTreeConds (fst . simplifyWithSysParams os arch impl)
         )
@@ -219,20 +219,19 @@ resolveWithFlags dom enabled os arch impl constrs trees checkDeps =
     -- computation overhead in the successful case.
     explore
       :: Tree FlagAssignment
-      -> Either [MissingDependency] (TargetSet PDTagged, FlagAssignment)
+      -> Either DependencyMapJoin (TargetSet PDTagged, FlagAssignment)
     explore (Node flags ts) =
       let targetSet =
             TargetSet $
-              flip map simplifiedTrees $
-                -- apply additional constraints to all dependencies
-                first (`constrainBy` constrs)
-                  . simplifyCondTree (env flags)
+              -- apply additional constraints to all dependencies
+              map (first (`constrainBy` constrs) . simplifyCondTree (env flags))
+              simplifiedTrees
           deps = overallDependencies enabled targetSet
-       in case checkDeps (fromDepMap deps) of
+       in case checkDeps (fromDepMapMeet deps) of
             DepOk
               | null ts -> Right (targetSet, flags)
               | otherwise -> tryAll $ map explore ts
-            MissingDeps mds -> Left mds
+            MissingDeps mds -> Left (toDepMapJoin mds)
 
     -- Builds a tree of all possible flag assignments.  Internal nodes
     -- have only partial assignments.
@@ -241,17 +240,17 @@ resolveWithFlags dom enabled os arch impl constrs trees checkDeps =
     build assigned ((fn, vals) : unassigned) =
       Node assigned $ map (\v -> build (insertFlagAssignment fn v assigned) unassigned) vals
 
-    tryAll :: Monoid a => [Either a b] -> Either a b
+    tryAll :: [Either DependencyMapJoin a] -> Either DependencyMapJoin a
     tryAll = foldr mp mz
 
     -- special version of `mplus' for our local purposes
-    mp :: Monoid a => Either a b -> Either a b -> Either a b
+    mp :: Either DependencyMapJoin a -> Either DependencyMapJoin a -> Either DependencyMapJoin a
     mp m@(Right _) _ = m
     mp _ m@(Right _) = m
     mp (Left xs) (Left ys) = Left (xs <> ys)
 
     -- `mzero'
-    mz :: Monoid a => Either a b
+    mz :: Either DependencyMapJoin a
     mz = Left mempty
 
     env :: FlagAssignment -> FlagName -> Either FlagName Bool
@@ -341,11 +340,11 @@ freeVars t = [f | PackageFlag f <- freeVars' t]
 ------------------------------------------------------------------------------
 
 -- | A set of targets with their package dependencies
-newtype TargetSet a = TargetSet [(DependencyMap, a)]
+newtype TargetSet a = TargetSet [(DependencyMapMeet, a)]
 
 -- | Combine the target-specific dependencies in a TargetSet to give the
 -- dependencies for the package as a whole.
-overallDependencies :: ComponentRequestedSpec -> TargetSet PDTagged -> DependencyMap
+overallDependencies :: ComponentRequestedSpec -> TargetSet PDTagged -> DependencyMapMeet
 overallDependencies enabled (TargetSet targets) = mconcat depss
   where
     (depss, _) = unzip $ filter (removeDisabledSections . snd) targets
@@ -383,7 +382,7 @@ flattenTaggedTargets (TargetSet targets) = foldr untag (Nothing, []) targets
       (PDNull, x) -> x -- actually this should not happen, but let's be liberal
       where
         redoBD :: L.HasBuildInfo a => a -> a
-        redoBD = set L.targetBuildDepends $ fromDepMap depMap
+        redoBD = set L.targetBuildDepends $ fromDepMapMeet depMap
 
 ------------------------------------------------------------------------------
 -- Convert GenericPackageDescription to PackageDescription

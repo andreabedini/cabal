@@ -3,6 +3,12 @@ module Distribution.Types.DependencyMap
   , toDepMap
   , fromDepMap
   , constrainBy
+  , DependencyMapMeet
+  , toDepMapMeet
+  , fromDepMapMeet
+  , DependencyMapJoin
+  , fromDepMapJoin
+  , toDepMapJoin
   ) where
 
 import Distribution.Compat.Prelude
@@ -16,44 +22,89 @@ import Distribution.Version
 
 import qualified Data.Map.Lazy as Map
 
--- | A map of dependencies.  Newtyped since the default monoid instance is not
---   appropriate.  The monoid instance uses 'intersectVersionRanges'.
-newtype DependencyMap = DependencyMap {unDependencyMap :: Map PackageName (VersionRange, NonEmptySet LibraryName)}
+class Lattice a where
+  -- | join
+  (\/) :: a -> a -> a
+
+  infixr 5 \/
+
+  -- | meet
+  (/\) :: a -> a -> a
+
+  infixr 6 /\
+
+newtype Meet a = Meet {getMeet :: a}
   deriving (Show, Read, Eq)
 
-instance Monoid DependencyMap where
-  mempty = DependencyMap Map.empty
-  mappend = (<>)
+instance Lattice a => Semigroup (Meet a) where
+  Meet lhs <> Meet rhs = Meet (lhs /\ rhs)
 
-instance Semigroup DependencyMap where
-  (DependencyMap a) <> (DependencyMap b) =
-    DependencyMap (Map.unionWith intersectVersionRangesAndJoinComponents a b)
+newtype Join a = Join {getJoin :: a}
+  deriving (Show, Read, Eq)
 
-intersectVersionRangesAndJoinComponents
-  :: (VersionRange, NonEmptySet LibraryName)
-  -> (VersionRange, NonEmptySet LibraryName)
-  -> (VersionRange, NonEmptySet LibraryName)
-intersectVersionRangesAndJoinComponents (va, ca) (vb, cb) =
-  (intersectVersionRanges va vb, ca <> cb)
+instance Lattice a => Semigroup (Join a) where
+  Join lhs <> Join rhs = Join (lhs \/ rhs)
 
-toDepMap :: [Dependency] -> DependencyMap
-toDepMap ds =
-  DependencyMap $ Map.fromListWith intersectVersionRangesAndJoinComponents [(p, (vr, cs)) | Dependency p vr cs <- ds]
+instance Lattice VersionRange where
+  (\/) = unionVersionRanges
+  (/\) = intersectVersionRanges
 
-fromDepMap :: DependencyMap -> [Dependency]
-fromDepMap m = [Dependency p vr cs | (p, (vr, cs)) <- Map.toList (unDependencyMap m)]
+newtype MonoidalMap k v = MonoidalMap {getMonoidalMap :: Map k v}
+  deriving (Show, Read, Eq)
+
+instance (Semigroup v, Ord k) => Monoid (MonoidalMap k v) where
+  mempty = MonoidalMap mempty
+
+instance (Semigroup v, Ord k) => Semigroup (MonoidalMap k v) where
+  MonoidalMap m1 <> MonoidalMap m2 = MonoidalMap (Map.unionWith (<>) m1 m2)
+
+singleton :: k -> v -> MonoidalMap k v
+singleton k v = MonoidalMap (Map.singleton k v)
+
+-- data Dependency
+--   = Dependency
+--       PackageName
+--       VersionRange
+--       (NonEmptySet LibraryName)
+--
+-- data MissingDependency
+--   = MissingDependency
+--       Dependency
+--       MissingDependencyReason
+
+type DependencyMap l = MonoidalMap PackageName (l, NonEmptySet LibraryName)
+
+toDepMap :: Semigroup a => (VersionRange -> a) -> [Dependency] -> DependencyMap a
+toDepMap meetOrJoin = foldMap (\(Dependency p vr cs) -> singleton p (meetOrJoin vr, cs))
+
+fromDepMap :: (l -> VersionRange) -> MonoidalMap PackageName (l, NonEmptySet LibraryName) -> [Dependency]
+fromDepMap unMeetOrJoin m =[Dependency p (unMeetOrJoin vr) cs | (p, (vr, cs)) <- Map.toList (getMonoidalMap m)]
+
+type DependencyMapMeet = DependencyMap (Meet VersionRange)
+
+toDepMapMeet :: [Dependency] -> DependencyMapMeet
+toDepMapMeet = toDepMap Meet
+
+fromDepMapMeet :: DependencyMapMeet -> [Dependency]
+fromDepMapMeet = fromDepMap getMeet
 
 -- Apply extra constraints to a dependency map.
 -- Combines dependencies where the result will only contain keys from the left
 -- (first) map.  If a key also exists in the right map, both constraints will
 -- be intersected.
 constrainBy
-  :: DependencyMap
+  :: DependencyMapMeet
   -> [PackageVersionConstraint]
-  -> DependencyMap
+  -> DependencyMapMeet
 constrainBy = foldl' tightenConstraint
   where
-    tightenConstraint (DependencyMap l) (PackageVersionConstraint pn vr) = DependencyMap $
-      case Map.lookup pn l of
-        Nothing -> l
-        Just (vr', cs) -> Map.insert pn (intersectVersionRanges vr' vr, cs) l
+    tightenConstraint (MonoidalMap m) (PackageVersionConstraint pn vr) =
+      MonoidalMap $ Map.adjust (\(vr', cs) -> (vr' <> Meet vr, cs)) pn m
+
+type DependencyMapJoin = MonoidalMap PackageName (Join VersionRange, NonEmptySet LibraryName)
+
+toDepMapJoin :: [Dependency] -> DependencyMapJoin
+toDepMapJoin = toDepMap Join
+
+fromDepMapJoin :: DependencyMapJoin -> [Dependency]
+fromDepMapJoin = fromDepMap getJoin
