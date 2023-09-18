@@ -5,6 +5,9 @@ packages: cabal-install/
 packages: cabal-install-solver/
 packages: solver-benchmarks/
 
+-- FIXME: temp
+packages: secure-repo-dsl/
+
 tests: True
 
 packages: Cabal-QuickCheck/
