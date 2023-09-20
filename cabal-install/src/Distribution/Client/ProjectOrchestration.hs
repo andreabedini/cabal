@@ -137,9 +137,9 @@ import Distribution.Client.Types
   , GenericReadyPackage (..)
   , PackageLocation (..)
   , PackageSpecifier (..)
+  , ResolvedSourcePackage
   , SourcePackageDb (..)
   , TestsResult (..)
-  , UnresolvedSourcePackage
   , WriteGhcEnvironmentFilesPolicy (..)
   )
 import Distribution.Solver.Types.PackageIndex
@@ -234,7 +234,7 @@ data ProjectBaseContext = ProjectBaseContext
   { distDirLayout :: DistDirLayout
   , cabalDirLayout :: CabalDirLayout
   , projectConfig :: ProjectConfig
-  , localPackages :: [PackageSpecifier UnresolvedSourcePackage]
+  , localPackages :: [PackageSpecifier ResolvedSourcePackage]
   , buildSettings :: BuildTimeSettings
   , currentCommand :: CurrentCommand
   , installedPackages :: Maybe InstalledPackageIndex
@@ -287,9 +287,9 @@ establishProjectBaseContextWithRoot verbosity cliConfig projectRoot currentComma
 
       mlogsDir = Setup.flagToMaybe projectConfigLogsDir
   mstoreDir <-
-    sequenceA $
-      makeAbsolute
-        <$> Setup.flagToMaybe projectConfigStoreDir
+    sequenceA
+      $ makeAbsolute
+      <$> Setup.flagToMaybe projectConfigStoreDir
   cabalDirLayout <- mkCabalDirLayout mstoreDir mlogsDir
 
   let buildSettings =
@@ -299,8 +299,8 @@ establishProjectBaseContextWithRoot verbosity cliConfig projectRoot currentComma
           projectConfig
 
   -- https://github.com/haskell/cabal/issues/6013
-  when (null (projectPackages projectConfig) && null (projectPackagesOptional projectConfig)) $
-    warn verbosity "There are no packages or optional-packages in the project"
+  when (null (projectPackages projectConfig) && null (projectPackagesOptional projectConfig))
+    $ warn verbosity "There are no packages or optional-packages in the project"
 
   return
     ProjectBaseContext
@@ -447,8 +447,8 @@ runProjectBuildPhase
   verbosity
   ProjectBaseContext{..}
   ProjectBuildContext{..} =
-    fmap (Map.union (previousBuildOutcomes pkgsBuildStatus)) $
-      rebuildTargets
+    fmap (Map.union (previousBuildOutcomes pkgsBuildStatus))
+      $ rebuildTargets
         verbosity
         projectConfig
         distDirLayout
@@ -499,8 +499,9 @@ runProjectPostBuildPhase
 
     -- Write the .ghc.environment file (if allowed by the env file write policy).
     let writeGhcEnvFilesPolicy =
-          projectConfigWriteGhcEnvironmentFilesPolicy . projectConfigShared $
-            projectConfig
+          projectConfigWriteGhcEnvironmentFilesPolicy
+            . projectConfigShared
+            $ projectConfig
 
         shouldWriteGhcEnvironment :: Bool
         shouldWriteGhcEnvironment =
@@ -514,13 +515,13 @@ runProjectPostBuildPhase
                   ghcCompatVersion = compilerCompatVersion GHC compiler
                in maybe False (>= mkVersion [8, 4, 4]) ghcCompatVersion
 
-    when shouldWriteGhcEnvironment $
-      void $
-        writePlanGhcEnvironment
-          (distProjectRootDirectory distDirLayout)
-          elaboratedPlanOriginal
-          elaboratedShared
-          postBuildStatus
+    when shouldWriteGhcEnvironment
+      $ void
+      $ writePlanGhcEnvironment
+        (distProjectRootDirectory distDirLayout)
+        elaboratedPlanOriginal
+        elaboratedShared
+        postBuildStatus
 
     -- Write the build reports
     writeBuildReports buildSettings bc elaboratedPlanToExecute buildOutcomes
@@ -628,8 +629,8 @@ resolveTargets
         :: [(TargetSelector, [(UnitId, ComponentTarget)])]
         -> TargetsMap
       mkTargetsMap targets =
-        Map.map nubComponentTargets $
-          Map.fromListWith
+        Map.map nubComponentTargets
+          $ Map.fromListWith
             (<>)
             [ (uid, [(ct, ts)])
             | (ts, cts) <- targets
@@ -643,10 +644,10 @@ resolveTargets
       -- We can ask to build any whole package, project-local or a dependency
       checkTarget bt@(TargetPackage _ [pkgid] mkfilter)
         | Just ats <-
-            fmap (maybe id filterTargetsKind mkfilter) $
-              Map.lookup pkgid availableTargetsByPackageId =
-            fmap (componentTargets WholeComponent) $
-              selectPackageTargets bt ats
+            fmap (maybe id filterTargetsKind mkfilter)
+              $ Map.lookup pkgid availableTargetsByPackageId =
+            fmap (componentTargets WholeComponent)
+              $ selectPackageTargets bt ats
         | otherwise =
             Left (TargetProblemNoSuchPackage pkgid)
       checkTarget (TargetPackage _ pkgids _) =
@@ -673,8 +674,8 @@ resolveTargets
             Map.lookup
               (pkgid, cname)
               availableTargetsByPackageIdAndComponentName =
-            fmap (componentTargets subtarget) $
-              selectComponentTargets subtarget ats
+            fmap (componentTargets subtarget)
+              $ selectComponentTargets subtarget ats
         | Map.member pkgid availableTargetsByPackageId =
             Left (TargetProblemNoSuchComponent pkgid cname)
         | otherwise =
@@ -689,16 +690,16 @@ resolveTargets
               Map.lookup
                 (pkgname, cname)
                 availableTargetsByPackageNameAndComponentName =
-            fmap (componentTargets subtarget) $
-              selectComponentTargets subtarget ats
+            fmap (componentTargets subtarget)
+              $ selectComponentTargets subtarget ats
         | Map.member pkgname availableTargetsByPackageName =
             Left (TargetProblemUnknownComponent pkgname ecname)
         | otherwise =
             Left (TargetNotInProject pkgname)
       checkTarget bt@(TargetPackageNamed pkgname mkfilter)
         | Just ats <-
-            fmap (maybe id filterTargetsKind mkfilter) $
-              Map.lookup pkgname availableTargetsByPackageName =
+            fmap (maybe id filterTargetsKind mkfilter)
+              $ Map.lookup pkgname availableTargetsByPackageName =
             fmap (componentTargets WholeComponent)
               . selectPackageTargets bt
               $ ats
@@ -909,8 +910,8 @@ pruneInstallPlanToTargets
   -> ElaboratedInstallPlan
   -> ElaboratedInstallPlan
 pruneInstallPlanToTargets targetActionType targetsMap elaboratedPlan =
-  assert (Map.size targetsMap > 0) $
-    ProjectPlanning.pruneInstallPlanToTargets
+  assert (Map.size targetsMap > 0)
+    $ ProjectPlanning.pruneInstallPlanToTargets
       targetActionType
       (Map.map (map fst) targetsMap)
       elaboratedPlan
@@ -957,16 +958,16 @@ printPlan
     | null pkgs && currentCommand == BuildCommand =
         notice verbosity "Up to date"
     | not (null pkgs) =
-        noticeNoWrap verbosity $
-          unlines $
-            ( showBuildProfile
+        noticeNoWrap verbosity
+          $ unlines
+          $ ( showBuildProfile
                 ++ "In order, the following "
                 ++ wouldWill
                 ++ " be built"
                 ++ ifNormal " (use -v for more details)"
                 ++ ":"
             )
-              : map showPkgAndReason pkgs
+          : map showPkgAndReason pkgs
     | otherwise = return ()
     where
       pkgs = InstallPlan.executionOrder elaboratedPlan
@@ -985,9 +986,9 @@ printPlan
 
       showPkgAndReason :: ElaboratedReadyPackage -> String
       showPkgAndReason (ReadyPackage elab) =
-        unwords $
-          filter (not . null) $
-            [ " -"
+        unwords
+          $ filter (not . null)
+          $ [ " -"
             , if verbosity >= deafening
                 then prettyShow (installedUnitId elab)
                 else prettyShow (packageId elab)
@@ -1063,8 +1064,9 @@ printPlan
                     -- Maybe there are more we can add
                 }
          in -- Not necessary to "escape" it, it's just for user output
-            unwords . ("" :) $
-              commandShowOptions
+            unwords
+              . ("" :)
+              $ commandShowOptions
                 (Setup.configureCommand (pkgConfigCompilerProgs elaboratedShared))
                 partialConfigureFlags
 
@@ -1173,9 +1175,9 @@ dieOnBuildFailures verbosity currentCommand plan buildOutcomes
       -- For failures where we have a build log, print the log plus a header
       sequence_
         [ do
-          notice verbosity $
-            '\n'
-              : renderFailureDetail False pkg reason
+          notice verbosity
+            $ '\n'
+            : renderFailureDetail False pkg reason
               ++ "\nBuild log ( "
               ++ logfile
               ++ " ):"
@@ -1186,8 +1188,8 @@ dieOnBuildFailures verbosity currentCommand plan buildOutcomes
 
       -- For all failures, print either a short summary (if we showed the
       -- build log) or all details
-      dieIfNotHaddockFailure verbosity $
-        unlines
+      dieIfNotHaddockFailure verbosity
+        $ unlines
           [ case failureClassification of
             ShowBuildSummaryAndLog reason _
               | verbosity > normal ->
@@ -1437,7 +1439,7 @@ establishDummyProjectBaseContext
   -- ^ Project configuration including the global config if needed
   -> DistDirLayout
   -- ^ Where to put the dist directory
-  -> [PackageSpecifier UnresolvedSourcePackage]
+  -> [PackageSpecifier ResolvedSourcePackage]
   -- ^ The packages to be included in the project
   -> CurrentCommand
   -> IO ProjectBaseContext
@@ -1485,7 +1487,7 @@ establishDummyDistDirLayout verbosity cliConfig tmpDir = do
   return distDirLayout
   where
     mdistDirectory =
-      flagToMaybe $
-        projectConfigDistDir $
-          projectConfigShared cliConfig
+      flagToMaybe
+        $ projectConfigDistDir
+        $ projectConfigShared cliConfig
     projectRoot = ProjectRootImplicit tmpDir
