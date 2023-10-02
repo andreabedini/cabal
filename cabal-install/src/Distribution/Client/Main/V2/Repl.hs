@@ -4,7 +4,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- | cabal-install CLI command: repl
-module Distribution.Client.CmdRepl
+module Distribution.Client.Main.V2.Repl
   ( -- * The @repl@ CLI and action
     replCommand
   , replAction
@@ -23,7 +23,7 @@ import Prelude ()
 import Distribution.Compat.Lens
 import qualified Distribution.Types.Lens as L
 
-import Distribution.Client.CmdErrorMessages
+import Distribution.Client.ErrorMessages
   ( Plural (..)
   , componentKind
   , renderComponentKind
@@ -203,18 +203,18 @@ replCommand =
     , commandSynopsis = "Open an interactive session for the given component."
     , commandUsage = usageAlternatives "v2-repl" ["[TARGET] [FLAGS]"]
     , commandDescription = Just $ \_ ->
-        wrapText $
-          "Open an interactive session for a component within the project. The "
-            ++ "available targets are the same as for the 'v2-build' command: "
-            ++ "individual components within packages in the project, including "
-            ++ "libraries, executables, test-suites or benchmarks. Packages can "
-            ++ "also be specified in which case the library component in the "
-            ++ "package will be used, or the (first listed) executable in the "
-            ++ "package if there is no library.\n\n"
-            ++ "Dependencies are built or rebuilt as necessary. Additional "
-            ++ "configuration flags can be specified on the command line and these "
-            ++ "extend the project configuration from the 'cabal.project', "
-            ++ "'cabal.project.local' and other files."
+        wrapText
+          $ "Open an interactive session for a component within the project. The "
+          ++ "available targets are the same as for the 'v2-build' command: "
+          ++ "individual components within packages in the project, including "
+          ++ "libraries, executables, test-suites or benchmarks. Packages can "
+          ++ "also be specified in which case the library component in the "
+          ++ "package will be used, or the (first listed) executable in the "
+          ++ "package if there is no library.\n\n"
+          ++ "Dependencies are built or rebuilt as necessary. Additional "
+          ++ "configuration flags can be specified on the command line and these "
+          ++ "extend the project configuration from the 'cabal.project', "
+          ++ "'cabal.project.local' and other files."
     , commandNotes = Just $ \pname ->
         "Examples, open an interactive session:\n"
           ++ "  "
@@ -283,11 +283,11 @@ multiReplDecision ctx compiler flags =
 replAction :: NixStyleFlags ReplFlags -> [String] -> GlobalFlags -> IO ()
 replAction flags@NixStyleFlags{extraFlags = r@ReplFlags{..}, ..} targetStrings globalFlags =
   withContextAndSelectors AcceptNoTargets (Just LibKind) flags targetStrings globalFlags ReplCommand $ \targetCtx ctx targetSelectors -> do
-    when (buildSettingOnlyDeps (buildSettings ctx)) $
-      die' verbosity $
-        "The repl command does not support '--only-dependencies'. "
-          ++ "You may wish to use 'build --only-dependencies' and then "
-          ++ "use 'repl'."
+    when (buildSettingOnlyDeps (buildSettings ctx))
+      $ die' verbosity
+      $ "The repl command does not support '--only-dependencies'. "
+      ++ "You may wish to use 'build --only-dependencies' and then "
+      ++ "use 'repl'."
 
     let projectRoot = distProjectRootDirectory $ distDirLayout ctx
         distDir = distDirectory $ distDirLayout ctx
@@ -295,15 +295,17 @@ replAction flags@NixStyleFlags{extraFlags = r@ReplFlags{..}, ..} targetStrings g
     baseCtx <- case targetCtx of
       ProjectContext -> return ctx
       GlobalContext -> do
-        unless (null targetStrings) $
-          die' verbosity $
-            "'repl' takes no arguments or a script argument outside a project: " ++ unwords targetStrings
+        unless (null targetStrings)
+          $ die' verbosity
+          $ "'repl' takes no arguments or a script argument outside a project: "
+          ++ unwords targetStrings
 
         let
           sourcePackage =
             fakeProjectSourcePackage projectRoot
-              & lSrcpkgDescription . L.condLibrary
-                .~ Just (CondNode library [baseDep] [])
+              & lSrcpkgDescription
+              . L.condLibrary
+              .~ Just (CondNode library [baseDep] [])
           library = emptyLibrary{libBuildInfo = lBuildInfo}
           lBuildInfo =
             emptyBuildInfo
@@ -314,13 +316,15 @@ replAction flags@NixStyleFlags{extraFlags = r@ReplFlags{..}, ..} targetStrings g
 
         updateContextAndWriteProjectFile' ctx sourcePackage
       ScriptContext scriptPath scriptExecutable -> do
-        unless (length targetStrings == 1) $
-          die' verbosity $
-            "'repl' takes a single argument which should be a script: " ++ unwords targetStrings
+        unless (length targetStrings == 1)
+          $ die' verbosity
+          $ "'repl' takes a single argument which should be a script: "
+          ++ unwords targetStrings
         existsScriptPath <- doesFileExist scriptPath
-        unless existsScriptPath $
-          die' verbosity $
-            "'repl' takes a single argument which should be a script: " ++ unwords targetStrings
+        unless existsScriptPath
+          $ die' verbosity
+          $ "'repl' takes a single argument which should be a script: "
+          ++ unwords targetStrings
 
         updateContextAndWriteProjectFile ctx scriptPath scriptExecutable
 
@@ -329,13 +333,15 @@ replAction flags@NixStyleFlags{extraFlags = r@ReplFlags{..}, ..} targetStrings g
     -- after solving (phaseConfigureCompiler), so instead of using
     -- multiReplDecision we just check the flag.
     let baseCtx' =
-          if fromFlagOrDefault False $
-            projectConfigMultiRepl (projectConfigShared $ projectConfig baseCtx)
-              <> replUseMulti
+          if fromFlagOrDefault False
+            $ projectConfigMultiRepl (projectConfigShared $ projectConfig baseCtx)
+            <> replUseMulti
             then
               baseCtx
-                & lProjectConfig . lProjectConfigShared . lProjectConfigConstraints
-                  %~ (multiReplCabalConstraint :)
+                & lProjectConfig
+                . lProjectConfigShared
+                . lProjectConfigConstraints
+                %~ (multiReplCabalConstraint :)
             else baseCtx
 
     (originalComponent, baseCtx'') <-
@@ -365,8 +371,8 @@ replAction flags@NixStyleFlags{extraFlags = r@ReplFlags{..}, ..} targetStrings g
     -- In addition, to avoid a *third* trip through the solver, we are
     -- replicating the second half of 'runProjectPreBuildPhase' by hand
     -- here.
-    (buildCtx, compiler, replOpts', targets) <- withInstallPlan verbosity baseCtx'' $
-      \elaboratedPlan elaboratedShared' -> do
+    (buildCtx, compiler, replOpts', targets) <- withInstallPlan verbosity baseCtx''
+      $ \elaboratedPlan elaboratedShared' -> do
         let ProjectBaseContext{..} = baseCtx''
 
         -- Recalculate with updated project.
@@ -452,19 +458,19 @@ replAction flags@NixStyleFlags{extraFlags = r@ReplFlags{..}, ..} targetStrings g
         unit_files <- listDirectory dir
 
         -- run ghc --interactive with
-        runProgramInvocation verbosity $
-          programInvocation ghcProg' $
-            concat $
-              [ "--interactive"
-              , "-package-env"
-              , "-" -- to ignore ghc.environment.* files
-              , "-j"
-              , show (buildSettingNumJobs (buildSettings ctx))
-              ]
-                : [ ["-unit", "@" ++ dir </> unit]
-                  | unit <- unit_files
-                  , unit /= "paths"
-                  ]
+        runProgramInvocation verbosity
+          $ programInvocation ghcProg'
+          $ concat
+          $ [ "--interactive"
+            , "-package-env"
+            , "-" -- to ignore ghc.environment.* files
+            , "-j"
+            , show (buildSettingNumJobs (buildSettings ctx))
+            ]
+          : [ ["-unit", "@" ++ dir </> unit]
+            | unit <- unit_files
+            , unit /= "paths"
+            ]
 
         pure ()
       else do
@@ -493,8 +499,8 @@ replAction flags@NixStyleFlags{extraFlags = r@ReplFlags{..}, ..} targetStrings g
       -- Interpret the targets on the command line as repl targets
       -- (as opposed to say build or haddock targets).
       targets <-
-        either (reportTargetProblems verbosity) return $
-          resolveTargets
+        either (reportTargetProblems verbosity) return
+          $ resolveTargets
             (selectPackageTargets multi_repl_enabled)
             selectComponentTarget
             elaboratedPlan
@@ -504,8 +510,8 @@ replAction flags@NixStyleFlags{extraFlags = r@ReplFlags{..}, ..} targetStrings g
       -- Reject multiple targets, or at least targets in different
       -- components. It is ok to have two module/file targets in the
       -- same component, but not two that live in different components.
-      when (Set.size (distinctTargetComponents targets) > 1 && not (useMultiRepl multi_repl_enabled)) $
-        reportTargetProblems
+      when (Set.size (distinctTargetComponents targets) > 1 && not (useMultiRepl multi_repl_enabled))
+        $ reportTargetProblems
           verbosity
           [multipleTargetsProblem multi_repl_enabled targets]
 
@@ -547,8 +553,8 @@ addDepsToProjectTarget deps pkgId ctx =
     addDeps (SpecificSourcePackage pkg)
       | packageId pkg /= pkgId = SpecificSourcePackage pkg
       | SourcePackage{..} <- pkg =
-          SpecificSourcePackage $
-            pkg
+          SpecificSourcePackage
+            $ pkg
               { srcpkgDescription =
                   -- New dependencies are added to the original ones found in the
                   -- `targetBuildDepends` field.
@@ -557,7 +563,7 @@ addDepsToProjectTarget deps pkgId ctx =
                   -- fields depending on the latter are also consistently updated.
                   srcpkgDescription
                     & (L.traverseBuildInfos . L.targetBuildDepends)
-                      %~ (deps ++)
+                    %~ (deps ++)
               }
     addDeps spec = spec
 
@@ -577,8 +583,9 @@ generateReplFlags includeTransitive elaboratedPlan OriginalComponentInfo{..} = f
     trans = installedUnitId <$> InstallPlan.dependencyClosure elaboratedPlan deps'
     trans' = trans \\ ociOriginalDeps
     flags =
-      fmap (("-package-id " ++) . prettyShow) . (\\ exeDeps) $
-        if includeTransitive then trans' else deps'
+      fmap (("-package-id " ++) . prettyShow)
+        . (\\ exeDeps)
+        $ if includeTransitive then trans' else deps'
 
 -- | Add repl options to ensure the repl actually starts in the current working directory.
 --

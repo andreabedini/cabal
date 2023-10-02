@@ -38,13 +38,13 @@ import Distribution.Solver.Types.ConstraintSource
 import Distribution.Solver.Types.PackageConstraint
          ( PackageProperty(PackagePropertySource) )
 
-import qualified Distribution.Client.CmdBuild          as CmdBuild
-import qualified Distribution.Client.CmdRepl           as CmdRepl
-import qualified Distribution.Client.CmdRun            as CmdRun
-import qualified Distribution.Client.CmdTest           as CmdTest
-import qualified Distribution.Client.CmdBench          as CmdBench
-import qualified Distribution.Client.CmdHaddock        as CmdHaddock
-import qualified Distribution.Client.CmdListBin        as CmdListBin
+import qualified Distribution.Client.Main.V2.Build          as CmdBuild
+import qualified Distribution.Client.Main.V2.Repl           as CmdRepl
+import qualified Distribution.Client.Main.V2.Run            as CmdRun
+import qualified Distribution.Client.Main.V2.Test           as CmdTest
+import qualified Distribution.Client.Main.V2.Bench          as CmdBench
+import qualified Distribution.Client.Main.V2.Haddock        as CmdHaddock
+import qualified Distribution.Client.Main.V2.ListBin        as CmdListBin
 
 import Distribution.Package
 import Distribution.PackageDescription
@@ -60,7 +60,7 @@ import Distribution.Version
 import Distribution.ModuleName (ModuleName)
 import Distribution.Text
 import Distribution.Utils.Path
-import qualified Distribution.Client.CmdHaddockProject as CmdHaddockProject
+import qualified Distribution.Client.Main.V2.HaddockProject as CmdHaddockProject
 import Distribution.Client.Setup (globalStoreDir)
 import Distribution.Client.GlobalFlags (defaultGlobalFlags)
 import Distribution.Simple.Setup (HaddockProjectFlags(..), defaultHaddockProjectFlags)

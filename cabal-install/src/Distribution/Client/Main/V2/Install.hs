@@ -4,7 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- | cabal-install CLI command: build
-module Distribution.Client.CmdInstall
+module Distribution.Client.Main.V2.Install
   ( -- * The @build@ CLI and action
     installCommand
   , installAction
@@ -24,16 +24,16 @@ import Distribution.Compat.Directory
   )
 import Prelude ()
 
-import Distribution.Client.CmdErrorMessages
-import Distribution.Client.CmdSdist
+import Distribution.Client.ErrorMessages
+import Distribution.Client.Main.V2.Sdist
 import Distribution.Client.ProjectOrchestration
 import Distribution.Client.TargetProblem
   ( TargetProblem (..)
   , TargetProblem'
   )
 
-import Distribution.Client.CmdInstall.ClientInstallFlags
-import Distribution.Client.CmdInstall.ClientInstallTargetSelector
+import Distribution.Client.Main.V2.Install.ClientInstallFlags
+import Distribution.Client.Main.V2.Install.ClientInstallTargetSelector
 
 import Distribution.Client.Config
   ( SavedConfig (..)
@@ -251,17 +251,17 @@ installCommand =
           "v2-install"
           ["[TARGETS] [FLAGS]"]
     , commandDescription = Just $ \_ ->
-        wrapText $
-          "Installs one or more packages. This is done by installing them "
-            ++ "in the store and symlinking/copying the executables in the directory "
-            ++ "specified by the --installdir flag (`~/.local/bin/` by default). "
-            ++ "If you want the installed executables to be available globally, "
-            ++ "make sure that the PATH environment variable contains that directory. "
-            ++ "\n\n"
-            ++ "If TARGET is a library and --lib (provisional) is used, "
-            ++ "it will be added to the global environment. "
-            ++ "When doing this, cabal will try to build a plan that includes all "
-            ++ "the previously installed libraries. This is currently not implemented."
+        wrapText
+          $ "Installs one or more packages. This is done by installing them "
+          ++ "in the store and symlinking/copying the executables in the directory "
+          ++ "specified by the --installdir flag (`~/.local/bin/` by default). "
+          ++ "If you want the installed executables to be available globally, "
+          ++ "make sure that the PATH environment variable contains that directory. "
+          ++ "\n\n"
+          ++ "If TARGET is a library and --lib (provisional) is used, "
+          ++ "it will be added to the global environment. "
+          ++ "When doing this, cabal will try to build a plan that includes all "
+          ++ "the previously installed libraries. This is currently not implemented."
     , commandNotes = Just $ \pname ->
         "Examples:\n"
           ++ "  "
@@ -424,17 +424,17 @@ installAction flags@NixStyleFlags{extraFlags = clientInstallFlags', ..} targetSt
           let xs = searchByName packageIndex (unPackageName name)
           let emptyIf True _ = []
               emptyIf False zs = zs
-          die' verbosity $
-            concat $
-              [ "Unknown package \""
+          die' verbosity
+            $ concat
+            $ [ "Unknown package \""
               , unPackageName name
               , "\". "
               ]
-                ++ emptyIf
-                  (null xs)
-                  [ "Did you mean any of the following?\n"
-                  , unlines (("- " ++) . unPackageName . fst <$> xs)
-                  ]
+            ++ emptyIf
+              (null xs)
+              [ "Did you mean any of the following?\n"
+              , unlines (("- " ++) . unPackageName . fst <$> xs)
+              ]
 
       let
         (uris, packageSpecifiers) = partitionEithers $ map woPackageSpecifiers tss
@@ -514,8 +514,8 @@ installAction flags@NixStyleFlags{extraFlags = clientInstallFlags', ..} targetSt
     distDirLayout <- establishDummyDistDirLayout verbosity config tmpDir
 
     uriSpecs <-
-      runRebuild tmpDir $
-        fetchAndReadSourcePackages
+      runRebuild tmpDir
+        $ fetchAndReadSourcePackages
           verbosity
           distDirLayout
           (projectConfigShared config)
@@ -571,8 +571,8 @@ installAction flags@NixStyleFlags{extraFlags = clientInstallFlags', ..} targetSt
           || buildSettingOnlyDownload (buildSettings baseCtx)
 
     -- Then, install!
-    unless dryRun $
-      if installLibs
+    unless dryRun
+      $ if installLibs
         then
           installLibraries
             verbosity
@@ -623,14 +623,14 @@ verifyPreconditionsOrDie verbosity configFlags = do
   -- We never try to build tests/benchmarks for remote packages.
   -- So we set them as disabled by default and error if they are explicitly
   -- enabled.
-  when (configTests configFlags == Flag True) $
-    die' verbosity $
-      "--enable-tests was specified, but tests can't "
-        ++ "be enabled in a remote package"
-  when (configBenchmarks configFlags == Flag True) $
-    die' verbosity $
-      "--enable-benchmarks was specified, but benchmarks can't "
-        ++ "be enabled in a remote package"
+  when (configTests configFlags == Flag True)
+    $ die' verbosity
+    $ "--enable-tests was specified, but tests can't "
+    ++ "be enabled in a remote package"
+  when (configBenchmarks configFlags == Flag True)
+    $ die' verbosity
+    $ "--enable-benchmarks was specified, but benchmarks can't "
+    ++ "be enabled in a remote package"
 
 getClientInstallFlags :: Verbosity -> GlobalFlags -> ClientInstallFlags -> IO ClientInstallFlags
 getClientInstallFlags verbosity globalFlags existingClientInstallFlags = do
@@ -733,13 +733,14 @@ partitionToKnownTargetsAndHackagePackages verbosity pkgDb elaboratedPlan targetS
           case searchByName (packageIndex pkgDb) (unPackageName hn) of
             [] -> return ()
             xs ->
-              die' verbosity . concat $
-                [ "Unknown package \""
-                , unPackageName hn
-                , "\". "
-                , "Did you mean any of the following?\n"
-                , unlines (("- " ++) . unPackageName . fst <$> xs)
-                ]
+              die' verbosity
+                . concat
+                $ [ "Unknown package \""
+                  , unPackageName hn
+                  , "\". "
+                  , "Did you mean any of the following?\n"
+                  , unlines (("- " ++) . unPackageName . fst <$> xs)
+                  ]
         _ -> return ()
 
       when (not . null $ errs') $ reportBuildTargetProblems verbosity errs'
@@ -755,8 +756,8 @@ partitionToKnownTargetsAndHackagePackages verbosity pkgDb elaboratedPlan targetS
       -- This can't fail, because all of the errors are
       -- removed (or we've given up).
       targets <-
-        either (reportBuildTargetProblems verbosity) return $
-          resolveTargets
+        either (reportBuildTargetProblems verbosity) return
+          $ resolveTargets
             selectPackageTargets
             selectComponentTarget
             elaboratedPlan
@@ -775,8 +776,8 @@ constructProjectBuildContext verbosity baseCtx targetSelectors = do
   runProjectPreBuildPhase verbosity baseCtx $ \elaboratedPlan -> do
     -- Interpret the targets on the command line as build targets
     targets <-
-      either (reportBuildTargetProblems verbosity) return $
-        resolveTargets
+      either (reportBuildTargetProblems verbosity) return
+        $ resolveTargets
           selectPackageTargets
           selectComponentTarget
           elaboratedPlan
@@ -788,8 +789,8 @@ constructProjectBuildContext verbosity baseCtx targetSelectors = do
     prunedElaboratedPlan <-
       if buildSettingOnlyDeps (buildSettings baseCtx)
         then
-          either (reportCannotPruneDependencies verbosity) return $
-            pruneInstallPlanToDependencies
+          either (reportCannotPruneDependencies verbosity) return
+            $ pruneInstallPlanToDependencies
               (Map.keysSet targets)
               prunedToTargetsElaboratedPlan
         else return prunedToTargetsElaboratedPlan
@@ -839,13 +840,14 @@ installExes
     installdir <-
       fromFlagOrDefault
         (warn verbosity installdirUnknown >> pure installPath)
-        $ pure <$> cinstInstalldir clientInstallFlags
+        $ pure
+        <$> cinstInstalldir clientInstallFlags
     createDirectoryIfMissingVerbose verbosity True installdir
     warnIfNoExes verbosity buildCtx
 
     installMethod <-
-      flagElim defaultMethod return $
-        cinstInstallMethod clientInstallFlags
+      flagElim defaultMethod return
+        $ cinstInstallMethod clientInstallFlags
 
     let
       doInstall =
@@ -861,8 +863,8 @@ installExes
       traverse_ doInstall $ Map.toList $ targetsMap buildCtx
     where
       overwritePolicy =
-        fromFlagOrDefault NeverOverwrite $
-          cinstOverwritePolicy clientInstallFlags
+        fromFlagOrDefault NeverOverwrite
+          $ cinstOverwritePolicy clientInstallFlags
       isWindows = buildOS == Windows
 
       -- This is in IO as we will make environment checks,
@@ -913,18 +915,18 @@ installLibraries
           baseEntries =
             GhcEnvFileClearPackageDbStack : fmap GhcEnvFilePackageDb packageDbs
           pkgEntries =
-            ordNub $
-              globalEntries
-                ++ envEntries
-                ++ entriesForLibraryComponents (targetsMap buildCtx)
+            ordNub
+              $ globalEntries
+              ++ envEntries
+              ++ entriesForLibraryComponents (targetsMap buildCtx)
           contents' = renderGhcEnvironmentFile (baseEntries ++ pkgEntries)
         createDirectoryIfMissing True (takeDirectory envFile)
         writeFileAtomic envFile (BS.pack contents')
       else
-        warn verbosity $
-          "The current compiler doesn't support safely installing libraries, "
-            ++ "so only executables will be available. (Library installation is "
-            ++ "supported on GHC 8.0+ only)"
+        warn verbosity
+          $ "The current compiler doesn't support safely installing libraries, "
+          ++ "so only executables will be available. (Library installation is "
+          ++ "supported on GHC 8.0+ only)"
 
 -- See ticket #8894. This is safe to include any nonreinstallable boot pkg,
 -- but the particular package users will always expect to be in scope without specific installation
@@ -934,23 +936,23 @@ globalPackages = mkPackageName <$> ["base"]
 
 warnIfNoExes :: Verbosity -> ProjectBuildContext -> IO ()
 warnIfNoExes verbosity buildCtx =
-  when noExes $
-    warn verbosity $
-      "\n"
-        <> "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n"
-        <> "@ WARNING: Installation might not be completed as desired! @\n"
-        <> "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n"
-        <> "The command \"cabal install [TARGETS]\" doesn't expose libraries.\n"
-        <> "* You might have wanted to add them as dependencies to your package."
-        <> " In this case add \""
-        <> intercalate ", " (showTargetSelector <$> selectors)
-        <> "\" to the build-depends field(s) of your package's .cabal file.\n"
-        <> "* You might have wanted to add them to a GHC environment. In this case"
-        <> " use \"cabal install --lib "
-        <> unwords (showTargetSelector <$> selectors)
-        <> "\". "
-        <> " The \"--lib\" flag is provisional: see"
-        <> " https://github.com/haskell/cabal/issues/6481 for more information."
+  when noExes
+    $ warn verbosity
+    $ "\n"
+    <> "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n"
+    <> "@ WARNING: Installation might not be completed as desired! @\n"
+    <> "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n"
+    <> "The command \"cabal install [TARGETS]\" doesn't expose libraries.\n"
+    <> "* You might have wanted to add them as dependencies to your package."
+    <> " In this case add \""
+    <> intercalate ", " (showTargetSelector <$> selectors)
+    <> "\" to the build-depends field(s) of your package's .cabal file.\n"
+    <> "* You might have wanted to add them to a GHC environment. In this case"
+    <> " use \"cabal install --lib "
+    <> unwords (showTargetSelector <$> selectors)
+    <> "\". "
+    <> " The \"--lib\" flag is provisional: see"
+    <> " https://github.com/haskell/cabal/issues/6481 for more information."
   where
     targets = concat $ Map.elems $ targetsMap buildCtx
     components = fst <$> targets

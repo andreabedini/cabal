@@ -5,7 +5,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Distribution.Client.CmdSdist
+module Distribution.Client.Main.V2.Sdist
   ( sdistCommand
   , sdistAction
   , packageToSdist
@@ -15,7 +15,7 @@ module Distribution.Client.CmdSdist
 import Distribution.Client.Compat.Prelude
 import Prelude ()
 
-import Distribution.Client.CmdErrorMessages
+import Distribution.Client.ErrorMessages
   ( Plural (..)
   , renderComponentKind
   )

@@ -1,4 +1,4 @@
-module Distribution.Client.CmdHaddockProject
+module Distribution.Client.Main.V2.HaddockProject
   ( haddockProjectCommand
   , haddockProjectAction
   ) where
@@ -6,8 +6,8 @@ module Distribution.Client.CmdHaddockProject
 import Distribution.Client.Compat.Prelude hiding (get)
 import Prelude ()
 
-import qualified Distribution.Client.CmdBuild as CmdBuild
-import qualified Distribution.Client.CmdHaddock as CmdHaddock
+import qualified Distribution.Client.Main.V2.Build as CmdBuild
+import qualified Distribution.Client.Main.V2.Haddock as CmdHaddock
 
 import Distribution.Client.DistDirLayout
   ( CabalDirLayout (..)
@@ -180,8 +180,8 @@ haddockProjectAction flags _extraArgs globalFlags = do
           -- Interpret the targets on the command line as build targets
           -- (as opposed to say repl or haddock targets).
           targets <-
-            either reportTargetProblems return $
-              resolveTargets
+            either reportTargetProblems return
+              $ resolveTargets
                 selectPackageTargets
                 selectComponentTargetBasic
                 elaboratedPlan
@@ -230,8 +230,8 @@ haddockProjectAction flags _extraArgs globalFlags = do
       -- Issue #8958.
       --
 
-      when localStyle $
-        CmdBuild.buildAction
+      when localStyle
+        $ CmdBuild.buildAction
           (commandDefaultFlags CmdBuild.buildCommand)
           ["all"]
           globalFlags
@@ -392,8 +392,8 @@ haddockProjectAction flags _extraArgs globalFlags = do
       -> [AvailableTarget k]
       -> Either (TargetProblem ()) [k]
     selectPackageTargets _ ts =
-      Right $
-        mapMaybe
+      Right
+        $ mapMaybe
           ( \t -> case availableTargetStatus t of
               TargetBuildable k _
                 | availableTargetLocalToProject t ->

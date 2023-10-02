@@ -1,7 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 
 -- | cabal-install CLI command: build
-module Distribution.Client.CmdBuild
+module Distribution.Client.Main.V2.Build
   ( -- * The @build@ CLI and action
     buildCommand
   , buildAction
@@ -16,7 +16,7 @@ module Distribution.Client.CmdBuild
 import Distribution.Client.Compat.Prelude
 import Prelude ()
 
-import Distribution.Client.CmdErrorMessages
+import Distribution.Client.ErrorMessages
 import Distribution.Client.ProjectFlags
   ( removeIgnoreProjectOption
   )

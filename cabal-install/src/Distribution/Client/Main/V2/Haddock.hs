@@ -1,7 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 
 -- | cabal-install CLI command: haddock
-module Distribution.Client.CmdHaddock
+module Distribution.Client.Main.V2.Haddock
   ( -- * The @haddock@ CLI and action
     haddockCommand
   , haddockAction
@@ -16,7 +16,7 @@ import Distribution.Client.Compat.Prelude
 import System.Directory (makeAbsolute)
 import Prelude ()
 
-import Distribution.Client.CmdErrorMessages
+import Distribution.Client.ErrorMessages
 import Distribution.Client.NixStyleOptions
   ( NixStyleFlags (..)
   , defaultNixStyleFlags
@@ -79,20 +79,20 @@ haddockCommand =
     , commandSynopsis = "Build Haddock documentation."
     , commandUsage = usageAlternatives "v2-haddock" ["[FLAGS] TARGET"]
     , commandDescription = Just $ \_ ->
-        wrapText $
-          "Build Haddock documentation for the specified packages within the "
-            ++ "project.\n\n"
-            ++ "Any package in the project can be specified. If no package is "
-            ++ "specified, the default is to build the documentation for the package "
-            ++ "in the current directory. The default behaviour is to build "
-            ++ "documentation for the exposed modules of the library component (if "
-            ++ "any). This can be changed with the '--internal', '--executables', "
-            ++ "'--tests', '--benchmarks' or '--all' flags.\n\n"
-            ++ "Currently, documentation for dependencies is NOT built. This "
-            ++ "behavior may change in future.\n\n"
-            ++ "Additional configuration flags can be specified on the command line "
-            ++ "and these extend the project configuration from the 'cabal.project', "
-            ++ "'cabal.project.local' and other files."
+        wrapText
+          $ "Build Haddock documentation for the specified packages within the "
+          ++ "project.\n\n"
+          ++ "Any package in the project can be specified. If no package is "
+          ++ "specified, the default is to build the documentation for the package "
+          ++ "in the current directory. The default behaviour is to build "
+          ++ "documentation for the exposed modules of the library component (if "
+          ++ "any). This can be changed with the '--internal', '--executables', "
+          ++ "'--tests', '--benchmarks' or '--all' flags.\n\n"
+          ++ "Currently, documentation for dependencies is NOT built. This "
+          ++ "behavior may change in future.\n\n"
+          ++ "Additional configuration flags can be specified on the command line "
+          ++ "and these extend the project configuration from the 'cabal.project', "
+          ++ "'cabal.project.local' and other files."
     , commandNotes = Just $ \pname ->
         "Examples:\n"
           ++ "  "
@@ -166,16 +166,16 @@ haddockAction relFlags targetStrings globalFlags = do
 
   buildCtx <-
     runProjectPreBuildPhase verbosity baseCtx $ \elaboratedPlan -> do
-      when (buildSettingOnlyDeps (buildSettings baseCtx)) $
-        die'
+      when (buildSettingOnlyDeps (buildSettings baseCtx))
+        $ die'
           verbosity
           "The haddock command does not support '--only-dependencies'."
 
       -- When we interpret the targets on the command line, interpret them as
       -- haddock targets
       targets <-
-        either (reportBuildDocumentationTargetProblems verbosity) return $
-          resolveTargets
+        either (reportBuildDocumentationTargetProblems verbosity) return
+          $ resolveTargets
             (selectPackageTargets haddockFlags)
             selectComponentTarget
             elaboratedPlan
@@ -278,8 +278,8 @@ reportBuildDocumentationTargetProblems :: Verbosity -> [TargetProblem'] -> IO a
 reportBuildDocumentationTargetProblems verbosity problems =
   case problems of
     [TargetProblemNoneEnabled _ _] -> do
-      notice verbosity $
-        unwords
+      notice verbosity
+        $ unwords
           [ "No documentation was generated as this package does not contain a library."
           , "Perhaps you want to use the --haddock-all flag, or one or more of the"
           , "--haddock-executables, --haddock-tests, --haddock-benchmarks or"

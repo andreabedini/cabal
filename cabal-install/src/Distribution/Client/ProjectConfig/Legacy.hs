@@ -46,7 +46,7 @@ import Distribution.Client.Config
   , remoteRepoFields
   )
 
-import Distribution.Client.CmdInstall.ClientInstallFlags
+import Distribution.Client.Main.V2.Install.ClientInstallFlags
   ( ClientInstallFlags (..)
   , clientInstallOptions
   , defaultClientInstallFlags
@@ -292,8 +292,8 @@ parseProjectSkeleton cacheDir httpTransport verbosity seenImports source bs = (s
         _ <- downloadURI httpTransport verbosity uri fp
         BS.readFile fp
       Nothing ->
-        BS.readFile $
-          if isAbsolute pci then pci else takeDirectory source </> pci
+        BS.readFile
+          $ if isAbsolute pci then pci else takeDirectory source </> pci
 
     modifiesCompiler :: ProjectConfig -> Bool
     modifiesCompiler pc = isSet projectConfigHcFlavor || isSet projectConfigHcPath || isSet projectConfigHcPkg
@@ -1189,13 +1189,13 @@ parseLegacyProjectConfig source bs = parseLegacyProjectConfigFields source =<< P
 
 showLegacyProjectConfig :: LegacyProjectConfig -> String
 showLegacyProjectConfig config =
-  Disp.render $
-    showConfig
+  Disp.render
+    $ showConfig
       (legacyProjectConfigFieldDescrs constraintSrc)
       legacyPackageConfigSectionDescrs
       legacyPackageConfigFGSectionDescrs
       config
-      $+$ Disp.text ""
+    $+$ Disp.text ""
   where
     -- Note: ConstraintSource is unused when pretty-printing. We fake
     -- it here to avoid having to pass it on call-sites. It's not great
@@ -1279,8 +1279,10 @@ renderPackageLocationToken s
   where
     needsQuoting =
       not (ok 0 s)
-        || s == "." -- . on its own on a line has special meaning
-        || take 2 s == "--" -- on its own line is comment syntax
+        || s
+        == "." -- . on its own on a line has special meaning
+        || take 2 s
+        == "--" -- on its own line is comment syntax
         -- TODO: [code cleanup] these "." and "--" escaping issues
         -- ought to be dealt with systematically in ParseUtils.
     ok :: Int -> String -> Bool
@@ -1661,35 +1663,37 @@ legacyPackageConfigFieldDescrs =
                 )
 
     overrideFieldDebugInfo =
-      liftField configDebugInfo (\v flags -> flags{configDebugInfo = v}) $
-        let name = "debug-info"
-         in FieldDescr
-              name
-              ( \f -> case f of
-                  Flag NoDebugInfo -> Disp.text "False"
-                  Flag MinimalDebugInfo -> Disp.text "1"
-                  Flag NormalDebugInfo -> Disp.text "True"
-                  Flag MaximalDebugInfo -> Disp.text "3"
-                  _ -> Disp.empty
-              )
-              ( \line str _ -> case () of
-                  _
-                    | str == "False" -> ParseOk [] (Flag NoDebugInfo)
-                    | str == "True" -> ParseOk [] (Flag NormalDebugInfo)
-                    | str == "0" -> ParseOk [] (Flag NoDebugInfo)
-                    | str == "1" -> ParseOk [] (Flag MinimalDebugInfo)
-                    | str == "2" -> ParseOk [] (Flag NormalDebugInfo)
-                    | str == "3" -> ParseOk [] (Flag MaximalDebugInfo)
-                    | lstr == "false" -> ParseOk [caseWarning name] (Flag NoDebugInfo)
-                    | lstr == "true" -> ParseOk [caseWarning name] (Flag NormalDebugInfo)
-                    | otherwise -> ParseFailed (NoParse name line)
-                    where
-                      lstr = lowercase str
-              )
+      liftField configDebugInfo (\v flags -> flags{configDebugInfo = v})
+        $ let name = "debug-info"
+           in FieldDescr
+                name
+                ( \f -> case f of
+                    Flag NoDebugInfo -> Disp.text "False"
+                    Flag MinimalDebugInfo -> Disp.text "1"
+                    Flag NormalDebugInfo -> Disp.text "True"
+                    Flag MaximalDebugInfo -> Disp.text "3"
+                    _ -> Disp.empty
+                )
+                ( \line str _ -> case () of
+                    _
+                      | str == "False" -> ParseOk [] (Flag NoDebugInfo)
+                      | str == "True" -> ParseOk [] (Flag NormalDebugInfo)
+                      | str == "0" -> ParseOk [] (Flag NoDebugInfo)
+                      | str == "1" -> ParseOk [] (Flag MinimalDebugInfo)
+                      | str == "2" -> ParseOk [] (Flag NormalDebugInfo)
+                      | str == "3" -> ParseOk [] (Flag MaximalDebugInfo)
+                      | lstr == "false" -> ParseOk [caseWarning name] (Flag NoDebugInfo)
+                      | lstr == "true" -> ParseOk [caseWarning name] (Flag NormalDebugInfo)
+                      | otherwise -> ParseFailed (NoParse name line)
+                      where
+                        lstr = lowercase str
+                )
 
     caseWarning name =
-      PWarning $
-        "The '" ++ name ++ "' field is case sensitive, use 'True' or 'False'."
+      PWarning
+        $ "The '"
+        ++ name
+        ++ "' field is case sensitive, use 'True' or 'False'."
 
     prefixTest name
       | "test-" `isPrefixOf` name = name
@@ -1742,8 +1746,8 @@ packageRepoSectionDescr =
     , fgSectionGet = map (\x -> ("", x)) . legacyPackagesRepo
     , fgSectionSet =
         \lineno unused pkgrepo projconf -> do
-          unless (null unused) $
-            syntaxError lineno "the section 'source-repository-package' takes no arguments"
+          unless (null unused)
+            $ syntaxError lineno "the section 'source-repository-package' takes no arguments"
           return
             projconf
               { legacyPackagesRepo = legacyPackagesRepo projconf ++ [pkgrepo]
@@ -1803,14 +1807,14 @@ packageSpecificOptionsSectionDescr =
             pkgname <- case simpleParsec pkgnamestr of
               Just pkgname -> return pkgname
               Nothing ->
-                syntaxError lineno $
-                  "a 'package' section requires a package name "
-                    ++ "as an argument"
+                syntaxError lineno
+                  $ "a 'package' section requires a package name "
+                  ++ "as an argument"
             return
               projconf
                 { legacySpecificConfig =
-                    MapMappend $
-                      Map.insertWith
+                    MapMappend
+                      $ Map.insertWith
                         mappend
                         pkgname
                         pkgconf
@@ -1824,8 +1828,8 @@ programOptionsFieldDescrs
   -> ([(String, [String])] -> a -> a)
   -> [FieldDescr a]
 programOptionsFieldDescrs get' set =
-  commandOptionsToFields $
-    programDbOptions
+  commandOptionsToFields
+    $ programDbOptions
       defaultProgramDb
       ParseArgs
       get'
@@ -1845,8 +1849,8 @@ programOptionsSectionDescr =
           . legacyConfigureFlags
     , sectionSet =
         \lineno unused confflags pkgconf -> do
-          unless (null unused) $
-            syntaxError lineno "the section 'program-options' takes no arguments"
+          unless (null unused)
+            $ syntaxError lineno "the section 'program-options' takes no arguments"
           return
             pkgconf
               { legacyConfigureFlags = legacyConfigureFlags pkgconf <> confflags
@@ -1856,8 +1860,8 @@ programOptionsSectionDescr =
 
 programLocationsFieldDescrs :: [FieldDescr ConfigFlags]
 programLocationsFieldDescrs =
-  commandOptionsToFields $
-    programDbPaths'
+  commandOptionsToFields
+    $ programDbPaths'
       (++ "-location")
       defaultProgramDb
       ParseArgs
@@ -1875,8 +1879,8 @@ programLocationsSectionDescr =
           . legacyConfigureFlags
     , sectionSet =
         \lineno unused confflags pkgconf -> do
-          unless (null unused) $
-            syntaxError lineno "the section 'program-locations' takes no arguments"
+          unless (null unused)
+            $ syntaxError lineno "the section 'program-locations' takes no arguments"
           return
             pkgconf
               { legacyConfigureFlags = legacyConfigureFlags pkgconf <> confflags

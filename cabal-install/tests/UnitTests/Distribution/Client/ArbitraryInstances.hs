@@ -31,7 +31,7 @@ import Distribution.Simple.Setup
 import Distribution.Types.Flag (mkFlagAssignment)
 
 import Distribution.Client.BuildReports.Types (BuildReport, InstallOutcome, Outcome, ReportLevel (..))
-import Distribution.Client.CmdInstall.ClientInstallFlags (InstallMethod)
+import Distribution.Client.Main.V2.Install.ClientInstallFlags (InstallMethod)
 import Distribution.Client.Glob (FilePathGlob (..), FilePathGlobRel (..), FilePathRoot (..), GlobPiece (..))
 import Distribution.Client.IndexUtils.ActiveRepos (ActiveRepoEntry (..), ActiveRepos (..), CombineStrategy (..))
 import Distribution.Client.IndexUtils.IndexState (RepoIndexState (..), TotalIndexState, makeTotalIndexState)

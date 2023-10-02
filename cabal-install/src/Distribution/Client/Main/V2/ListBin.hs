@@ -4,7 +4,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 
-module Distribution.Client.CmdListBin
+module Distribution.Client.Main.V2.ListBin
   ( listbinCommand
   , listbinAction
 
@@ -20,7 +20,7 @@ module Distribution.Client.CmdListBin
 import Distribution.Client.Compat.Prelude
 import Prelude ()
 
-import Distribution.Client.CmdErrorMessages
+import Distribution.Client.ErrorMessages
   ( plural
   , renderListCommaAnd
   , renderTargetProblem
@@ -108,8 +108,8 @@ listbinAction flags@NixStyleFlags{..} args globalFlags = do
         -- Interpret the targets on the command line as build targets
         -- (as opposed to say repl or haddock targets).
         targets <-
-          either (reportTargetProblems verbosity) return $
-            resolveTargets
+          either (reportTargetProblems verbosity) return
+            $ resolveTargets
               selectPackageTargets
               selectComponentTarget
               elaboratedPlan
@@ -150,8 +150,8 @@ listbinAction flags@NixStyleFlags{..} args globalFlags = do
     binfiles <- case Map.lookup selectedUnitId $ IP.toMap (elaboratedPlanOriginal buildCtx) of
       Nothing -> dieWithException verbosity NoOrMultipleTargetsGiven
       Just gpp ->
-        return $
-          IP.foldPlanPackage
+        return
+          $ IP.foldPlanPackage
             (const []) -- IPI don't have executables
             (elaboratedPackage (distDirLayout baseCtx) (elaboratedShared buildCtx) selectedComponent)
             gpp
@@ -186,8 +186,8 @@ listbinAction flags@NixStyleFlags{..} args globalFlags = do
       ElabPackage pkg ->
         [ bin
         | (c, _) <-
-            CD.toList $
-              CD.zip
+            CD.toList
+              $ CD.zip
                 (pkgLibDependencies pkg)
                 (pkgExeDependencies pkg)
         , bin <- bin_file c
@@ -334,16 +334,16 @@ noComponentsProblem = CustomTargetProblem . TargetProblemNoRightComps
 
 matchesMultipleProblem :: TargetSelector -> [AvailableTarget ()] -> ListBinTargetProblem
 matchesMultipleProblem selector targets =
-  CustomTargetProblem $
-    TargetProblemMatchesMultiple selector targets
+  CustomTargetProblem
+    $ TargetProblemMatchesMultiple selector targets
 
 multipleTargetsProblem :: TargetsMap -> TargetProblem ListBinProblem
 multipleTargetsProblem = CustomTargetProblem . TargetProblemMultipleTargets
 
 componentNotRightKindProblem :: PackageId -> ComponentName -> TargetProblem ListBinProblem
 componentNotRightKindProblem pkgid name =
-  CustomTargetProblem $
-    TargetProblemComponentNotRightKind pkgid name
+  CustomTargetProblem
+    $ TargetProblemComponentNotRightKind pkgid name
 
 isSubComponentProblem
   :: PackageId
@@ -351,8 +351,8 @@ isSubComponentProblem
   -> SubComponentTarget
   -> TargetProblem ListBinProblem
 isSubComponentProblem pkgid name subcomponent =
-  CustomTargetProblem $
-    TargetProblemIsSubComponent pkgid name subcomponent
+  CustomTargetProblem
+    $ TargetProblemIsSubComponent pkgid name subcomponent
 
 reportTargetProblems :: Verbosity -> [ListBinTargetProblem] -> IO a
 reportTargetProblems verbosity =

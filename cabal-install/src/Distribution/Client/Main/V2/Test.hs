@@ -1,7 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 
 -- | cabal-install CLI command: test
-module Distribution.Client.CmdTest
+module Distribution.Client.Main.V2.Test
   ( -- * The @test@ CLI and action
     testCommand
   , testAction
@@ -17,7 +17,7 @@ module Distribution.Client.CmdTest
 import Distribution.Client.Compat.Prelude
 import Prelude ()
 
-import Distribution.Client.CmdErrorMessages
+import Distribution.Client.ErrorMessages
   ( plural
   , renderTargetProblem
   , renderTargetProblemNoTargets
@@ -77,19 +77,19 @@ testCommand =
     , commandSynopsis = "Run test-suites."
     , commandUsage = usageAlternatives "v2-test" ["[TARGETS] [FLAGS]"]
     , commandDescription = Just $ \_ ->
-        wrapText $
-          "Runs the specified test-suites, first ensuring they are up to "
-            ++ "date.\n\n"
-            ++ "Any test-suite in any package in the project can be specified. "
-            ++ "A package can be specified in which case all the test-suites in the "
-            ++ "package are run. The default is to run all the test-suites in the "
-            ++ "package in the current directory.\n\n"
-            ++ "Dependencies are built or rebuilt as necessary. Additional "
-            ++ "configuration flags can be specified on the command line and these "
-            ++ "extend the project configuration from the 'cabal.project', "
-            ++ "'cabal.project.local' and other files.\n\n"
-            ++ "To pass command-line arguments to a test suite, see the "
-            ++ "v2-run command."
+        wrapText
+          $ "Runs the specified test-suites, first ensuring they are up to "
+          ++ "date.\n\n"
+          ++ "Any test-suite in any package in the project can be specified. "
+          ++ "A package can be specified in which case all the test-suites in the "
+          ++ "package are run. The default is to run all the test-suites in the "
+          ++ "package in the current directory.\n\n"
+          ++ "Dependencies are built or rebuilt as necessary. Additional "
+          ++ "configuration flags can be specified on the command line and these "
+          ++ "extend the project configuration from the 'cabal.project', "
+          ++ "'cabal.project.local' and other files.\n\n"
+          ++ "To pass command-line arguments to a test suite, see the "
+          ++ "v2-run command."
     , commandNotes = Just $ \pname ->
         "Examples:\n"
           ++ "  "
@@ -131,19 +131,19 @@ testAction flags@NixStyleFlags{..} targetStrings globalFlags = do
 
   buildCtx <-
     runProjectPreBuildPhase verbosity baseCtx $ \elaboratedPlan -> do
-      when (buildSettingOnlyDeps (buildSettings baseCtx)) $
-        dieWithException verbosity TestCommandDoesn'tSupport
+      when (buildSettingOnlyDeps (buildSettings baseCtx))
+        $ dieWithException verbosity TestCommandDoesn'tSupport
 
       fullArgs <- getFullArgs
-      when ("+RTS" `elem` fullArgs) $
-        warn verbosity $
-          giveRTSWarning "test"
+      when ("+RTS" `elem` fullArgs)
+        $ warn verbosity
+        $ giveRTSWarning "test"
 
       -- Interpret the targets on the command line as test targets
       -- (as opposed to say build or haddock targets).
       targets <-
-        either (reportTargetProblems verbosity failWhenNoTestSuites) return $
-          resolveTargets
+        either (reportTargetProblems verbosity failWhenNoTestSuites) return
+          $ resolveTargets
             selectPackageTargets
             selectComponentTarget
             elaboratedPlan
@@ -211,8 +211,8 @@ selectComponentTarget
   -> Either TestTargetProblem k
 selectComponentTarget subtarget@WholeComponent t
   | CTestName _ <- availableTargetComponentName t =
-      either Left return $
-        selectComponentTargetBasic subtarget t
+      either Left return
+        $ selectComponentTargetBasic subtarget t
   | otherwise =
       Left
         ( notTestProblem
@@ -252,8 +252,8 @@ isSubComponentProblem
   -> SubComponentTarget
   -> TargetProblem TestProblem
 isSubComponentProblem pkgid name subcomponent =
-  CustomTargetProblem $
-    TargetProblemIsSubComponent pkgid name subcomponent
+  CustomTargetProblem
+    $ TargetProblemIsSubComponent pkgid name subcomponent
 
 reportTargetProblems :: Verbosity -> Flag Bool -> [TestTargetProblem] -> IO a
 reportTargetProblems verbosity failWhenNoTestSuites problems =

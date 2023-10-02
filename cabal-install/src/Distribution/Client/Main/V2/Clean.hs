@@ -1,6 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 
-module Distribution.Client.CmdClean (cleanCommand, cleanAction) where
+module Distribution.Client.Main.V2.Clean (cleanCommand, cleanAction) where
 
 import Distribution.Client.Compat.Prelude
 import Prelude ()

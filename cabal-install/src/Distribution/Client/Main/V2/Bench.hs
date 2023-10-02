@@ -1,7 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 
 -- | cabal-install CLI command: bench
-module Distribution.Client.CmdBench
+module Distribution.Client.Main.V2.Bench
   ( -- * The @bench@ CLI and action
     benchCommand
   , benchAction
@@ -17,7 +17,7 @@ module Distribution.Client.CmdBench
 import Distribution.Client.Compat.Prelude
 import Prelude ()
 
-import Distribution.Client.CmdErrorMessages
+import Distribution.Client.ErrorMessages
   ( plural
   , renderTargetProblem
   , renderTargetProblemNoTargets
@@ -69,17 +69,17 @@ benchCommand =
     , commandSynopsis = "Run benchmarks."
     , commandUsage = usageAlternatives "v2-bench" ["[TARGETS] [FLAGS]"]
     , commandDescription = Just $ \_ ->
-        wrapText $
-          "Runs the specified benchmarks, first ensuring they are up to "
-            ++ "date.\n\n"
-            ++ "Any benchmark in any package in the project can be specified. "
-            ++ "A package can be specified in which case all the benchmarks in the "
-            ++ "package are run. The default is to run all the benchmarks in the "
-            ++ "package in the current directory.\n\n"
-            ++ "Dependencies are built or rebuilt as necessary. Additional "
-            ++ "configuration flags can be specified on the command line and these "
-            ++ "extend the project configuration from the 'cabal.project', "
-            ++ "'cabal.project.local' and other files."
+        wrapText
+          $ "Runs the specified benchmarks, first ensuring they are up to "
+          ++ "date.\n\n"
+          ++ "Any benchmark in any package in the project can be specified. "
+          ++ "A package can be specified in which case all the benchmarks in the "
+          ++ "package are run. The default is to run all the benchmarks in the "
+          ++ "package in the current directory.\n\n"
+          ++ "Dependencies are built or rebuilt as necessary. Additional "
+          ++ "configuration flags can be specified on the command line and these "
+          ++ "extend the project configuration from the 'cabal.project', "
+          ++ "'cabal.project.local' and other files."
     , commandNotes = Just $ \pname ->
         "Examples:\n"
           ++ "  "
@@ -118,22 +118,22 @@ benchAction flags@NixStyleFlags{..} targetStrings globalFlags = do
 
   buildCtx <-
     runProjectPreBuildPhase verbosity baseCtx $ \elaboratedPlan -> do
-      when (buildSettingOnlyDeps (buildSettings baseCtx)) $
-        die' verbosity $
-          "The bench command does not support '--only-dependencies'. "
-            ++ "You may wish to use 'build --only-dependencies' and then "
-            ++ "use 'bench'."
+      when (buildSettingOnlyDeps (buildSettings baseCtx))
+        $ die' verbosity
+        $ "The bench command does not support '--only-dependencies'. "
+        ++ "You may wish to use 'build --only-dependencies' and then "
+        ++ "use 'bench'."
 
       fullArgs <- getFullArgs
-      when ("+RTS" `elem` fullArgs) $
-        warn verbosity $
-          giveRTSWarning "bench"
+      when ("+RTS" `elem` fullArgs)
+        $ warn verbosity
+        $ giveRTSWarning "bench"
 
       -- Interpret the targets on the command line as bench targets
       -- (as opposed to say build or haddock targets).
       targets <-
-        either (reportTargetProblems verbosity) return $
-          resolveTargets
+        either (reportTargetProblems verbosity) return
+          $ resolveTargets
             selectPackageTargets
             selectComponentTarget
             elaboratedPlan
@@ -237,8 +237,8 @@ noBenchmarksProblem = CustomTargetProblem . TargetProblemNoBenchmarks
 
 componentNotBenchmarkProblem :: PackageId -> ComponentName -> TargetProblem BenchProblem
 componentNotBenchmarkProblem pkgid name =
-  CustomTargetProblem $
-    TargetProblemComponentNotBenchmark pkgid name
+  CustomTargetProblem
+    $ TargetProblemComponentNotBenchmark pkgid name
 
 isSubComponentProblem
   :: PackageId
@@ -246,8 +246,8 @@ isSubComponentProblem
   -> SubComponentTarget
   -> TargetProblem BenchProblem
 isSubComponentProblem pkgid name subcomponent =
-  CustomTargetProblem $
-    TargetProblemIsSubComponent pkgid name subcomponent
+  CustomTargetProblem
+    $ TargetProblemIsSubComponent pkgid name subcomponent
 
 reportTargetProblems :: Verbosity -> [BenchTargetProblem] -> IO a
 reportTargetProblems verbosity =

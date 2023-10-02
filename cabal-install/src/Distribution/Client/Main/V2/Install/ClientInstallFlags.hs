@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 
-module Distribution.Client.CmdInstall.ClientInstallFlags
+module Distribution.Client.Main.V2.Install.ClientInstallFlags
   ( InstallMethod (..)
   , ClientInstallFlags (..)
   , defaultClientInstallFlags

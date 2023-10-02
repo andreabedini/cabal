@@ -2,7 +2,7 @@
 
 module UnitTests.Distribution.Client.Configure (tests) where
 
-import Distribution.Client.CmdConfigure
+import Distribution.Client.Main.V2.Configure
 
 import Control.Monad
 import qualified Data.Map as Map

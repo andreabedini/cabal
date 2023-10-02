@@ -76,26 +76,7 @@ library
         Distribution.Client.BuildReports.Types
         Distribution.Client.BuildReports.Upload
         Distribution.Client.Check
-        Distribution.Client.CmdBench
-        Distribution.Client.CmdBuild
-        Distribution.Client.CmdClean
-        Distribution.Client.CmdConfigure
-        Distribution.Client.CmdErrorMessages
-        Distribution.Client.CmdExec
-        Distribution.Client.CmdFreeze
-        Distribution.Client.CmdHaddock
-        Distribution.Client.CmdHaddockProject
-        Distribution.Client.CmdInstall
-        Distribution.Client.CmdInstall.ClientInstallFlags
-        Distribution.Client.CmdInstall.ClientInstallTargetSelector
-        Distribution.Client.CmdLegacy
-        Distribution.Client.CmdListBin
-        Distribution.Client.CmdOutdated
-        Distribution.Client.CmdRepl
-        Distribution.Client.CmdRun
-        Distribution.Client.CmdSdist
-        Distribution.Client.CmdTest
-        Distribution.Client.CmdUpdate
+        Distribution.Client.ErrorMessages
         Distribution.Client.Compat.Directory
         Distribution.Client.Compat.ExecutablePath
         Distribution.Client.Compat.Orphans
@@ -142,6 +123,27 @@ library
         Distribution.Client.JobControl
         Distribution.Client.List
         Distribution.Client.Main
+        Distribution.Client.Main.Commands
+        Distribution.Client.Main.V2
+        Distribution.Client.Main.V2.Bench
+        Distribution.Client.Main.V2.Build
+        Distribution.Client.Main.V2.Clean
+        Distribution.Client.Main.V2.Configure
+        Distribution.Client.Main.V2.Exec
+        Distribution.Client.Main.V2.Freeze
+        Distribution.Client.Main.V2.Haddock
+        Distribution.Client.Main.V2.HaddockProject
+        Distribution.Client.Main.V2.Install
+        Distribution.Client.Main.V2.Install.ClientInstallFlags
+        Distribution.Client.Main.V2.Install.ClientInstallTargetSelector
+        Distribution.Client.Main.V2.ListBin
+        Distribution.Client.Main.V2.Outdated
+        Distribution.Client.Main.V2.Repl
+        Distribution.Client.Main.V2.Run
+        Distribution.Client.Main.V2.Sdist
+        Distribution.Client.Main.V2.Test
+        Distribution.Client.Main.V2.Update
+        Distribution.Client.Main.Legacy
         Distribution.Client.Manpage
         Distribution.Client.ManpageFlags
         Distribution.Client.Nix

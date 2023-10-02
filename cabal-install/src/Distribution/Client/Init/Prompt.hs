@@ -93,8 +93,8 @@ promptList msg choices def modDef hasOther = do
             else " "
 
     let output =
-          concat $
-            if i < 10
+          concat
+            $ if i < 10
               then [" ", star, " ", show i, ") ", c]
               else [" ", star, show i, ") ", c]
 
@@ -127,9 +127,9 @@ promptList msg choices def modDef hasOther = do
       breakOrContinue ("promptList: " ++ input) go
 
     go = do
-      putStr $
-        mkDefPrompt "Your choice" $
-          maybe def (<$> def) modDef
+      putStr
+        $ mkDefPrompt "Your choice"
+        $ maybe def (<$> def) modDef
 
       input <- getLine
       case def of

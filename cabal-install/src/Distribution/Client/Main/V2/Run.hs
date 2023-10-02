@@ -5,7 +5,7 @@
 {-# LANGUAGE TupleSections #-}
 
 -- | cabal-install CLI command: run
-module Distribution.Client.CmdRun
+module Distribution.Client.Main.V2.Run
   ( -- * The @run@ CLI and action
     runCommand
   , runAction
@@ -22,7 +22,7 @@ module Distribution.Client.CmdRun
 import Distribution.Client.Compat.Prelude hiding (toList)
 import Prelude ()
 
-import Distribution.Client.CmdErrorMessages
+import Distribution.Client.ErrorMessages
   ( plural
   , renderListCommaAnd
   , renderListPretty
@@ -131,23 +131,23 @@ runCommand =
           "v2-run"
           ["[TARGET] [FLAGS] [-- EXECUTABLE_FLAGS]"]
     , commandDescription = Just $ \pname ->
-        wrapText $
-          "Runs the specified executable-like component (an executable, a test, "
-            ++ "or a benchmark), first ensuring it is up to date.\n\n"
-            ++ "Any executable-like component in any package in the project can be "
-            ++ "specified. A package can be specified if contains just one "
-            ++ "executable-like, preferring a single executable. The default is to "
-            ++ "use the package in the current directory if it contains just one "
-            ++ "executable-like.\n\n"
-            ++ "Extra arguments can be passed to the program, but use '--' to "
-            ++ "separate arguments for the program from arguments for "
-            ++ pname
-            ++ ". The executable is run in an environment where it can find its "
-            ++ "data files inplace in the build tree.\n\n"
-            ++ "Dependencies are built or rebuilt as necessary. Additional "
-            ++ "configuration flags can be specified on the command line and these "
-            ++ "extend the project configuration from the 'cabal.project', "
-            ++ "'cabal.project.local' and other files."
+        wrapText
+          $ "Runs the specified executable-like component (an executable, a test, "
+          ++ "or a benchmark), first ensuring it is up to date.\n\n"
+          ++ "Any executable-like component in any package in the project can be "
+          ++ "specified. A package can be specified if contains just one "
+          ++ "executable-like, preferring a single executable. The default is to "
+          ++ "use the package in the current directory if it contains just one "
+          ++ "executable-like.\n\n"
+          ++ "Extra arguments can be passed to the program, but use '--' to "
+          ++ "separate arguments for the program from arguments for "
+          ++ pname
+          ++ ". The executable is run in an environment where it can find its "
+          ++ "data files inplace in the build tree.\n\n"
+          ++ "Dependencies are built or rebuilt as necessary. Additional "
+          ++ "configuration flags can be specified on the command line and these "
+          ++ "extend the project configuration from the 'cabal.project', "
+          ++ "'cabal.project.local' and other files."
     , commandNotes = Just $ \pname ->
         "Examples:\n"
           ++ "  "
@@ -189,22 +189,22 @@ runAction flags@NixStyleFlags{..} targetAndArgs globalFlags =
 
     buildCtx <-
       runProjectPreBuildPhase verbosity baseCtx $ \elaboratedPlan -> do
-        when (buildSettingOnlyDeps (buildSettings baseCtx)) $
-          die' verbosity $
-            "The run command does not support '--only-dependencies'. "
-              ++ "You may wish to use 'build --only-dependencies' and then "
-              ++ "use 'run'."
+        when (buildSettingOnlyDeps (buildSettings baseCtx))
+          $ die' verbosity
+          $ "The run command does not support '--only-dependencies'. "
+          ++ "You may wish to use 'build --only-dependencies' and then "
+          ++ "use 'run'."
 
         fullArgs <- getFullArgs
-        when (occursOnlyOrBefore fullArgs "+RTS" "--") $
-          warn verbosity $
-            giveRTSWarning "run"
+        when (occursOnlyOrBefore fullArgs "+RTS" "--")
+          $ warn verbosity
+          $ giveRTSWarning "run"
 
         -- Interpret the targets on the command line as build targets
         -- (as opposed to say repl or haddock targets).
         targets <-
-          either (reportTargetProblems verbosity) return $
-            resolveTargets
+          either (reportTargetProblems verbosity) return
+            $ resolveTargets
               selectPackageTargets
               selectComponentTarget
               elaboratedPlan
@@ -236,9 +236,9 @@ runAction flags@NixStyleFlags{..} targetAndArgs globalFlags =
     (selectedUnitId, selectedComponent) <-
       -- Slight duplication with 'runProjectPreBuildPhase'.
       singleExeOrElse
-        ( die' verbosity $
-            "No or multiple targets given, but the run "
-              ++ "phase has been reached. This is a bug."
+        ( die' verbosity
+            $ "No or multiple targets given, but the run "
+            ++ "phase has been reached. This is a bug."
         )
         $ targetsMap buildCtx
 
@@ -269,24 +269,24 @@ runAction flags@NixStyleFlags{..} targetAndArgs globalFlags =
     -- shouldn't happen.
     pkg <- case matchingElaboratedConfiguredPackages of
       [] ->
-        die' verbosity $
-          "Unknown executable "
-            ++ exeName
-            ++ " in package "
-            ++ prettyShow selectedUnitId
+        die' verbosity
+          $ "Unknown executable "
+          ++ exeName
+          ++ " in package "
+          ++ prettyShow selectedUnitId
       [elabPkg] -> do
-        info verbosity $
-          "Selecting "
-            ++ prettyShow selectedUnitId
-            ++ " to supply "
-            ++ exeName
+        info verbosity
+          $ "Selecting "
+          ++ prettyShow selectedUnitId
+          ++ " to supply "
+          ++ exeName
         return elabPkg
       elabPkgs ->
-        die' verbosity $
-          "Multiple matching executables found matching "
-            ++ exeName
-            ++ ":\n"
-            ++ unlines (fmap (\p -> " - in package " ++ prettyShow (elabUnitId p)) elabPkgs)
+        die' verbosity
+          $ "Multiple matching executables found matching "
+          ++ exeName
+          ++ ":\n"
+          ++ unlines (fmap (\p -> " - in package " ++ prettyShow (elabUnitId p)) elabPkgs)
 
     let defaultExePath =
           binDirectoryFor
@@ -467,16 +467,16 @@ noExesProblem = CustomTargetProblem . TargetProblemNoExes
 
 matchesMultipleProblem :: TargetSelector -> [AvailableTarget ()] -> RunTargetProblem
 matchesMultipleProblem selector targets =
-  CustomTargetProblem $
-    TargetProblemMatchesMultiple selector targets
+  CustomTargetProblem
+    $ TargetProblemMatchesMultiple selector targets
 
 multipleTargetsProblem :: TargetsMap -> TargetProblem RunProblem
 multipleTargetsProblem = CustomTargetProblem . TargetProblemMultipleTargets
 
 componentNotExeProblem :: PackageId -> ComponentName -> TargetProblem RunProblem
 componentNotExeProblem pkgid name =
-  CustomTargetProblem $
-    TargetProblemComponentNotExe pkgid name
+  CustomTargetProblem
+    $ TargetProblemComponentNotExe pkgid name
 
 isSubComponentProblem
   :: PackageId
@@ -484,8 +484,8 @@ isSubComponentProblem
   -> SubComponentTarget
   -> TargetProblem RunProblem
 isSubComponentProblem pkgid name subcomponent =
-  CustomTargetProblem $
-    TargetProblemIsSubComponent pkgid name subcomponent
+  CustomTargetProblem
+    $ TargetProblemIsSubComponent pkgid name subcomponent
 
 reportTargetProblems :: Verbosity -> [RunTargetProblem] -> IO a
 reportTargetProblems verbosity =
@@ -516,10 +516,11 @@ renderRunProblem (TargetProblemMatchesMultiple targetSelector targets) =
       ( (\(label, xs) -> "- " ++ label ++ ": " ++ renderListPretty xs)
           <$> zip
             ["executables", "test-suites", "benchmarks"]
-            ( filter (not . null) . map removeDuplicates $
-                map (componentNameRaw . availableTargetComponentName)
-                  <$> (flip filterTargetsKind $ targets)
-                  <$> [ExeKind, TestKind, BenchKind]
+            ( filter (not . null)
+                . map removeDuplicates
+                $ map (componentNameRaw . availableTargetComponentName)
+                <$> (flip filterTargetsKind $ targets)
+                <$> [ExeKind, TestKind, BenchKind]
             )
       )
   where

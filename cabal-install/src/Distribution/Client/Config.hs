@@ -56,13 +56,13 @@ import Distribution.Deprecated.ViewAsFieldDescr
   ( viewAsFieldDescr
   )
 
-import Distribution.Client.BuildReports.Types
-  ( ReportLevel (..)
-  )
-import Distribution.Client.CmdInstall.ClientInstallFlags
+import Distribution.Client.Main.V2.Install.ClientInstallFlags
   ( ClientInstallFlags (..)
   , clientInstallOptions
   , defaultClientInstallFlags
+  )
+import Distribution.Client.BuildReports.Types
+  ( ReportLevel (..)
   )
 import qualified Distribution.Client.Init.Defaults as IT
 import qualified Distribution.Client.Init.Types as IT
@@ -736,14 +736,14 @@ warnOnTwoConfigs verbosity = do
     dotCabalExists <- doesDirectoryExist defaultDir
     let xdgCfg = xdgCfgDir </> "config"
     xdgCfgExists <- doesFileExist xdgCfg
-    when (dotCabalExists && xdgCfgExists) $
-      warn verbosity $
-        "Both "
-          <> defaultDir
-          <> " and "
-          <> xdgCfg
-          <> " exist - ignoring the former.\n"
-          <> "It is advisable to remove one of them. In that case, we will use the remaining one by default (unless '$CABAL_DIR' is explicitly set)."
+    when (dotCabalExists && xdgCfgExists)
+      $ warn verbosity
+      $ "Both "
+      <> defaultDir
+      <> " and "
+      <> xdgCfg
+      <> " exist - ignoring the former.\n"
+      <> "It is advisable to remove one of them. In that case, we will use the remaining one by default (unless '$CABAL_DIR' is explicitly set)."
 
 -- | If @CABAL\_DIR@ is set, return @Just@ its value. Otherwise, if
 -- @~/.cabal@ exists and @$XDG_CONFIG_HOME/cabal/config@ does not
@@ -960,8 +960,10 @@ loadRawConfig verbosity configFileFlag = do
   minp <- readConfigFile mempty configFile
   case minp of
     Nothing -> do
-      notice verbosity $
-        "Config file path source is " ++ sourceMsg source ++ "."
+      notice verbosity
+        $ "Config file path source is "
+        ++ sourceMsg source
+        ++ "."
       -- 2021-10-07, issue #7705
       -- Only create default config file if name was not given explicitly
       -- via option --config-file or environment variable.
@@ -976,24 +978,24 @@ loadRawConfig verbosity configFileFlag = do
           | null configFile = "Config file name is empty"
           | otherwise = unwords ["Config file not found:", configFile]
         failNoConfigFile =
-          die' verbosity $
-            unlines
+          die' verbosity
+            $ unlines
               [ msgNotFound
               , "(Config files can be created via the cabal-command 'user-config init'.)"
               ]
     Just (ParseOk ws conf) -> do
-      unless (null ws) $
-        warn verbosity $
-          unlines (map (showPWarning configFile) ws)
+      unless (null ws)
+        $ warn verbosity
+        $ unlines (map (showPWarning configFile) ws)
       return conf
     Just (ParseFailed err) -> do
       let (line, msg) = locatedErrorMsg err
-      die' verbosity $
-        "Error parsing config file "
-          ++ configFile
-          ++ maybe "" (\n -> ':' : show n) line
-          ++ ":\n"
-          ++ msg
+      die' verbosity
+        $ "Error parsing config file "
+        ++ configFile
+        ++ maybe "" (\n -> ':' : show n) line
+        ++ ":\n"
+        ++ msg
   where
     sourceMsg CommandlineOption = "commandline option"
     sourceMsg EnvironmentVariable = "environment variable CABAL_CONFIG"
@@ -1027,8 +1029,8 @@ getConfigFilePathAndSource configFileFlag =
 readConfigFile
   :: SavedConfig -> FilePath -> IO (Maybe (ParseResult SavedConfig))
 readConfigFile initial file =
-  handleNotExists $
-    fmap
+  handleNotExists
+    $ fmap
       (Just . parseConfig (ConstraintSourceMainConfig file) initial)
       (BS.readFile file)
   where
@@ -1050,8 +1052,10 @@ writeConfigFile :: FilePath -> SavedConfig -> SavedConfig -> IO ()
 writeConfigFile file comments vals = do
   let tmpFile = file <.> "tmp"
   createDirectoryIfMissing True (takeDirectory file)
-  writeFile tmpFile $
-    explanation ++ showConfigWithComments comments vals ++ "\n"
+  writeFile tmpFile
+    $ explanation
+    ++ showConfigWithComments comments vals
+    ++ "\n"
   renameFile tmpFile file
   where
     explanation =
@@ -1196,41 +1200,41 @@ configFieldDescriptions src =
                         where
                           lstr = lowercase str
                           caseWarning =
-                            PWarning $
-                              "The '"
-                                ++ name
-                                ++ "' field is case sensitive, use 'True' or 'False'."
-                  )
-      , liftField configDebugInfo (\v flags -> flags{configDebugInfo = v}) $
-          let name = "debug-info"
-           in FieldDescr
-                name
-                ( \f -> case f of
-                    Flag NoDebugInfo -> Disp.text "False"
-                    Flag MinimalDebugInfo -> Disp.text "1"
-                    Flag NormalDebugInfo -> Disp.text "True"
-                    Flag MaximalDebugInfo -> Disp.text "3"
-                    _ -> Disp.empty
-                )
-                ( \line str _ -> case () of
-                    _
-                      | str == "False" -> ParseOk [] (Flag NoDebugInfo)
-                      | str == "True" -> ParseOk [] (Flag NormalDebugInfo)
-                      | str == "0" -> ParseOk [] (Flag NoDebugInfo)
-                      | str == "1" -> ParseOk [] (Flag MinimalDebugInfo)
-                      | str == "2" -> ParseOk [] (Flag NormalDebugInfo)
-                      | str == "3" -> ParseOk [] (Flag MaximalDebugInfo)
-                      | lstr == "false" -> ParseOk [caseWarning] (Flag NoDebugInfo)
-                      | lstr == "true" -> ParseOk [caseWarning] (Flag NormalDebugInfo)
-                      | otherwise -> ParseFailed (NoParse name line)
-                      where
-                        lstr = lowercase str
-                        caseWarning =
-                          PWarning $
-                            "The '"
+                            PWarning
+                              $ "The '"
                               ++ name
                               ++ "' field is case sensitive, use 'True' or 'False'."
-                )
+                  )
+      , liftField configDebugInfo (\v flags -> flags{configDebugInfo = v})
+          $ let name = "debug-info"
+             in FieldDescr
+                  name
+                  ( \f -> case f of
+                      Flag NoDebugInfo -> Disp.text "False"
+                      Flag MinimalDebugInfo -> Disp.text "1"
+                      Flag NormalDebugInfo -> Disp.text "True"
+                      Flag MaximalDebugInfo -> Disp.text "3"
+                      _ -> Disp.empty
+                  )
+                  ( \line str _ -> case () of
+                      _
+                        | str == "False" -> ParseOk [] (Flag NoDebugInfo)
+                        | str == "True" -> ParseOk [] (Flag NormalDebugInfo)
+                        | str == "0" -> ParseOk [] (Flag NoDebugInfo)
+                        | str == "1" -> ParseOk [] (Flag MinimalDebugInfo)
+                        | str == "2" -> ParseOk [] (Flag NormalDebugInfo)
+                        | str == "3" -> ParseOk [] (Flag MaximalDebugInfo)
+                        | lstr == "false" -> ParseOk [caseWarning] (Flag NoDebugInfo)
+                        | lstr == "true" -> ParseOk [caseWarning] (Flag NormalDebugInfo)
+                        | otherwise -> ParseFailed (NoParse name line)
+                        where
+                          lstr = lowercase str
+                          caseWarning =
+                            PWarning
+                              $ "The '"
+                              ++ name
+                              ++ "' field is case sensitive, use 'True' or 'False'."
+                  )
       ]
     ++ toSavedConfig
       liftConfigExFlag
@@ -1295,8 +1299,8 @@ configFieldDescriptions src =
       [multiReplOption]
       []
       []
-    ++ [ viewAsFieldDescr $
-          optionDistPref
+    ++ [ viewAsFieldDescr
+          $ optionDistPref
             (configDistPref . savedConfigureFlags)
             ( \distPref config ->
                 config
@@ -1334,43 +1338,43 @@ configFieldDescriptions src =
 --
 deprecatedFieldDescriptions :: [FieldDescr SavedConfig]
 deprecatedFieldDescriptions =
-  [ liftGlobalFlag $
-      listFieldParsec
+  [ liftGlobalFlag
+      $ listFieldParsec
         "repos"
         pretty
         parsec
         (fromNubList . globalRemoteRepos)
         (\rs cfg -> cfg{globalRemoteRepos = toNubList rs})
-  , liftGlobalFlag $
-      simpleFieldParsec
+  , liftGlobalFlag
+      $ simpleFieldParsec
         "cachedir"
         (Disp.text . fromFlagOrDefault "")
         (optionalFlag parsecFilePath)
         globalCacheDir
         (\d cfg -> cfg{globalCacheDir = d})
-  , liftUploadFlag $
-      simpleFieldParsec
+  , liftUploadFlag
+      $ simpleFieldParsec
         "hackage-token"
         (Disp.text . fromFlagOrDefault "" . fmap unToken)
         (optionalFlag (fmap Token parsecToken))
         uploadToken
         (\d cfg -> cfg{uploadToken = d})
-  , liftUploadFlag $
-      simpleFieldParsec
+  , liftUploadFlag
+      $ simpleFieldParsec
         "hackage-username"
         (Disp.text . fromFlagOrDefault "" . fmap unUsername)
         (optionalFlag (fmap Username parsecToken))
         uploadUsername
         (\d cfg -> cfg{uploadUsername = d})
-  , liftUploadFlag $
-      simpleFieldParsec
+  , liftUploadFlag
+      $ simpleFieldParsec
         "hackage-password"
         (Disp.text . fromFlagOrDefault "" . fmap unPassword)
         (optionalFlag (fmap Password parsecToken))
         uploadPassword
         (\d cfg -> cfg{uploadPassword = d})
-  , liftUploadFlag $
-      spaceListField
+  , liftUploadFlag
+      $ spaceListField
         "hackage-password-command"
         Disp.text
         parseTokenQ
@@ -1482,8 +1486,9 @@ parseConfig src initial = \str -> do
           . nubBy ((==) `on` localRepoName)
           $ localRepoSections0
 
-  return . fixConfigMultilines $
-    config
+  return
+    . fixConfigMultilines
+    $ config
       { savedGlobalFlags =
           (savedGlobalFlags config)
             { globalRemoteRepos = toNubList remoteRepoSections
@@ -1528,8 +1533,8 @@ parseConfig src initial = \str -> do
             let scf = savedConfigureFlags conf
              in scf
                   { configProgramPathExtra =
-                      toNubList $
-                        splitMultiPath
+                      toNubList
+                        $ splitMultiPath
                           (fromNubList $ configProgramPathExtra scf)
                   , configExtraLibDirs =
                       splitMultiPath
@@ -1560,8 +1565,8 @@ parseConfig src initial = \str -> do
       (rs, ls, h, i, u, g, p, a)
       (ParseUtils.Section lineno "repository" name fs) = do
         name' <-
-          maybe (ParseFailed $ NoParse "repository name" lineno) return $
-            simpleParsec name
+          maybe (ParseFailed $ NoParse "repository name" lineno) return
+            $ simpleParsec name
         r' <- parseFields remoteRepoFields (emptyRemoteRepo name') fs
         r'' <- postProcessRepo lineno name r'
         case r'' of
@@ -1629,14 +1634,14 @@ parseConfig src initial = \str -> do
 
 postProcessRepo :: Int -> String -> RemoteRepo -> ParseResult (Either LocalRepo RemoteRepo)
 postProcessRepo lineno reponameStr repo0 = do
-  when (null reponameStr) $
-    syntaxError lineno $
-      "a 'repository' section requires the "
-        ++ "repository name as an argument"
+  when (null reponameStr)
+    $ syntaxError lineno
+    $ "a 'repository' section requires the "
+    ++ "repository name as an argument"
 
   reponame <-
-    maybe (fail $ "Invalid repository name " ++ reponameStr) return $
-      simpleParsec reponameStr
+    maybe (fail $ "Invalid repository name " ++ reponameStr) return
+      $ simpleParsec reponameStr
 
   case uriScheme (remoteRepoURI repo0) of
     -- TODO: check that there are no authority, query or fragment
@@ -1647,17 +1652,17 @@ postProcessRepo lineno reponameStr repo0 = do
     _ -> do
       let repo = repo0{remoteRepoName = reponame}
 
-      when (remoteRepoKeyThreshold repo > length (remoteRepoRootKeys repo)) $
-        warning $
-          "'key-threshold' for repository "
-            ++ show (remoteRepoName repo)
-            ++ " higher than number of keys"
+      when (remoteRepoKeyThreshold repo > length (remoteRepoRootKeys repo))
+        $ warning
+        $ "'key-threshold' for repository "
+        ++ show (remoteRepoName repo)
+        ++ " higher than number of keys"
 
-      when (not (null (remoteRepoRootKeys repo)) && remoteRepoSecure repo /= Just True) $
-        warning $
-          "'root-keys' for repository "
-            ++ show (remoteRepoName repo)
-            ++ " non-empty, but 'secure' not set to True."
+      when (not (null (remoteRepoRootKeys repo)) && remoteRepoSecure repo /= Just True)
+        $ warning
+        $ "'root-keys' for repository "
+        ++ show (remoteRepoName repo)
+        ++ " non-empty, but 'secure' not set to True."
 
       return $ Right repo
 
@@ -1666,45 +1671,45 @@ showConfig = showConfigWithComments mempty
 
 showConfigWithComments :: SavedConfig -> SavedConfig -> String
 showConfigWithComments comment vals =
-  Disp.render $
-    case fmap
+  Disp.render
+    $ case fmap
       (uncurry ppRemoteRepoSection)
       (zip (getRemoteRepos comment) (getRemoteRepos vals)) of
       [] -> Disp.text ""
       (x : xs) -> foldl' (\r r' -> r $+$ Disp.text "" $+$ r') x xs
-      $+$ Disp.text ""
-      $+$ ppFields
-        (skipSomeFields (configFieldDescriptions ConstraintSourceUnknown))
-        mcomment
-        vals
-      $+$ Disp.text ""
-      $+$ ppSection
-        "haddock"
-        ""
-        haddockFlagsFields
-        (fmap savedHaddockFlags mcomment)
-        (savedHaddockFlags vals)
-      $+$ Disp.text ""
-      $+$ ppSection
-        "init"
-        ""
-        initFlagsFields
-        (fmap savedInitFlags mcomment)
-        (savedInitFlags vals)
-      $+$ Disp.text ""
-      $+$ installDirsSection "user" savedUserInstallDirs
-      $+$ Disp.text ""
-      $+$ installDirsSection "global" savedGlobalInstallDirs
-      $+$ Disp.text ""
-      $+$ configFlagsSection
-        "program-locations"
-        withProgramsFields
-        configProgramPaths
-      $+$ Disp.text ""
-      $+$ configFlagsSection
-        "program-default-options"
-        withProgramOptionsFields
-        configProgramArgs
+    $+$ Disp.text ""
+    $+$ ppFields
+      (skipSomeFields (configFieldDescriptions ConstraintSourceUnknown))
+      mcomment
+      vals
+    $+$ Disp.text ""
+    $+$ ppSection
+      "haddock"
+      ""
+      haddockFlagsFields
+      (fmap savedHaddockFlags mcomment)
+      (savedHaddockFlags vals)
+    $+$ Disp.text ""
+    $+$ ppSection
+      "init"
+      ""
+      initFlagsFields
+      (fmap savedInitFlags mcomment)
+      (savedInitFlags vals)
+    $+$ Disp.text ""
+    $+$ installDirsSection "user" savedUserInstallDirs
+    $+$ Disp.text ""
+    $+$ installDirsSection "global" savedGlobalInstallDirs
+    $+$ Disp.text ""
+    $+$ configFlagsSection
+      "program-locations"
+      withProgramsFields
+      configProgramPaths
+    $+$ Disp.text ""
+    $+$ configFlagsSection
+      "program-default-options"
+      withProgramOptionsFields
+      configProgramArgs
   where
     getRemoteRepos = fromNubList . globalRemoteRepos . savedGlobalFlags
     mcomment = Just comment
@@ -1834,8 +1839,8 @@ initFlagsFields =
 -- | Fields for the 'program-locations' section.
 withProgramsFields :: [FieldDescr [(String, FilePath)]]
 withProgramsFields =
-  map viewAsFieldDescr $
-    programDbPaths'
+  map viewAsFieldDescr
+    $ programDbPaths'
       (++ "-location")
       defaultProgramDb
       ParseArgs
@@ -1845,8 +1850,8 @@ withProgramsFields =
 -- | Fields for the 'program-default-options' section.
 withProgramOptionsFields :: [FieldDescr [(String, [String])]]
 withProgramOptionsFields =
-  map viewAsFieldDescr $
-    programDbOptions defaultProgramDb ParseArgs id (++)
+  map viewAsFieldDescr
+    $ programDbOptions defaultProgramDb ParseArgs id (++)
 
 parseExtraLines :: Verbosity -> [String] -> IO SavedConfig
 parseExtraLines verbosity extraLines =
@@ -1856,15 +1861,15 @@ parseExtraLines verbosity extraLines =
     (toUTF8BS (unlines extraLines)) of
     ParseFailed err ->
       let (line, msg) = locatedErrorMsg err
-       in die' verbosity $
-            "Error parsing additional config lines\n"
-              ++ maybe "" (\n -> ':' : show n) line
-              ++ ":\n"
-              ++ msg
+       in die' verbosity
+            $ "Error parsing additional config lines\n"
+            ++ maybe "" (\n -> ':' : show n) line
+            ++ ":\n"
+            ++ msg
     ParseOk [] r -> return r
     ParseOk ws _ ->
-      die' verbosity $
-        unlines (map (showPWarning "Error parsing additional config lines") ws)
+      die' verbosity
+        $ unlines (map (showPWarning "Error parsing additional config lines") ws)
 
 -- | Get the differences (as a pseudo code diff) between the user's
 -- config file and the one that cabal would generate if it didn't exist.
@@ -1873,12 +1878,14 @@ userConfigDiff verbosity globalFlags extraLines = do
   userConfig <- loadRawConfig normal (globalConfigFile globalFlags)
   extraConfig <- parseExtraLines verbosity extraLines
   testConfig <- initialSavedConfig
-  return $
-    reverse . foldl' createDiff [] . M.toList $
-      M.unionWith
-        combine
-        (M.fromList . map justFst $ filterShow testConfig)
-        (M.fromList . map justSnd $ filterShow (userConfig `mappend` extraConfig))
+  return
+    $ reverse
+    . foldl' createDiff []
+    . M.toList
+    $ M.unionWith
+      combine
+      (M.fromList . map justFst $ filterShow testConfig)
+      (M.fromList . map justSnd $ filterShow (userConfig `mappend` extraConfig))
   where
     justFst (a, b) = (a, (Just b, Nothing))
     justSnd (a, b) = (a, (Nothing, Just b))
@@ -1886,11 +1893,11 @@ userConfigDiff verbosity globalFlags extraLines = do
     combine (Nothing, Just b) (Just a, Nothing) = (Just a, Just b)
     combine (Just a, Nothing) (Nothing, Just b) = (Just a, Just b)
     combine x y =
-      error $
-        "Can't happen : userConfigDiff "
-          ++ show x
-          ++ " "
-          ++ show y
+      error
+        $ "Can't happen : userConfigDiff "
+        ++ show x
+        ++ " "
+        ++ show y
 
     createDiff :: [String] -> (String, (Maybe String, Maybe String)) -> [String]
     createDiff acc (key, (Just a, Just b))

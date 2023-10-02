@@ -42,7 +42,7 @@ import Distribution.Version
 import Distribution.Parsec
 import Distribution.Pretty
 
-import Distribution.Client.CmdInstall.ClientInstallFlags
+import Distribution.Client.Main.V2.Install.ClientInstallFlags
 import Distribution.Client.Dependency.Types
 import Distribution.Client.DistDirLayout (defaultProjectFile)
 import Distribution.Client.Targets

@@ -47,7 +47,7 @@ import Distribution.Client.IndexUtils.IndexState
   ( TotalIndexState
   )
 
-import Distribution.Client.CmdInstall.ClientInstallFlags
+import Distribution.Client.Main.V2.Install.ClientInstallFlags
   ( ClientInstallFlags (..)
   )
 

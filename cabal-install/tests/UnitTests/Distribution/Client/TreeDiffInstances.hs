@@ -9,7 +9,7 @@ import Distribution.Solver.Types.PackageConstraint
 import Distribution.Solver.Types.Settings
 
 import Distribution.Client.BuildReports.Types
-import Distribution.Client.CmdInstall.ClientInstallFlags
+import Distribution.Client.Main.V2.Install.ClientInstallFlags
 import Distribution.Client.Dependency.Types
 import Distribution.Client.IndexUtils.ActiveRepos
 import Distribution.Client.IndexUtils.IndexState

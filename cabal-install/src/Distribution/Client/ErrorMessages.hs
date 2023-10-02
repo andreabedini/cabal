@@ -3,8 +3,8 @@
 {-# LANGUAGE RecordWildCards #-}
 
 -- | Utilities to help format error messages for the various CLI commands.
-module Distribution.Client.CmdErrorMessages
-  ( module Distribution.Client.CmdErrorMessages
+module Distribution.Client.ErrorMessages
+  ( module Distribution.Client.ErrorMessages
   , module Distribution.Client.TargetSelector
   ) where
 
@@ -429,9 +429,9 @@ renderTargetProblemNoneEnabled verb targetSelector targets =
             ++ " are not built by default in the current configuration (but you "
             ++ "can still build them specifically)" -- TODO: say how
         _ ->
-          error $
-            "renderBuildTargetProblem: unexpected status "
-              ++ show (status, mstanza)
+          error
+            $ "renderBuildTargetProblem: unexpected status "
+            ++ show (status, mstanza)
       | ((status, mstanza), targets') <- sortGroupOn groupingKey targets
       ]
   where

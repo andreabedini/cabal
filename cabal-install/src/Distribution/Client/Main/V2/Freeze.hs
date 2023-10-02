@@ -2,7 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 
 -- | cabal-install CLI command: freeze
-module Distribution.Client.CmdFreeze
+module Distribution.Client.Main.V2.Freeze
   ( freezeCommand
   , freezeAction
   ) where

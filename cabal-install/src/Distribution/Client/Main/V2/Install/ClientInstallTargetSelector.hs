@@ -1,4 +1,4 @@
-module Distribution.Client.CmdInstall.ClientInstallTargetSelector
+module Distribution.Client.Main.V2.Install.ClientInstallTargetSelector
   ( WithoutProjectTargetSelector (..)
   , parseWithoutProjectTargetSelector
   , woPackageNames

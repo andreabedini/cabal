@@ -7,7 +7,7 @@
 {-# LANGUAGE ViewPatterns #-}
 
 -- | cabal-install CLI command: update
-module Distribution.Client.CmdUpdate
+module Distribution.Client.Main.V2.Update
   ( updateCommand
   , updateAction
   ) where
