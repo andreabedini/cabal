@@ -6,6 +6,7 @@ module Distribution.Client.Types.PackageLocation
   , UnresolvedPkgLoc
   , ResolvedPkgLoc
   , UnresolvedSourcePackage
+  , ResolvedSourcePackage
   ) where
 
 import Distribution.Client.Compat.Prelude
@@ -45,3 +46,5 @@ instance Structured local => Structured (PackageLocation local)
 
 -- | Convenience alias for 'SourcePackage UnresolvedPkgLoc'.
 type UnresolvedSourcePackage = SourcePackage UnresolvedPkgLoc
+
+type ResolvedSourcePackage = SourcePackage UnresolvedPkgLoc
