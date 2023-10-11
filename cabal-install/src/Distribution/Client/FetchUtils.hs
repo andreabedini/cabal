@@ -228,6 +228,39 @@ fetchPackage verbosity repoCtxt loc = case loc of
       hash <- readFileHashValue path
       return (hash, path)
 
+-- | Fetch a package if we don't have it already.
+-- TODO: Rename me?
+fetchPackage'
+  :: Verbosity
+  -> RepoContext
+  -> PackageLocation ()
+  -> IO ResolvedPkgLoc
+fetchPackage' verbosity repoCtxt loc = case loc of
+  LocalUnpackedPackage dir ->
+    return (LocalUnpackedPackage dir)
+  LocalTarballPackage file ->
+    return (LocalTarballPackage file)
+  RemoteTarballPackage uri () -> do
+    path <- downloadTarballPackage uri
+    return (RemoteTarballPackage uri path)
+  RepoTarballPackage repo pkgid () -> do
+    local <- fetchRepoTarball verbosity repoCtxt repo pkgid
+    return (RepoTarballPackage repo pkgid local)
+  RemoteSourceRepoPackage _repo () ->
+    dieWithException verbosity FetchPackageErr
+  where
+    downloadTarballPackage :: URI -> IO (HashValue, FilePath)
+    downloadTarballPackage uri = do
+      transport <- repoContextGetTransport repoCtxt
+      transportCheckHttps verbosity transport uri
+      notice verbosity ("Downloading " ++ show uri)
+      tmpdir <- getTemporaryDirectory
+      (path, hnd) <- openTempFile tmpdir "cabal-.tar.gz"
+      hClose hnd
+      _ <- downloadURI transport verbosity uri path
+      hash <- readFileHashValue path
+      return (hash, path)
+
 -- | Fetch a package from a repository.
 --
 -- Returns the path and the hash of the downloaded package tarball.
@@ -266,17 +299,17 @@ fetchRepoTarball verbosity' repoCtxt repo pkgid = do
     RepoSecure{} -> repoContextWithSecureRepo repoCtxt repo $ \secureRepo ->
       Sec.withIndex secureRepo $ \repoIndex -> do
         anyVerificationFailure <-
-          Sec.handleChecked (\(e :: Sec.InvalidPackageException) -> return $ Just (show e)) $
-          Sec.handleChecked (\(e :: Sec.VerificationError) -> return $ Just (show e)) $
-          do
-            fileInfo <- Sec.indexLookupFileInfo repoIndex pkgid
-            sz <- Sec.FileLength . fromInteger <$> getFileSize path
-            if sz /= Sec.fileInfoLength (Sec.trusted fileInfo)
-              then return $ Just "file length mismatch"
-              else do
-                hashMatches <- Sec.compareTrustedFileInfo (Sec.trusted fileInfo) <$> Sec.computeFileInfo (Sec.Path path :: Sec.Path Sec.Absolute)
-                return
-                  $ if hashMatches then Nothing else (Just "file hash mismatch")
+          Sec.handleChecked (\(e :: Sec.InvalidPackageException) -> return $ Just (show e))
+            $ Sec.handleChecked (\(e :: Sec.VerificationError) -> return $ Just (show e))
+            $ do
+              fileInfo <- Sec.indexLookupFileInfo repoIndex pkgid
+              sz <- Sec.FileLength . fromInteger <$> getFileSize path
+              if sz /= Sec.fileInfoLength (Sec.trusted fileInfo)
+                then return $ Just "file length mismatch"
+                else do
+                  hashMatches <- Sec.compareTrustedFileInfo (Sec.trusted fileInfo) <$> Sec.computeFileInfo (Sec.Path path :: Sec.Path Sec.Absolute)
+                  return
+                    $ if hashMatches then Nothing else (Just "file hash mismatch")
         for_ anyVerificationFailure $ \failure -> do
           warn verbosity $ "Fetched tarball " ++ path ++ " does not match server (" ++ failure ++ "), will redownload."
           createDirectoryIfMissing True dir
@@ -292,8 +325,9 @@ fetchRepoTarball verbosity' repoCtxt repo pkgid = do
         -- NOTE: indexLookupHash can throw InvalidPackageException and VerificationError
         -- I don't know how to handle those exceptions here so we rethrow
         hash <-
-          Sec.uncheckClientErrors $
-          Sec.trusted <$> Sec.indexLookupHash repoIndex pkgid
+          Sec.uncheckClientErrors
+            $ Sec.trusted
+            <$> Sec.indexLookupHash repoIndex pkgid
         return (hashFromTUF hash, path)
   where
     -- whether we download or not is non-deterministic
@@ -326,7 +360,7 @@ downloadIndex transport verbosity remoteRepo cacheDir = do
 
 type AsyncFetchMap =
   Map
-    UnresolvedPkgLoc
+    (PackageLocation ())
     (MVar (Either SomeException ResolvedPkgLoc))
 
 -- | Fork off an async action to download the given packages (by location).
@@ -366,7 +400,7 @@ asyncFetchPackages verbosity repoCtxt pkglocs body = do
           -- specifically 'AsyncCancelled' thrown at us from 'concurrently'.
           result <-
             Safe.try
-              $ fetchPackage (verboseUnmarkOutput verbosity) repoCtxt (fmap (const Nothing) pkgloc)
+              $ fetchPackage' (verboseUnmarkOutput verbosity) repoCtxt pkgloc
           putMVar var result
 
   (_, res) <-
@@ -388,7 +422,7 @@ asyncFetchPackages verbosity repoCtxt pkglocs body = do
 waitAsyncFetchPackage
   :: Verbosity
   -> AsyncFetchMap
-  -> UnresolvedPkgLoc
+  -> (PackageLocation ())
   -> IO ResolvedPkgLoc
 waitAsyncFetchPackage verbosity downloadMap srcloc =
   case Map.lookup srcloc downloadMap of
