@@ -25,6 +25,7 @@ type UnresolvedPkgLoc = PackageLocation (Maybe (HashValue, FilePath))
 
 type ResolvedPkgLoc = PackageLocation (HashValue, FilePath)
 
+-- TODO: maybe split this in local and remote
 data PackageLocation local
   = -- | An unpacked package in the given dir, or current dir
     LocalUnpackedPackage FilePath
@@ -47,4 +48,4 @@ instance Structured local => Structured (PackageLocation local)
 -- | Convenience alias for 'SourcePackage UnresolvedPkgLoc'.
 type UnresolvedSourcePackage = SourcePackage UnresolvedPkgLoc
 
-type ResolvedSourcePackage = SourcePackage UnresolvedPkgLoc
+type ResolvedSourcePackage = SourcePackage ResolvedPkgLoc

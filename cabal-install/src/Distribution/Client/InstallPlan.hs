@@ -283,10 +283,10 @@ mkInstallPlan loc graph indepGoals =
 
 internalError :: WithCallStack (String -> String -> a)
 internalError loc msg =
-  error $
-    "internal error in InstallPlan."
-      ++ loc
-      ++ if null msg then "" else ": " ++ msg
+  error
+    $ "internal error in InstallPlan."
+    ++ loc
+    ++ if null msg then "" else ": " ++ msg
 
 instance (Structured ipkg, Structured srcpkg) => Structured (GenericInstallPlan ipkg srcpkg) where
   structure p =
@@ -326,8 +326,8 @@ data ShowPlanNode = ShowPlanNode
 
 showPlanGraph :: [ShowPlanNode] -> String
 showPlanGraph graph =
-  renderStyle defaultStyle $
-    vcat (map dispPlanPackage graph)
+  renderStyle defaultStyle
+    $ vcat (map dispPlanPackage graph)
   where
     dispPlanPackage (ShowPlanNode herald neighbours) =
       hang herald 2 (vcat neighbours)
@@ -406,8 +406,8 @@ remove shouldRemove plan =
   mkInstallPlan "remove" newGraph (planIndepGoals plan)
   where
     newGraph =
-      Graph.fromDistinctList $
-        filter (not . shouldRemove) (toList plan)
+      Graph.fromDistinctList
+        $ filter (not . shouldRemove) (toList plan)
 
 -- | Change a number of packages in the 'Configured' state to the 'Installed'
 -- state.
@@ -429,8 +429,8 @@ installed shouldBeInstalled installPlan =
     ]
   where
     markInstalled plan pkg =
-      assert (all isInstalled (directDeps plan (nodeKey pkg))) $
-        plan
+      assert (all isInstalled (directDeps plan (nodeKey pkg)))
+        $ plan
           { planGraph = Graph.insert (Installed pkg) (planGraph plan)
           }
 
@@ -514,10 +514,10 @@ reverseDependencyClosure plan =
 fromSolverInstallPlan
   :: (IsUnit ipkg, IsUnit srcpkg)
   => ( (SolverId -> [GenericPlanPackage ipkg srcpkg])
-       -> SolverInstallPlan.SolverPlanPackage
+       -> SolverInstallPlan.SolverPlanPackage loc
        -> [GenericPlanPackage ipkg srcpkg]
      )
-  -> SolverInstallPlan
+  -> SolverInstallPlan loc
   -> GenericInstallPlan ipkg srcpkg
 fromSolverInstallPlan f plan =
   mkInstallPlan
@@ -554,10 +554,10 @@ fromSolverInstallPlan f plan =
 fromSolverInstallPlanWithProgress
   :: (IsUnit ipkg, IsUnit srcpkg)
   => ( (SolverId -> [GenericPlanPackage ipkg srcpkg])
-       -> SolverInstallPlan.SolverPlanPackage
+       -> SolverInstallPlan.SolverPlanPackage loc
        -> LogProgress [GenericPlanPackage ipkg srcpkg]
      )
-  -> SolverInstallPlan
+  -> SolverInstallPlan loc
   -> LogProgress (GenericInstallPlan ipkg srcpkg)
 fromSolverInstallPlanWithProgress f plan = do
   (_, _, pkgs'') <-
@@ -565,8 +565,8 @@ fromSolverInstallPlanWithProgress f plan = do
       f'
       (Map.empty, Map.empty, [])
       (SolverInstallPlan.reverseTopologicalOrder plan)
-  return $
-    mkInstallPlan
+  return
+    $ mkInstallPlan
       "fromSolverInstallPlanWithProgress"
       (Graph.fromDistinctList pkgs'')
       (SolverInstallPlan.planIndepGoals plan)
@@ -592,7 +592,7 @@ fromSolverInstallPlanWithProgress f plan = do
 
 -- | Conversion of 'SolverInstallPlan' to 'InstallPlan'.
 -- Similar to 'elaboratedInstallPlan'
-configureInstallPlan :: Cabal.ConfigFlags -> SolverInstallPlan -> InstallPlan
+configureInstallPlan :: Cabal.ConfigFlags -> SolverInstallPlan UnresolvedPkgLoc -> InstallPlan
 configureInstallPlan configFlags solverPlan =
   flip fromSolverInstallPlan solverPlan $ \mapDep planpkg ->
     [ case planpkg of
@@ -691,8 +691,8 @@ ready
   => GenericInstallPlan ipkg srcpkg
   -> ([GenericReadyPackage srcpkg], Processing)
 ready plan =
-  assert (processingInvariant plan processing) $
-    (readyPackages, processing)
+  assert (processingInvariant plan processing)
+    $ (readyPackages, processing)
   where
     !processing =
       Processing
@@ -721,9 +721,9 @@ completed
   -> UnitId
   -> ([GenericReadyPackage srcpkg], Processing)
 completed plan (Processing processingSet completedSet failedSet) pkgid =
-  assert (pkgid `Set.member` processingSet) $
-    assert (processingInvariant plan processing') $
-      ( map asReadyPackage newlyReady
+  assert (pkgid `Set.member` processingSet)
+    $ assert (processingInvariant plan processing')
+    $ ( map asReadyPackage newlyReady
       , processing'
       )
   where
@@ -756,23 +756,24 @@ failed
   -> UnitId
   -> ([srcpkg], Processing)
 failed plan (Processing processingSet completedSet failedSet) pkgid =
-  assert (pkgid `Set.member` processingSet) $
-    assert (all (`Set.notMember` processingSet) (tail newlyFailedIds)) $
-      assert (all (`Set.notMember` completedSet) (tail newlyFailedIds)) $
-        -- but note that some newlyFailed may already be in the failed set
-        -- since one package can depend on two packages that both fail and
-        -- so would be in the rev-dep closure for both.
-        assert (processingInvariant plan processing') $
-          ( map asConfiguredPackage (tail newlyFailed)
-          , processing'
-          )
+  assert (pkgid `Set.member` processingSet)
+    $ assert (all (`Set.notMember` processingSet) (tail newlyFailedIds))
+    $ assert (all (`Set.notMember` completedSet) (tail newlyFailedIds))
+    $
+    -- but note that some newlyFailed may already be in the failed set
+    -- since one package can depend on two packages that both fail and
+    -- so would be in the rev-dep closure for both.
+    assert (processingInvariant plan processing')
+    $ ( map asConfiguredPackage (tail newlyFailed)
+      , processing'
+      )
   where
     processingSet' = Set.delete pkgid processingSet
     failedSet' = failedSet `Set.union` Set.fromList newlyFailedIds
     newlyFailedIds = map nodeKey newlyFailed
     newlyFailed =
-      fromMaybe (internalError "failed" "package not in graph") $
-        Graph.revClosure (planGraph plan) [pkgid]
+      fromMaybe (internalError "failed" "package not in graph")
+        $ Graph.revClosure (planGraph plan) [pkgid]
     processing' = Processing processingSet' completedSet failedSet'
 
     asConfiguredPackage (Configured pkg) = pkg
@@ -979,8 +980,8 @@ execute jobCtl keepGoing depFailure plan installPkg =
         Left _failure -> do
           -- if this is the first failure and we're not trying to keep going
           -- then try to cancel as many of the remaining jobs as possible
-          when (not tasksFailed && not keepGoing) $
-            cancelJobs jobCtl
+          when (not tasksFailed && not keepGoing)
+            $ cancelJobs jobCtl
 
           tasksRemaining <- remainingJobs jobCtl
           tryNewTasks results' True tasksRemaining processing' []

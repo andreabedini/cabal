@@ -1,3 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+
 ------------------------------------------------------------------------------- |
 -- Module      :  Distribution.Client.Fetch
 -- Copyright   :  (c) David Himmelstrup 2005
@@ -139,31 +141,32 @@ fetch
       -- will need to be changed because for remote tarballs we fetch them
       -- at the earlier phase.
 
-        notice verbosity $
-          "No packages need to be fetched. "
-            ++ "All the requested packages are already local "
-            ++ "or cached locally."
+        notice verbosity
+          $ "No packages need to be fetched. "
+          ++ "All the requested packages are already local "
+          ++ "or cached locally."
       else
         if dryRun
           then
-            notice verbosity $
-              unlines $
-                "The following packages would be fetched:"
-                  : map (prettyShow . packageId) pkgs'
+            notice verbosity
+              $ unlines
+              $ "The following packages would be fetched:"
+              : map (prettyShow . packageId) pkgs'
           else traverse_ (fetchPackage verbosity repoCtxt . srcpkgSource) pkgs'
     where
       dryRun = fromFlag (fetchDryRun fetchFlags)
 
 planPackages
-  :: Verbosity
+  :: forall loc
+   . Verbosity
   -> Compiler
   -> Platform
   -> FetchFlags
   -> InstalledPackageIndex
-  -> SourcePackageDb
+  -> SourcePackageDb loc
   -> PkgConfigDb
-  -> [PackageSpecifier UnresolvedSourcePackage]
-  -> IO [UnresolvedSourcePackage]
+  -> [PackageSpecifier (SourcePackage loc)]
+  -> IO [(SourcePackage loc)]
 planPackages
   verbosity
   comp
@@ -176,8 +179,8 @@ planPackages
     | includeDependencies = do
         notice verbosity "Resolving dependencies..."
         installPlan <-
-          foldProgress logMsg (dieWithException verbosity . PlanPackages . show) return $
-            resolveDependencies
+          foldProgress logMsg (dieWithException verbosity . PlanPackages . show) return
+            $ resolveDependencies
               platform
               (compilerInfo comp)
               pkgConfigDb
@@ -191,10 +194,10 @@ planPackages
               SolverInstallPlan.toList installPlan
           ]
     | otherwise =
-        either (dieWithException verbosity . PlanPackages . unlines . map show) return $
-          resolveWithoutDependencies resolverParams
+        either (dieWithException verbosity . PlanPackages . unlines . map show) return
+          $ resolveWithoutDependencies resolverParams
     where
-      resolverParams :: DepResolverParams
+      resolverParams :: DepResolverParams loc
       resolverParams =
         setMaxBackjumps
           ( if maxBackjumps < 0
