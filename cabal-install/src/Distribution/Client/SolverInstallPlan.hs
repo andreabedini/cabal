@@ -135,13 +135,13 @@ planPkgOf plan v =
       Nothing  -> error "InstallPlan: internal error: planPkgOf lookup failed"
 -}
 
-showPlanIndex :: [SolverPlanPackage] -> String
+showPlanIndex :: [SolverPlanPackage0 loc] -> String
 showPlanIndex = intercalate "\n" . map showPlanPackage
 
 showInstallPlan :: SolverInstallPlan -> String
 showInstallPlan = showPlanIndex . toList
 
-showPlanPackage :: SolverPlanPackage -> String
+showPlanPackage :: SolverPlanPackage0 loc -> String
 showPlanPackage (PreExisting ipkg) =
   "PreExisting "
     ++ prettyShow (packageId ipkg)
@@ -169,11 +169,11 @@ showPlanPackage (Configured spkg) =
 -- | Build an installation plan from a valid set of resolved packages.
 new
   :: IndependentGoals
-  -> SolverPlanIndex
-  -> Either [SolverPlanProblem] SolverInstallPlan
+  -> SolverPlanIndex0 loc
+  -> Either [SolverPlanProblem loc] (SolverInstallPlan0 loc)
 new indepGoals index =
   case problems indepGoals index of
-    [] -> Right (SolverInstallPlan index indepGoals)
+    [] -> Right (SolverInstallPlan0 index indepGoals)
     probs -> Left probs
 
 toList :: SolverInstallPlan0 loc -> [SolverPlanPackage0 loc]
@@ -188,13 +188,13 @@ toMap = Graph.toMap . planIndex0
 -- the dependencies of a package or set of packages without actually
 -- installing the package itself, as when doing development.
 remove
-  :: (SolverPlanPackage -> Bool)
-  -> SolverInstallPlan
+  :: (SolverPlanPackage0 loc -> Bool)
+  -> SolverInstallPlan0 loc
   -> Either
-      [SolverPlanProblem]
-      (SolverInstallPlan)
+      [SolverPlanProblem loc]
+      (SolverInstallPlan0 loc)
 remove shouldRemove plan =
-  new (planIndepGoals plan) newIndex
+  new (planIndepGoals0 plan) newIndex
   where
     newIndex =
       Graph.fromDistinctList $
@@ -218,15 +218,15 @@ valid
 valid indepGoals index =
   null $ problems indepGoals index
 
-data SolverPlanProblem
+data SolverPlanProblem loc
   = PackageMissingDeps
-      SolverPlanPackage
+      (SolverPlanPackage0 loc)
       [PackageIdentifier]
-  | PackageCycle [SolverPlanPackage]
+  | PackageCycle [SolverPlanPackage0 loc]
   | PackageInconsistency PackageName [(PackageIdentifier, Version)]
-  | PackageStateInvalid SolverPlanPackage SolverPlanPackage
+  | PackageStateInvalid (SolverPlanPackage0 loc) (SolverPlanPackage0 loc)
 
-showPlanProblem :: SolverPlanProblem -> String
+showPlanProblem :: SolverPlanProblem loc -> String
 showPlanProblem (PackageMissingDeps pkg missingDeps) =
   "Package "
     ++ prettyShow (packageId pkg)
@@ -266,8 +266,8 @@ showPlanProblem (PackageStateInvalid pkg pkg') =
 -- Use 'showPlanProblem' for a human readable explanation.
 problems
   :: IndependentGoals
-  -> SolverPlanIndex
-  -> [SolverPlanProblem]
+  -> SolverPlanIndex0 loc
+  -> [SolverPlanProblem loc]
 problems indepGoals index =
   [ PackageMissingDeps
     pkg

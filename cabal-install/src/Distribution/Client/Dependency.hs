@@ -1,3 +1,4 @@
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
@@ -82,6 +83,7 @@ import Distribution.Client.Types
   , RelaxDeps (..)
   , RelaxedDep (..)
   , SourcePackageDb (..)
+  , SourcePackageDb0
   , UnresolvedPkgLoc
   , UnresolvedSourcePackage
   , isRelaxDeps
@@ -158,6 +160,7 @@ import Data.List
   )
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import Distribution.Client.Types.SourcePackageDb (pattern SourcePackageDb)
 
 -- ------------------------------------------------------------
 
@@ -680,8 +683,8 @@ reinstallTargets params =
 -- | A basic solver policy on which all others are built.
 basicInstallPolicy
   :: InstalledPackageIndex
-  -> SourcePackageDb
-  -> [PackageSpecifier loc]
+  -> SourcePackageDb0 loc
+  -> [PackageSpecifier (SourcePackage loc)]
   -> DepResolverParams loc
 basicInstallPolicy
   installedPkgIndex
@@ -700,7 +703,6 @@ basicInstallPolicy
       . addSourcePackages
         [pkg | SpecificSourcePackage pkg <- pkgSpecifiers]
       $ basicDepResolverParams
-        loc
         installedPkgIndex
         sourcePkgIndex
 
@@ -710,8 +712,8 @@ basicInstallPolicy
 -- It extends the 'basicInstallPolicy' with a policy on setup deps.
 standardInstallPolicy
   :: InstalledPackageIndex
-  -> SourcePackageDb
-  -> [PackageSpecifier UnresolvedSourcePackage]
+  -> SourcePackageDb0 loc
+  -> [PackageSpecifier (SourcePackage loc)]
   -> DepResolverParams loc
 standardInstallPolicy installedPkgIndex sourcePkgDb pkgSpecifiers =
   addDefaultSetupDependencies mkDefaultSetupDeps $
@@ -721,7 +723,7 @@ standardInstallPolicy installedPkgIndex sourcePkgDb pkgSpecifiers =
       pkgSpecifiers
   where
     -- Force Cabal >= 1.24 dep when the package is affected by #3199.
-    mkDefaultSetupDeps :: UnresolvedSourcePackage -> Maybe [Dependency]
+    mkDefaultSetupDeps :: SourcePackage loc -> Maybe [Dependency]
     mkDefaultSetupDeps srcpkg
       | affected =
           Just [Dependency (mkPackageName "Cabal") (orLaterVersion $ mkVersion [1, 24]) mainLibSet]
@@ -766,9 +768,9 @@ resolveDependencies
   -> CompilerInfo
   -> PkgConfigDb
   -> DepResolverParams loc
-  -> Progress String String SolverInstallPlan
+  -> Progress String String (SolverInstallPlan.SolverInstallPlan0 loc)
 resolveDependencies platform comp pkgConfigDB params =
-  Step (showDepResolverParams loc finalparams) $
+  Step (showDepResolverParams finalparams) $
     fmap (validateSolverResult platform comp indGoals) $
       runSolver
         ( SolverConfig
@@ -889,11 +891,12 @@ interpretPackagesPreference selected defaultPref prefs =
 -- | Make an install plan from the output of the dep resolver.
 -- It checks that the plan is valid, or it's an error in the dep resolver.
 validateSolverResult
-  :: Platform
+  :: forall loc
+   . Platform
   -> CompilerInfo
   -> IndependentGoals
-  -> [ResolverPackage UnresolvedPkgLoc]
-  -> SolverInstallPlan
+  -> [ResolverPackage (SourcePackage loc)]
+  -> SolverInstallPlan.SolverInstallPlan0 loc
 validateSolverResult platform comp indepGoals pkgs =
   case planPackagesProblems platform comp pkgs of
     [] -> case SolverInstallPlan.new indepGoals graph of
@@ -901,7 +904,7 @@ validateSolverResult platform comp indepGoals pkgs =
       Left problems -> error (formatPlanProblems problems)
     problems -> error (formatPkgProblems problems)
   where
-    graph :: Graph.Graph (ResolverPackage UnresolvedPkgLoc)
+    graph :: Graph.Graph (ResolverPackage (SourcePackage loc))
     graph = Graph.fromDistinctList pkgs
 
     formatPkgProblems :: [PlanPackageProblem] -> String
@@ -1160,10 +1163,10 @@ resolveWithoutDependencies
           PackagePreferences preferredVersions preferInstalled _ =
             packagePreferences pkgname
 
-          bestByPrefs :: UnresolvedSourcePackage -> UnresolvedSourcePackage -> Ordering
+          bestByPrefs :: SourcePackage loc -> SourcePackage loc -> Ordering
           bestByPrefs = comparing $ \pkg ->
             (installPref pkg, versionPref pkg, packageVersion pkg)
-          installPref :: UnresolvedSourcePackage -> Bool
+          installPref :: SourcePackage loc -> Bool
           installPref = case preferInstalled of
             Preference.PreferLatest -> const False
             Preference.PreferOldest -> const False
