@@ -452,11 +452,11 @@ resolveBuildTimeSettings
         | otherwise = fmap substLogFileName givenTemplate
 
       defaultTemplate =
-        toPathTemplate
-          $ cabalLogsDirectory
-          </> "$compiler"
-          </> "$libname"
-          <.> "log"
+        toPathTemplate $
+          cabalLogsDirectory
+            </> "$compiler"
+            </> "$libname"
+            <.> "log"
       givenTemplate = flagToMaybe projectConfigLogFile
 
       useDefaultTemplate
@@ -520,9 +520,9 @@ findProjectRoot verbosity mprojectDir mprojectFile = do
     Nothing
       | Just file <- mprojectFile
       , isAbsolute file -> do
-          warn verbosity
-            $ "Specifying an absolute path to the project file is deprecated."
-            <> " Use --project-dir to set the project's directory."
+          warn verbosity $
+            "Specifying an absolute path to the project file is deprecated."
+              <> " Use --project-dir to set the project's directory."
 
           doesFileExist file >>= \case
             False -> left (BadProjectRootExplicitFile file)
@@ -648,8 +648,8 @@ withProjectOrGlobalConfig'
 withProjectOrGlobalConfig' verbosity globalConfigFlag with without = do
   globalConfig <- runRebuild "" $ readGlobalConfig verbosity globalConfigFlag
 
-  catch with
-    $ \case
+  catch with $
+    \case
       (BadPackageLocations prov locs)
         | prov == Set.singleton Implicit
         , let
@@ -795,9 +795,9 @@ readGlobalConfig verbosity configFileFlag = do
 
 reportParseResult :: Verbosity -> String -> FilePath -> OldParser.ParseResult ProjectConfigSkeleton -> IO ProjectConfigSkeleton
 reportParseResult verbosity _filetype filename (OldParser.ParseOk warnings x) = do
-  unless (null warnings)
-    $ let msg = unlines (map (OldParser.showPWarning (intercalate ", " $ filename : projectSkeletonImports x)) warnings)
-       in warn verbosity msg
+  unless (null warnings) $
+    let msg = unlines (map (OldParser.showPWarning (intercalate ", " $ filename : projectSkeletonImports x)) warnings)
+     in warn verbosity msg
   return x
 reportParseResult verbosity filetype filename (OldParser.ParseFailed err) =
   let (line, msg) = OldParser.locatedErrorMsg err
@@ -978,10 +978,10 @@ findProjectPackages
       findPackageLocations required pkglocstr = do
         (problems, pkglocs) <-
           partitionEithers <$> traverse (findPackageLocation required) pkglocstr
-        unless (null problems)
-          $ liftIO
-          $ throwIO
-          $ BadPackageLocations projectConfigProvenance problems
+        unless (null problems) $
+          liftIO $
+            throwIO $
+              BadPackageLocations projectConfigProvenance problems
         return (concat pkglocs)
 
       findPackageLocation
@@ -1039,12 +1039,9 @@ findProjectPackages
                   return (Just (Left (BadLocUnrecognisedUri pkglocstr)))
               where
                 recognisedScheme =
-                  scheme
-                    == "http:"
-                    || scheme
-                    == "https:"
-                    || scheme
-                    == "file:"
+                  scheme == "http:"
+                    || scheme == "https:"
+                    || scheme == "file:"
           _ -> return Nothing
 
       checkIsFileGlobPackage pkglocstr =
@@ -1130,10 +1127,8 @@ findProjectPackages
                 return (Left (BadLocUnexpectedFile pkglocstr))
 
       extensionIsTarGz f =
-        takeExtension f
-          == ".gz"
-          && takeExtension (dropExtension f)
-          == ".tar"
+        takeExtension f == ".gz"
+          && takeExtension (dropExtension f) == ".tar"
 
 -- | A glob to find all the cabal files in a directory.
 --
@@ -1196,8 +1191,8 @@ fetchAndReadSourcePackages
 
     pkgsRemoteTarball <- do
       getTransport <-
-        delayInitSharedResource
-          $ configureTransport
+        delayInitSharedResource $
+          configureTransport
             verbosity
             progPathExtra
             preferredHttpTransport
@@ -1222,8 +1217,8 @@ fetchAndReadSourcePackages
           | ProjectPackageNamed (PackageVersionConstraint pkgname verrange) <- pkgLocations
           ]
 
-    return
-      $ concat
+    return $
+      concat
         [ pkgsLocalDirectory
         , pkgsLocalTarball
         , pkgsRemoteTarball
@@ -1255,10 +1250,10 @@ readSourcePackageLocalDirectory verbosity dir cabalFile = do
   monitorFiles [monitorFileHashed cabalFile]
   root <- askRoot
   let location = LocalUnpackedPackage (root </> dir)
-  liftIO
-    $ fmap (mkSpecificSourcePackage location)
-    . readSourcePackageCabalFile verbosity cabalFile
-    =<< BS.readFile (root </> cabalFile)
+  liftIO $
+    fmap (mkSpecificSourcePackage location)
+      . readSourcePackageCabalFile verbosity cabalFile
+      =<< BS.readFile (root </> cabalFile)
 
 -- | A helper for 'fetchAndReadSourcePackages' to handle the case of
 -- 'ProjectPackageLocalTarball'. We scan through the @.tar.gz@ file to find
@@ -1271,10 +1266,10 @@ readSourcePackageLocalTarball verbosity tarballFile = do
   monitorFiles [monitorFile tarballFile]
   root <- askRoot
   let location = LocalTarballPackage (root </> tarballFile)
-  liftIO
-    $ fmap (mkSpecificSourcePackage location)
-    . uncurry (readSourcePackageCabalFile verbosity)
-    =<< extractTarballPackageCabalFile (root </> tarballFile)
+  liftIO $
+    fmap (mkSpecificSourcePackage location)
+      . uncurry (readSourcePackageCabalFile verbosity)
+      =<< extractTarballPackageCabalFile (root </> tarballFile)
 
 -- | A helper for 'fetchAndReadSourcePackages' to handle the case of
 -- 'ProjectPackageRemoteTarball'. We download the tarball to the dist src dir
@@ -1311,10 +1306,10 @@ fetchAndReadSourcePackageRemoteTarball
       monitorFiles [monitorFile tarballFile]
       hash <- liftIO $ readFileHashValue tarballFile
       let location = RemoteTarballPackage tarballUri (hash, tarballFile)
-      liftIO
-        $ fmap (mkSpecificSourcePackage location)
-        . uncurry (readSourcePackageCabalFile verbosity)
-        =<< extractTarballPackageCabalFile tarballFile
+      liftIO $
+        fmap (mkSpecificSourcePackage location)
+          . uncurry (readSourcePackageCabalFile verbosity)
+          =<< extractTarballPackageCabalFile tarballFile
     where
       tarballStem :: FilePath
       tarballStem =
@@ -1342,8 +1337,8 @@ syncAndReadSourcePackagesRemoteRepos
     }
   repos = do
     repos' <-
-      either reportSourceRepoProblems return
-        $ validateSourceRepos repos
+      either reportSourceRepoProblems return $
+        validateSourceRepos repos
 
     -- All 'SourceRepo's grouped by referring to the "same" remote repo
     -- instance. So same location but can differ in commit/tag/branch/subdir.
@@ -1387,8 +1382,8 @@ syncAndReadSourcePackagesRemoteRepos
         -> [SourceRepoList]
         -> Rebuild [PackageSpecifier (SourcePackage ResolvedPkgLoc)]
       syncRepoGroupAndReadSourcePackages vcs pathStem repoGroup = do
-        liftIO
-          $ createDirectoryIfMissingVerbose
+        liftIO $
+          createDirectoryIfMissingVerbose
             verbosity
             False
             distDownloadSrcDirectory
@@ -1504,18 +1499,18 @@ data CabalFileParseError
 -- | Manual instance which skips file contents
 instance Show CabalFileParseError where
   showsPrec d (CabalFileParseError fp _ es mv ws) =
-    showParen (d > 10)
-      $ showString "CabalFileParseError"
-      . showChar ' '
-      . showsPrec 11 fp
-      . showChar ' '
-      . showsPrec 11 ("" :: String)
-      . showChar ' '
-      . showsPrec 11 es
-      . showChar ' '
-      . showsPrec 11 mv
-      . showChar ' '
-      . showsPrec 11 ws
+    showParen (d > 10) $
+      showString "CabalFileParseError"
+        . showChar ' '
+        . showsPrec 11 fp
+        . showChar ' '
+        . showsPrec 11 ("" :: String)
+        . showChar ' '
+        . showsPrec 11 es
+        . showChar ' '
+        . showsPrec 11 mv
+        . showChar ' '
+        . showsPrec 11 ws
 
 instance Exception CabalFileParseError
 #if MIN_VERSION_base(4,8,0)
@@ -1537,8 +1532,8 @@ readSourcePackageCabalFile
 readSourcePackageCabalFile verbosity pkgfilename content =
   case runParseResult (parseGenericPackageDescription content) of
     (warnings, Right pkg) -> do
-      unless (null warnings)
-        $ info verbosity (formatWarnings warnings)
+      unless (null warnings) $
+        info verbosity (formatWarnings warnings)
       return pkg
     (warnings, Left (mspecVersion, errors)) ->
       throwIO $ CabalFileParseError pkgfilename content errors mspecVersion warnings
