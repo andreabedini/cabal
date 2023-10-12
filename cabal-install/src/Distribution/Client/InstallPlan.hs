@@ -6,10 +6,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
------------------------------------------------------------------------------
-
------------------------------------------------------------------------------
-
 -- |
 -- Module      :  Distribution.Client.InstallPlan
 -- Copyright   :  (c) Duncan Coutts 2008
@@ -82,7 +78,7 @@ import qualified Distribution.Simple.Configure as Configure
 import qualified Distribution.Simple.Setup as Cabal
 
 import Distribution.Client.JobControl
-import Distribution.Client.SolverInstallPlan (SolverInstallPlan)
+import Distribution.Client.SolverInstallPlan (SolverInstallPlan, SolverInstallPlan0)
 import qualified Distribution.Client.SolverInstallPlan as SolverInstallPlan
 import Distribution.InstalledPackageInfo
   ( InstalledPackageInfo
@@ -511,13 +507,14 @@ reverseDependencyClosure plan =
 -- etc).  This similarly implies we can't return a 'ConfiguredId'
 -- because that's not enough information.
 
+-- FIXME: Remove this duplication
 fromSolverInstallPlan
   :: (IsUnit ipkg, IsUnit srcpkg)
   => ( (SolverId -> [GenericPlanPackage ipkg srcpkg])
-       -> SolverInstallPlan.SolverPlanPackage
+       -> SolverInstallPlan.SolverPlanPackage0 loc
        -> [GenericPlanPackage ipkg srcpkg]
      )
-  -> SolverInstallPlan
+  -> SolverInstallPlan0 loc
   -> GenericInstallPlan ipkg srcpkg
 fromSolverInstallPlan f plan =
   mkInstallPlan
@@ -554,10 +551,10 @@ fromSolverInstallPlan f plan =
 fromSolverInstallPlanWithProgress
   :: (IsUnit ipkg, IsUnit srcpkg)
   => ( (SolverId -> [GenericPlanPackage ipkg srcpkg])
-       -> SolverInstallPlan.SolverPlanPackage
+       -> SolverInstallPlan.SolverPlanPackage0 loc
        -> LogProgress [GenericPlanPackage ipkg srcpkg]
      )
-  -> SolverInstallPlan
+  -> SolverInstallPlan0 loc
   -> LogProgress (GenericInstallPlan ipkg srcpkg)
 fromSolverInstallPlanWithProgress f plan = do
   (_, _, pkgs'') <-
@@ -579,16 +576,15 @@ fromSolverInstallPlanWithProgress f plan = do
               PlannedId pid -> (Map.insert pid pkgs' pidMap, ipiMap)
       return (pidMap', ipiMap', pkgs' ++ pkgs)
 
+    -- Those errors shouldn't happen, since mapDep should only be called
+    -- on neighbor SolverId, which must have all been done already
+    -- by the reverse top-sort (we assume the graph is not broken).
     mapDep _ ipiMap (PreExistingId _pid uid)
       | Just pkgs <- Map.lookup uid ipiMap = pkgs
       | otherwise = error ("fromSolverInstallPlan: PreExistingId " ++ prettyShow uid)
     mapDep pidMap _ (PlannedId pid)
       | Just pkgs <- Map.lookup pid pidMap = pkgs
       | otherwise = error ("fromSolverInstallPlan: PlannedId " ++ prettyShow pid)
-
--- This shouldn't happen, since mapDep should only be called
--- on neighbor SolverId, which must have all been done already
--- by the reverse top-sort (we assume the graph is not broken).
 
 -- | Conversion of 'SolverInstallPlan' to 'InstallPlan'.
 -- Similar to 'elaboratedInstallPlan'

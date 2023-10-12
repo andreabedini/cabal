@@ -368,7 +368,7 @@ rebuildProjectConfig
   -> ProjectConfig
   -> IO
       ( ProjectConfig
-      , [PackageSpecifier UnresolvedSourcePackage]
+      , [PackageSpecifier ResolvedSourcePackage]
       )
 rebuildProjectConfig
   verbosity
@@ -445,7 +445,7 @@ rebuildProjectConfig
       --
       phaseReadLocalPackages
         :: ProjectConfig
-        -> Rebuild [PackageSpecifier UnresolvedSourcePackage]
+        -> Rebuild [PackageSpecifier ResolvedSourcePackage]
       phaseReadLocalPackages
         projectConfig@ProjectConfig
           { projectConfigShared
@@ -684,9 +684,9 @@ rebuildInstallPlan
       phaseRunSolver
         :: ProjectConfig
         -> (Compiler, Platform, ProgramDb)
-        -> [PackageSpecifier UnresolvedSourcePackage]
+        -> [PackageSpecifier ResolvedSourcePackage]
         -> InstalledPackageIndex
-        -> Rebuild (SolverInstallPlan, PkgConfigDb, IndexUtils.TotalIndexState, IndexUtils.ActiveRepos)
+        -> Rebuild (SolverInstallPlan.SolverInstallPlanR, PkgConfigDb, IndexUtils.TotalIndexState, IndexUtils.ActiveRepos)
       phaseRunSolver
         projectConfig@ProjectConfig
           { projectConfigShared
@@ -799,8 +799,8 @@ rebuildInstallPlan
         :: ProjectConfig
         -> (Compiler, Platform, ProgramDb)
         -> PkgConfigDb
-        -> SolverInstallPlan
-        -> [PackageSpecifier (SourcePackage (PackageLocation loc))]
+        -> SolverInstallPlan.SolverInstallPlanR
+        -> [PackageSpecifier ResolvedSourcePackage]
         -> Rebuild
             ( ElaboratedInstallPlan
             , ElaboratedSharedConfig
@@ -1040,8 +1040,8 @@ getPkgConfigDb verbosity progdb = do
 
 -- | Select the config values to monitor for changes package source hashes.
 packageLocationsSignature
-  :: SolverInstallPlan
-  -> [(PackageId, UnresolvedPkgLoc)]
+  :: SolverInstallPlan.SolverInstallPlanR
+  -> [(PackageId, ResolvedPkgLoc)]
 packageLocationsSignature solverPlan =
   [ (packageId pkg, srcpkgSource pkg)
   | SolverInstallPlan.Configured (SolverPackage{solverPkgSource = pkg}) <-
@@ -1052,15 +1052,14 @@ packageLocationsSignature solverPlan =
 -- and download any packages required to do so.
 --
 -- Note that we don't get hashes for local unpacked packages.
+-- FIXME: clean this up
 getPackageSourceHashes
   :: Verbosity
   -> (forall a. (RepoContext -> IO a) -> IO a)
-  -> SolverInstallPlan
+  -> SolverInstallPlan.SolverInstallPlanR
   -> Rebuild (Map PackageId PackageSourceHash)
-getPackageSourceHashes verbosity withRepoCtx solverPlan = do
-  -- Determine if and where to get the package's source hash from.
-  --
-  let allPkgLocations :: [(PackageId, UnresolvedPkgLoc)]
+getPackageSourceHashes _verbosity _withRepoCtx solverPlan = do
+  let allPkgLocations :: [(PackageId, ResolvedPkgLoc)]
       allPkgLocations =
         [ (packageId pkg, srcpkgSource pkg)
         | SolverInstallPlan.Configured (SolverPackage{solverPkgSource = pkg}) <-
@@ -1082,31 +1081,18 @@ getPackageSourceHashes verbosity withRepoCtx solverPlan = do
   -- tarballs from source-repository-package stanzas
   let sourceRepoTarballPkgs =
         [ (pkgid, hash, path)
-        | (pkgid, RemoteSourceRepoPackage _ (Just (hash, path))) <- allPkgLocations
+        | (pkgid, RemoteSourceRepoPackage _ (hash, path)) <- allPkgLocations
         ]
-
-  repoTarballPkgsNewlyDownloaded <- liftIO $ withRepoCtx $ \repoctx ->
-    sequence
-      [ do
-        (hash, path) <- fetchRepoTarball verbosity repoctx repo pkgid
-        return (pkgid, hash, path)
-      | (pkgid, RepoTarballPackage repo _ Nothing) <- allPkgLocations
-      ]
 
   let repoTarballPkgsAlreadyDownloaded =
         [ (pkgid, hash, path)
-        | (pkgid, RepoTarballPackage _ _ (Just (hash, path))) <- allPkgLocations
+        | (pkgid, RepoTarballPackage _ _ (hash, path)) <- allPkgLocations
         ]
 
-  -- Hash tarball files for packages where we have to do that. This includes
-  -- tarballs that were local in the first place, plus tarballs from repos,
-  -- either previously cached or freshly downloaded.
-  --
   let allTarballFilePkgs :: [(PackageId, HashValue, FilePath)]
       allTarballFilePkgs =
         localTarballPkgs
           ++ sourceRepoTarballPkgs
-          ++ repoTarballPkgsNewlyDownloaded
           ++ repoTarballPkgsAlreadyDownloaded
 
   monitorFiles
@@ -1138,9 +1124,9 @@ planPackages
   -> InstalledPackageIndex
   -> SourcePackageDb
   -> PkgConfigDb
-  -> [PackageSpecifier UnresolvedSourcePackage]
+  -> [PackageSpecifier ResolvedSourcePackage]
   -> Map PackageName (Map OptionalStanza Bool)
-  -> Progress String String SolverInstallPlan
+  -> Progress String String SolverInstallPlan.SolverInstallPlanR
 planPackages
   verbosity
   comp
@@ -1462,7 +1448,7 @@ elaborateInstallPlan
   -> PkgConfigDb
   -> DistDirLayout
   -> StoreDirLayout
-  -> SolverInstallPlan
+  -> SolverInstallPlan.SolverInstallPlanR
   -> [PackageSpecifier (SourcePackage (PackageLocation loc))]
   -> Map PackageId PackageSourceHash
   -> InstallDirs.InstallDirTemplates
@@ -2090,7 +2076,7 @@ elaborateInstallPlan
             elabBuildHaddocks =
               perPkgOptionFlag pkgid False packageConfigDocumentation
 
-            elabPkgSourceLocation = srcloc
+            elabPkgSourceLocation = fmap snd srcloc -- strip the hash from PkgInfo
             elabPkgSourceHash = Map.lookup pkgid sourcePackageHashes
             elabLocalToProject = isLocalToProject pkg
             elabBuildStyle =
@@ -2478,7 +2464,7 @@ binDirectories layout config package = case elabBuildStyle package of
 -- NOT from setup dependencies.  Used to compute the set
 -- of packages needed for profiling and dynamic libraries.
 newtype NonSetupLibDepSolverPlanPackage = NonSetupLibDepSolverPlanPackage
-  {unNonSetupLibDepSolverPlanPackage :: SolverInstallPlan.SolverPlanPackage}
+  {unNonSetupLibDepSolverPlanPackage :: SolverInstallPlan.SolverPlanPackageR}
 
 instance Package NonSetupLibDepSolverPlanPackage where
   packageId = packageId . unNonSetupLibDepSolverPlanPackage

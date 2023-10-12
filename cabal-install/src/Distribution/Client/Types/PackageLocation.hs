@@ -43,6 +43,7 @@ data PackageLocation local
     -- locally cached copy. ie a package available from hackage
     RepoTarballPackage Repo PackageId local
   | -- | A package available from a version control system source repository
+    -- FIXME: "local" is directory here, does hash make sense?
     RemoteSourceRepoPackage SourceRepoMaybe local
   deriving (Show, Functor, Eq, Ord, Generic, Typeable)
 

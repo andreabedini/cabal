@@ -401,7 +401,7 @@ readPackageTarget verbosity = traverse modifyLocation
             }
       LocalTarballPackage tarballFile ->
         readTarballPackageTarget location tarballFile tarballFile
-      RemoteTarballPackage tarballURL tarballFile ->
+      RemoteTarballPackage tarballURL (_hash, tarballFile) ->
         readTarballPackageTarget location tarballFile (show tarballURL)
       RepoTarballPackage _repo _pkgid _ ->
         error "TODO: readPackageTarget RepoTarballPackage"

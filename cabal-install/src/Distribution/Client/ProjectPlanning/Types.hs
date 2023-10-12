@@ -217,7 +217,7 @@ data ElaboratedConfiguredPackage = ElaboratedConfiguredPackage
   , elabFlagDefaults :: Cabal.FlagAssignment
   -- ^ The original default flag assignment, used only for reporting.
   , elabPkgDescription :: Cabal.PackageDescription
-  , elabPkgSourceLocation :: PackageLocation (Maybe FilePath)
+  , elabPkgSourceLocation :: PackageLocation FilePath
   -- ^ Where the package comes from, e.g. tarball, local dir etc. This
   --   is not the same as where it may be unpacked to for the build.
   , elabPkgSourceHash :: Maybe PackageSourceHash
@@ -475,11 +475,7 @@ dataDirEnvVarForPackage distDirLayout pkg =
     srcPath (LocalTarballPackage _path) = unpackedPath
     srcPath (RemoteTarballPackage _uri _localTar) = unpackedPath
     srcPath (RepoTarballPackage _repo _packageId _localTar) = unpackedPath
-    srcPath (RemoteSourceRepoPackage _sourceRepo (Just localCheckout)) = localCheckout
-    -- TODO: see https://github.com/haskell/cabal/wiki/Potential-Refactors#unresolvedpkgloc
-    srcPath (RemoteSourceRepoPackage _sourceRepo Nothing) =
-      error
-        "calling dataDirEnvVarForPackage on a not-downloaded repo is an error"
+    srcPath (RemoteSourceRepoPackage _sourceRepo localCheckout) = localCheckout
     unpackedPath =
       distUnpackedSrcDirectory distDirLayout $ elabPkgSourceId pkg
 
