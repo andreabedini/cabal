@@ -177,9 +177,9 @@ get verbosity repoCtxt _ getFlags userTargets = do
         case location of
           LocalTarballPackage tarballPath ->
             unpackPackage verbosity prefix pkgid descOverride tarballPath
-          RemoteTarballPackage _tarballURL tarballPath ->
+          RemoteTarballPackage _tarballURL (_hash, tarballPath) ->
             unpackPackage verbosity prefix pkgid descOverride tarballPath
-          RepoTarballPackage _repo _pkgid tarballPath ->
+          RepoTarballPackage _repo _pkgid (_hash, tarballPath) ->
             unpackPackage verbosity prefix pkgid descOverride tarballPath
           RemoteSourceRepoPackage _repo _ ->
             dieWithException verbosity UnpackGet

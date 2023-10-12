@@ -1705,7 +1705,7 @@ installLocalPackage verbosity pkgid location distPref installPkg =
   case location of
     LocalUnpackedPackage dir ->
       installPkg (Just dir)
-    RemoteSourceRepoPackage _repo dir ->
+    RemoteSourceRepoPackage _repo (_hash, dir) ->
       installPkg (Just dir)
     LocalTarballPackage tarballPath ->
       installLocalTarballPackage
@@ -1714,14 +1714,14 @@ installLocalPackage verbosity pkgid location distPref installPkg =
         tarballPath
         distPref
         installPkg
-    RemoteTarballPackage _ tarballPath ->
+    RemoteTarballPackage _ (_hash, tarballPath) ->
       installLocalTarballPackage
         verbosity
         pkgid
         tarballPath
         distPref
         installPkg
-    RepoTarballPackage _ _ tarballPath ->
+    RepoTarballPackage _ _ (_hash, tarballPath) ->
       installLocalTarballPackage
         verbosity
         pkgid
@@ -1750,7 +1750,7 @@ installLocalTarballPackage
             descFilePath =
               absUnpackedPath
                 </> prettyShow (packageName pkgid)
-                <.> "cabal"
+                  <.> "cabal"
         info verbosity $
           "Extracting "
             ++ tarballPath
@@ -1847,7 +1847,7 @@ installUnpackedPackage
         let descFilePath =
               fromMaybe "." workingDir
                 </> prettyShow (packageName pkgid)
-                <.> "cabal"
+                  <.> "cabal"
         info verbosity $
           "Updating "
             ++ prettyShow (packageName pkgid) <.> "cabal"
