@@ -13,20 +13,20 @@ import Distribution.Package (packageVersion)
 import Distribution.Types.PackageName (PackageName)
 import Distribution.Types.VersionRange (VersionRange, withinRange)
 
+import Distribution.Client.Types.PackageLocation (UnresolvedSourcePackage)
 import Distribution.Solver.Types.PackageIndex (PackageIndex)
 import qualified Distribution.Solver.Types.PackageIndex as PackageIndex
 
 import qualified Data.Map as Map
-import Distribution.Solver.Types.SourcePackage (SourcePackage)
 
 -- | This is the information we get from a @00-index.tar.gz@ hackage index.
-data SourcePackageDb loc = SourcePackageDb
-  { packageIndex :: PackageIndex (SourcePackage loc)
+data SourcePackageDb = SourcePackageDb
+  { packageIndex :: PackageIndex UnresolvedSourcePackage
   , packagePreferences :: Map PackageName VersionRange
   }
   deriving (Eq, Generic)
 
-instance Binary loc => Binary (SourcePackageDb loc)
+instance Binary SourcePackageDb
 
 -- | Does a case-sensitive search by package name and a range of versions.
 --
@@ -36,7 +36,7 @@ instance Binary loc => Binary (SourcePackageDb loc)
 -- Additionally, `preferred-versions` (such as version deprecation) are
 -- honoured in this lookup, which is the only difference to
 -- 'PackageIndex.lookupDependency'
-lookupDependency :: SourcePackageDb loc -> PackageName -> VersionRange -> [SourcePackage loc]
+lookupDependency :: SourcePackageDb -> PackageName -> VersionRange -> [UnresolvedSourcePackage]
 lookupDependency sourceDb pname version =
   filterPreferredVersions pref $ PackageIndex.lookupDependency (packageIndex sourceDb) pname version
   where
@@ -47,7 +47,7 @@ lookupDependency sourceDb pname version =
 -- Additionally, `preferred-versions` (such as version deprecation) are
 -- honoured in this lookup, which is the only difference to
 -- 'PackageIndex.lookupPackageName'
-lookupPackageName :: SourcePackageDb loc -> PackageName -> [SourcePackage loc]
+lookupPackageName :: SourcePackageDb -> PackageName -> [UnresolvedSourcePackage]
 lookupPackageName sourceDb pname =
   filterPreferredVersions pref $ PackageIndex.lookupPackageName (packageIndex sourceDb) pname
   where
@@ -58,6 +58,6 @@ lookupPackageName sourceDb pname =
 -- If 'range' is 'Nothing', all versions are kept.
 --
 -- The 'range' is expected to be obtained from the 'SourcePackageDb.packagePreferences'.
-filterPreferredVersions :: Maybe VersionRange -> [SourcePackage loc] -> [SourcePackage loc]
+filterPreferredVersions :: Maybe VersionRange -> [UnresolvedSourcePackage] -> [UnresolvedSourcePackage]
 filterPreferredVersions Nothing versions = versions
 filterPreferredVersions (Just range) versions = filter ((`withinRange` range) . packageVersion) versions

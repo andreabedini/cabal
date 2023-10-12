@@ -3,6 +3,7 @@
 
 module Distribution.Client.Types.PackageLocation
   ( PackageLocation (..)
+  , PkgInfo
   , UnresolvedPkgLoc
   , ResolvedPkgLoc
   , UnresolvedSourcePackage
@@ -21,9 +22,12 @@ import Distribution.Client.Types.Repo
 import Distribution.Client.Types.SourceRepo (SourceRepoMaybe)
 import Distribution.Solver.Types.SourcePackage (SourcePackage)
 
-type UnresolvedPkgLoc = PackageLocation (Maybe (HashValue, FilePath))
+-- | Where we have downloaded the package tarball and its hash
+type PkgInfo = (HashValue, FilePath)
 
-type ResolvedPkgLoc = PackageLocation (HashValue, FilePath)
+type UnresolvedPkgLoc = PackageLocation (Maybe PkgInfo)
+
+type ResolvedPkgLoc = PackageLocation PkgInfo
 
 -- TODO: maybe split this in local and remote
 data PackageLocation local
@@ -48,4 +52,5 @@ instance Structured local => Structured (PackageLocation local)
 -- | Convenience alias for 'SourcePackage UnresolvedPkgLoc'.
 type UnresolvedSourcePackage = SourcePackage UnresolvedPkgLoc
 
+-- | Convenience alias for 'SourcePackage ResolvedPkgLoc'.
 type ResolvedSourcePackage = SourcePackage ResolvedPkgLoc

@@ -105,8 +105,8 @@ get verbosity repoCtxt _ getFlags userTargets = do
         NoFlag -> False
         _ -> True
 
-  unless useSourceRepo
-    $ traverse_ (checkTarget verbosity) userTargets
+  unless useSourceRepo $
+    traverse_ (checkTarget verbosity) userTargets
 
   let idxState :: Maybe TotalIndexState
       idxState = flagToMaybe $ getIndexState getFlags
@@ -124,18 +124,18 @@ get verbosity repoCtxt _ getFlags userTargets = do
       userTargets
 
   pkgs <-
-    either (die' verbosity . unlines . map show) return
-      $ resolveWithoutDependencies
+    either (die' verbosity . unlines . map show) return $
+      resolveWithoutDependencies
         (resolverParams sourcePkgDb pkgSpecifiers)
 
-  unless (null prefix)
-    $ createDirectoryIfMissing True prefix
+  unless (null prefix) $
+    createDirectoryIfMissing True prefix
 
   if onlyPkgDescr
     then do
-      when useSourceRepo
-        $ warn verbosity
-        $ "Ignoring --source-repository for --only-package-description"
+      when useSourceRepo $
+        warn verbosity $
+          "Ignoring --source-repository for --only-package-description"
 
       mapM_ (unpackOnlyPkgDescr verbosity prefix) pkgs
     else
@@ -143,7 +143,7 @@ get verbosity repoCtxt _ getFlags userTargets = do
         then clone pkgs
         else unpack pkgs
   where
-    resolverParams :: SourcePackageDb loc -> [PackageSpecifier UnresolvedSourcePackage] -> DepResolverParams loc
+    resolverParams :: SourcePackageDb -> [PackageSpecifier UnresolvedSourcePackage] -> DepResolverParams
     resolverParams sourcePkgDb pkgSpecifiers =
       -- TODO: add command-line constraint and preference args for unpack
       standardInstallPolicy mempty sourcePkgDb pkgSpecifiers
@@ -223,13 +223,13 @@ unpackPackage verbosity prefix pkgid descOverride pkgPath = do
   existsDir <- doesDirectoryExist pkgdir
   when existsDir $ do
     isEmpty <- emptyDirectory pkgdir
-    unless isEmpty
-      $ dieWithException verbosity
-      $ DirectoryAlreadyExists pkgdir'
+    unless isEmpty $
+      dieWithException verbosity $
+        DirectoryAlreadyExists pkgdir'
   existsFile <- doesFileExist pkgdir
-  when existsFile
-    $ dieWithException verbosity
-    $ FileExists pkgdir
+  when existsFile $
+    dieWithException verbosity $
+      FileExists pkgdir
   notice verbosity $ "Unpacking to " ++ pkgdir'
   Tar.extractTarGzFile prefix pkgdirname pkgPath
 
@@ -237,10 +237,10 @@ unpackPackage verbosity prefix pkgid descOverride pkgPath = do
     Nothing -> return ()
     Just pkgtxt -> do
       let descFilePath = pkgdir </> prettyShow (packageName pkgid) <.> "cabal"
-      info verbosity
-        $ "Updating "
-        ++ descFilePath
-        ++ " with the latest revision from the index."
+      info verbosity $
+        "Updating "
+          ++ descFilePath
+          ++ " with the latest revision from the index."
       writeFileAtomic descFilePath pkgtxt
 
 -- | Write a @pkgId.cabal@ file with the package description to the destination
@@ -249,13 +249,13 @@ unpackOnlyPkgDescr :: Verbosity -> FilePath -> UnresolvedSourcePackage -> IO ()
 unpackOnlyPkgDescr verbosity dstDir pkg = do
   let pkgFile = dstDir </> prettyShow (packageId pkg) <.> "cabal"
   existsFile <- doesFileExist pkgFile
-  when existsFile
-    $ dieWithException verbosity
-    $ FileAlreadyExists pkgFile
+  when existsFile $
+    dieWithException verbosity $
+      FileAlreadyExists pkgFile
   existsDir <- doesDirectoryExist (addTrailingPathSeparator pkgFile)
-  when existsDir
-    $ dieWithException verbosity
-    $ DirectoryExists pkgFile
+  when existsDir $
+    dieWithException verbosity $
+      DirectoryExists pkgFile
   notice verbosity $ "Writing package description to " ++ pkgFile
   case srcpkgDescrOverride pkg of
     Just pkgTxt -> writeFileAtomic pkgFile pkgTxt
@@ -352,8 +352,8 @@ clonePackagesFromSourceRepo
 
     -- Configure the VCS drivers for all the repository types we may need
     vcss <-
-      configureVCSs verbosity
-        $ Map.fromList
+      configureVCSs verbosity $
+        Map.fromList
           [ (vcsRepoType vcs, vcs)
           | (_, _, vcs, _) <- pkgrepos'
           ]
@@ -400,8 +400,8 @@ clonePackagesFromSourceRepo
             destDir = destDirPrefix </> prettyShow (packageName pkgid)
         destDirExists <- doesDirectoryExist destDir
         destFileExists <- doesFileExist destDir
-        when (destDirExists || destFileExists)
-          $ throwIO (ClonePackageDestinationExists pkgid destDir destDirExists)
+        when (destDirExists || destFileExists) $
+          throwIO (ClonePackageDestinationExists pkgid destDir destDirExists)
 
         return (pkgid, repo', vcs, destDir)
 
