@@ -161,6 +161,7 @@ library
         Distribution.Client.RebuildMonad
         Distribution.Client.Reconfigure
         Distribution.Client.ReplFlags
+        Distribution.Client.Repository
         Distribution.Client.Run
         Distribution.Client.Sandbox
         Distribution.Client.Sandbox.PackageEnvironment
