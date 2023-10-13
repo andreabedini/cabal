@@ -13,9 +13,10 @@ module Distribution.Client.HttpUtils
   , HttpCode
   , downloadURI
   , transportCheckHttps
-  , remoteRepoCheckHttps
-  , remoteRepoTryUpgradeToHttps
-  , isOldHackageURI
+
+    -- * NOTE: not sure if exposing those is a good idea
+  , requiresHttpsErrorMessage
+  , supportedTransports
   ) where
 
 import Distribution.Client.Compat.Prelude hiding (Proxy (..))
@@ -23,10 +24,6 @@ import Distribution.Utils.Generic
 import Prelude ()
 
 import qualified Control.Exception as Exception
-import Distribution.Client.Types
-  ( RemoteRepo (..)
-  , unRepoName
-  )
 import Distribution.Client.Types.Credentials (Auth)
 import Distribution.Client.Utils
   ( withTempFileName
@@ -105,9 +102,6 @@ import System.FilePath
   ( takeDirectory
   , takeFileName
   , (<.>)
-  )
-import qualified System.FilePath.Posix as FilePath.Posix
-  ( splitDirectories
   )
 import System.IO
   ( IOMode (ReadMode)
@@ -263,17 +257,6 @@ downloadURI transport verbosity uri path = do
 -- Utilities for repo url management
 --
 
-remoteRepoCheckHttps :: Verbosity -> HttpTransport -> RemoteRepo -> IO ()
-remoteRepoCheckHttps verbosity transport repo
-  | uriScheme (remoteRepoURI repo) == "https:"
-  , not (transportSupportsHttps transport) =
-      die' verbosity $
-        "The remote repository '"
-          ++ unRepoName (remoteRepoName repo)
-          ++ "' specifies a URL that "
-          ++ requiresHttpsErrorMessage
-  | otherwise = return ()
-
 transportCheckHttps :: Verbosity -> HttpTransport -> URI -> IO ()
 transportCheckHttps verbosity transport uri
   | uriScheme uri == "https:"
@@ -296,42 +279,6 @@ requiresHttpsErrorMessage =
     ++ ". One of these will be selected automatically if the corresponding "
     ++ "external program is available, or one can be selected specifically "
     ++ "with the global flag --http-transport="
-
-remoteRepoTryUpgradeToHttps :: Verbosity -> HttpTransport -> RemoteRepo -> IO RemoteRepo
-remoteRepoTryUpgradeToHttps verbosity transport repo
-  | remoteRepoShouldTryHttps repo
-  , uriScheme (remoteRepoURI repo) == "http:"
-  , not (transportSupportsHttps transport)
-  , not (transportManuallySelected transport) =
-      die' verbosity $
-        "The builtin HTTP implementation does not support HTTPS, but using "
-          ++ "HTTPS for authenticated uploads is recommended. "
-          ++ "The transport implementations with HTTPS support are "
-          ++ intercalate ", " [name | (name, _, True, _) <- supportedTransports]
-          ++ "but they require the corresponding external program to be "
-          ++ "available. You can either make one available or use plain HTTP by "
-          ++ "using the global flag --http-transport=plain-http (or putting the "
-          ++ "equivalent in the config file). With plain HTTP, your password "
-          ++ "is sent using HTTP digest authentication so it cannot be easily "
-          ++ "intercepted, but it is not as secure as using HTTPS."
-  | remoteRepoShouldTryHttps repo
-  , uriScheme (remoteRepoURI repo) == "http:"
-  , transportSupportsHttps transport =
-      return
-        repo
-          { remoteRepoURI = (remoteRepoURI repo){uriScheme = "https:"}
-          }
-  | otherwise =
-      return repo
-
--- | Utility function for legacy support.
-isOldHackageURI :: URI -> Bool
-isOldHackageURI uri =
-  case uriAuthority uri of
-    Just (URIAuth{uriRegName = "hackage.haskell.org"}) ->
-      FilePath.Posix.splitDirectories (uriPath uri)
-        == ["/", "packages", "archive"]
-    _ -> False
 
 ------------------------------------------------------------------------------
 -- Setting up a HttpTransport

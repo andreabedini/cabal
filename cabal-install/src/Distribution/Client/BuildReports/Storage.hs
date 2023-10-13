@@ -35,6 +35,7 @@ import Distribution.Client.InstallPlan
   ( InstallPlan
   )
 import qualified Distribution.Client.InstallPlan as InstallPlan
+import Distribution.Client.Repository
 import Distribution.Client.Types
 
 import qualified Distribution.Solver.Types.ComponentDeps as CD

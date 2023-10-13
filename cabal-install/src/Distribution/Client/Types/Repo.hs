@@ -9,12 +9,6 @@ module Distribution.Client.Types.Repo
   , LocalRepo (..)
   , emptyLocalRepo
   , localRepoCacheKey
-
-    -- * Repository
-  , Repo (..)
-  , repoName
-  , isRepoRemote
-  , maybeRepoRemote
   ) where
 
 import Distribution.Client.Compat.Prelude
@@ -141,52 +135,3 @@ localRepoCacheKey local = unRepoName (localRepoName local) ++ "-" ++ hashPart
 -------------------------------------------------------------------------------
 -- Any repository
 -------------------------------------------------------------------------------
-
--- | Different kinds of repositories
---
--- NOTE: It is important that this type remains serializable.
-data Repo
-  = -- | Local repository, without index.
-    --
-    -- https://github.com/haskell/cabal/issues/6359
-    RepoLocalNoIndex
-      { repoLocal :: LocalRepo
-      , repoLocalDir :: FilePath
-      }
-  | -- | Standard (unsecured) remote repositories
-    RepoRemote
-      { repoRemote :: RemoteRepo
-      , repoLocalDir :: FilePath
-      }
-  | -- | Secure repositories
-    --
-    -- Although this contains the same fields as 'RepoRemote', we use a separate
-    -- constructor to avoid confusing the two.
-    --
-    -- Not all access to a secure repo goes through the hackage-security
-    -- library currently; code paths that do not still make use of the
-    -- 'repoRemote' and 'repoLocalDir' fields directly.
-    RepoSecure
-      { repoRemote :: RemoteRepo
-      , repoLocalDir :: FilePath
-      }
-  deriving (Show, Eq, Ord, Generic)
-
-instance Binary Repo
-instance Structured Repo
-
--- | Check if this is a remote repo
-isRepoRemote :: Repo -> Bool
-isRepoRemote RepoLocalNoIndex{} = False
-isRepoRemote _ = True
-
--- | Extract @RemoteRepo@ from @Repo@ if remote.
-maybeRepoRemote :: Repo -> Maybe RemoteRepo
-maybeRepoRemote (RepoLocalNoIndex _ _localDir) = Nothing
-maybeRepoRemote (RepoRemote r _localDir) = Just r
-maybeRepoRemote (RepoSecure r _localDir) = Just r
-
-repoName :: Repo -> RepoName
-repoName (RepoLocalNoIndex r _) = localRepoName r
-repoName (RepoRemote r _) = remoteRepoName r
-repoName (RepoSecure r _) = remoteRepoName r

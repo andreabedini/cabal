@@ -15,7 +15,7 @@ import Network.URI (URI)
 
 import Distribution.Types.PackageId (PackageId)
 
-import Distribution.Client.Types.Repo
+import Distribution.Client.Repository
 import Distribution.Client.Types.SourceRepo (SourceRepoMaybe)
 import Distribution.Solver.Types.SourcePackage (SourcePackage)
 
