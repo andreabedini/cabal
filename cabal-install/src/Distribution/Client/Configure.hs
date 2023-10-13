@@ -421,7 +421,7 @@ planLocalPackage
       benchmarksEnabled =
         fromFlagOrDefault False $ configBenchmarks configFlags
 
-      resolverParams :: DepResolverParams
+      resolverParams :: DepResolverParams UnresolvedPkgLoc
       resolverParams =
         removeLowerBounds
           (fromMaybe (AllowOlder mempty) $ configAllowOlder configExFlags)

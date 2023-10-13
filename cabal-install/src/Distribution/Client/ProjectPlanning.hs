@@ -85,7 +85,6 @@ import Distribution.Client.Store
 import Distribution.Client.Config
 import Distribution.Client.Dependency
 import Distribution.Client.DistDirLayout
-import Distribution.Client.FetchUtils
 import qualified Distribution.Client.IndexUtils as IndexUtils
 import qualified Distribution.Client.InstallPlan as InstallPlan
 import Distribution.Client.JobControl
@@ -1146,7 +1145,7 @@ planPackages
       -- TODO: [nice to have] disable multiple instances restriction in
       -- the solver, but then make sure we can cope with that in the
       -- output.
-      resolverParams :: DepResolverParams
+      resolverParams :: DepResolverParams ResolvedPkgLoc
       resolverParams =
         setMaxBackjumps solverSettingMaxBackjumps
           . setIndependentGoals solverSettingIndependentGoals
@@ -1255,7 +1254,7 @@ planPackages
             ]
           $ stdResolverParams
 
-      stdResolverParams :: DepResolverParams
+      stdResolverParams :: DepResolverParams ResolvedPkgLoc
       stdResolverParams =
         -- Note: we don't use the standardInstallPolicy here, since that uses
         -- its own addDefaultSetupDependencies that is not appropriate for us.

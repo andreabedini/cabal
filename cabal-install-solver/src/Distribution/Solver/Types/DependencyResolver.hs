@@ -11,6 +11,7 @@ import Distribution.Solver.Types.PackagePreferences
 import Distribution.Solver.Types.PkgConfigDb (PkgConfigDb)
 import Distribution.Solver.Types.Progress
 import Distribution.Solver.Types.ResolverPackage
+import Distribution.Solver.Types.SourcePackage (SourcePackage)
 
 import Distribution.Compiler (CompilerInfo)
 import Distribution.Package (PackageName)
@@ -28,7 +29,7 @@ type DependencyResolver loc =
   Platform
   -> CompilerInfo
   -> InstalledPackageIndex
-  -> PackageIndex loc
+  -> PackageIndex (SourcePackage loc)
   -> PkgConfigDb
   -> (PackageName -> PackagePreferences)
   -> [LabeledPackageConstraint]

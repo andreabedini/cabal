@@ -224,7 +224,7 @@ planPackages
 
     return $ pruneInstallPlan installPlan pkgSpecifiers
     where
-      resolverParams :: DepResolverParams
+      resolverParams :: DepResolverParams UnresolvedPkgLoc
       resolverParams =
         setMaxBackjumps
           ( if maxBackjumps < 0

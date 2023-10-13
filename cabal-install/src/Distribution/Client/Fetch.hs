@@ -194,7 +194,7 @@ planPackages
         either (dieWithException verbosity . PlanPackages . unlines . map show) return $
           resolveWithoutDependencies resolverParams
     where
-      resolverParams :: DepResolverParams
+      resolverParams :: DepResolverParams UnresolvedPkgLoc
       resolverParams =
         setMaxBackjumps
           ( if maxBackjumps < 0

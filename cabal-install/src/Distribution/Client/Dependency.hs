@@ -71,7 +71,6 @@ import qualified Prelude as Unsafe (head)
 import Distribution.Client.Dependency.Types
   ( PackagesPreferenceDefault (..)
   )
-import Distribution.Client.SolverInstallPlan (SolverInstallPlan)
 import qualified Distribution.Client.SolverInstallPlan as SolverInstallPlan
 import Distribution.Client.Types
   ( AllowNewer (..)
@@ -82,10 +81,7 @@ import Distribution.Client.Types
   , RelaxDepSubject (..)
   , RelaxDeps (..)
   , RelaxedDep (..)
-  , SourcePackageDb (..)
-  , SourcePackageDb0
-  , UnresolvedPkgLoc
-  , UnresolvedSourcePackage
+  , SourcePackageDb0 (..)
   , isRelaxDeps
   , pkgSpecifierConstraints
   , pkgSpecifierTarget
@@ -160,7 +156,6 @@ import Data.List
   )
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-import Distribution.Client.Types.SourcePackageDb (pattern SourcePackageDb)
 
 -- ------------------------------------------------------------
 
@@ -688,7 +683,7 @@ basicInstallPolicy
   -> DepResolverParams loc
 basicInstallPolicy
   installedPkgIndex
-  (SourcePackageDb sourcePkgIndex sourcePkgPrefs)
+  (SourcePackageDb0 sourcePkgIndex sourcePkgPrefs)
   pkgSpecifiers =
     addPreferences
       [ PackageVersionPreference name ver
@@ -895,7 +890,7 @@ validateSolverResult
    . Platform
   -> CompilerInfo
   -> IndependentGoals
-  -> [ResolverPackage (SourcePackage loc)]
+  -> [ResolverPackage loc]
   -> SolverInstallPlan.SolverInstallPlan0 loc
 validateSolverResult platform comp indepGoals pkgs =
   case planPackagesProblems platform comp pkgs of
@@ -904,12 +899,12 @@ validateSolverResult platform comp indepGoals pkgs =
       Left problems -> error (formatPlanProblems problems)
     problems -> error (formatPkgProblems problems)
   where
-    graph :: Graph.Graph (ResolverPackage (SourcePackage loc))
+    graph :: Graph.Graph (ResolverPackage loc)
     graph = Graph.fromDistinctList pkgs
 
-    formatPkgProblems :: [PlanPackageProblem] -> String
+    formatPkgProblems :: [PlanPackageProblem loc] -> String
     formatPkgProblems = formatProblemMessage . map showPlanPackageProblem
-    formatPlanProblems :: [SolverInstallPlan.SolverPlanProblem] -> String
+    formatPlanProblems :: [SolverInstallPlan.SolverPlanProblem loc] -> String
     formatPlanProblems = formatProblemMessage . map SolverInstallPlan.showPlanProblem
 
     formatProblemMessage problems =
@@ -920,13 +915,13 @@ validateSolverResult platform comp indepGoals pkgs =
           ++ "Proposed plan:"
           : [SolverInstallPlan.showPlanIndex pkgs]
 
-data PlanPackageProblem
+data PlanPackageProblem loc
   = InvalidConfiguredPackage
-      (SolverPackage UnresolvedPkgLoc)
+      (SolverPackage loc)
       [PackageProblem]
-  | DuplicatePackageSolverId SolverId [ResolverPackage UnresolvedPkgLoc]
+  | DuplicatePackageSolverId SolverId [ResolverPackage loc]
 
-showPlanPackageProblem :: PlanPackageProblem -> String
+showPlanPackageProblem :: PlanPackageProblem loc -> String
 showPlanPackageProblem (InvalidConfiguredPackage pkg packageProblems) =
   "Package "
     ++ prettyShow (packageId pkg)
@@ -945,8 +940,8 @@ showPlanPackageProblem (DuplicatePackageSolverId pid dups) =
 planPackagesProblems
   :: Platform
   -> CompilerInfo
-  -> [ResolverPackage UnresolvedPkgLoc]
-  -> [PlanPackageProblem]
+  -> [ResolverPackage loc]
+  -> [PlanPackageProblem loc]
 planPackagesProblems platform cinfo pkgs =
   [ InvalidConfiguredPackage pkg packageProblems
   | Configured pkg <- pkgs
@@ -998,7 +993,7 @@ showPackageProblem (InvalidDep dep pkgid) =
 configuredPackageProblems
   :: Platform
   -> CompilerInfo
-  -> SolverPackage UnresolvedPkgLoc
+  -> SolverPackage loc
   -> [PackageProblem]
 configuredPackageProblems
   platform

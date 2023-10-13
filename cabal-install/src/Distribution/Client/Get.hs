@@ -143,7 +143,7 @@ get verbosity repoCtxt _ getFlags userTargets = do
         then clone pkgs
         else unpack pkgs
   where
-    resolverParams :: SourcePackageDb -> [PackageSpecifier UnresolvedSourcePackage] -> DepResolverParams
+    resolverParams :: SourcePackageDb -> [PackageSpecifier UnresolvedSourcePackage] -> DepResolverParams UnresolvedPkgLoc
     resolverParams sourcePkgDb pkgSpecifiers =
       -- TODO: add command-line constraint and preference args for unpack
       standardInstallPolicy mempty sourcePkgDb pkgSpecifiers

@@ -48,7 +48,7 @@ import Distribution.Client.Init.Defaults
 import Distribution.Client.Init.FlagExtractors
 import Distribution.Client.Init.NonInteractive.Heuristics
 import Distribution.Client.Init.Utils
-import Distribution.Client.Types (SourcePackageDb (..))
+import Distribution.Client.Types (SourcePackageDb, packageIndex)
 import Distribution.ModuleName (ModuleName, components)
 import Distribution.Simple.PackageIndex (InstalledPackageIndex)
 import Distribution.Simple.Setup (Flag (..), fromFlagOrDefault)

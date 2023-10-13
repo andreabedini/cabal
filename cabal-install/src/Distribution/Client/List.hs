@@ -91,8 +91,9 @@ import Distribution.Client.Targets
   )
 import Distribution.Client.Types
   ( PackageSpecifier (..)
-  , SourcePackageDb (..)
   , UnresolvedSourcePackage
+  , packageIndex
+  , packagePreferences
   )
 import Distribution.Client.Utils
   ( MergeResult (..)

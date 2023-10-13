@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -----------------------------------------------------------------------------
 
@@ -55,7 +56,7 @@ import Distribution.Client.Init.NonInteractive.Heuristics (guessAuthorEmail, gue
 import Distribution.Client.Init.Prompt
 import Distribution.Client.Init.Types
 import Distribution.Client.Init.Utils
-import Distribution.Client.Types (SourcePackageDb (..))
+import Distribution.Client.Types (SourcePackageDb, packageIndex)
 import Distribution.FieldGrammar.Newtypes (SpecLicense (..))
 import qualified Distribution.SPDX as SPDX
 import Distribution.Simple.PackageIndex (InstalledPackageIndex)
