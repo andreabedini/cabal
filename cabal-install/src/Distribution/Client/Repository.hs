@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE NamedFieldPuns #-}
@@ -13,7 +14,13 @@ module Distribution.Client.Repository
   ( -- * Repository
     Repo (..)
   , Repository (..)
-  , RepositoryHasURI (..)
+  , RepositoryIsRemote (..)
+  , RemoteRepository (..)
+  , remoteRepositoryURI
+
+    -- * Located
+  , Located (..)
+  , repoLocalDir
 
     -- * Repo context
   , RepoContext (..)
@@ -27,6 +34,8 @@ module Distribution.Client.Repository
   , URIAuth (..)
   , module Distribution.Client.Types.Repo
   , module Distribution.Client.Types.RepoName
+  , module Data.Some
+  , packageURI
   )
 where
 
@@ -38,7 +47,9 @@ import Control.Concurrent
   , modifyMVar
   , newMVar
   )
+import Data.GADT.Show
 import qualified Data.Map as Map
+import Data.Some
 import Network.URI
 import System.FilePath ((</>))
 import qualified System.FilePath.Posix as FilePath.Posix
@@ -55,6 +66,12 @@ import Distribution.Client.Types.Repo
 import Distribution.Client.Types.RepoName
 import Distribution.Simple.Utils (die', info, warn)
 
+import Data.GADT.Compare
+import Data.Type.Equality (TestEquality (testEquality), type (:~:) (..))
+import Distribution.Compat.Lens (Lens', over, view)
+import Distribution.Package (packageName, packageVersion)
+import Distribution.Types.PackageId (PackageId)
+import Distribution.Utils.Structured (Structured (..))
 import qualified Hackage.Security.Client as Sec
 import qualified Hackage.Security.Client.Repository.Cache as Sec
 import qualified Hackage.Security.Client.Repository.Local as Sec.Local
@@ -85,7 +102,6 @@ data SecureRepo = SecureRepo
   --
   -- This field is not currently stored in the config file, but is filled
   -- in automagically for known repos.
-  , secureRepoCacheDir :: FilePath
   }
   deriving (Show, Eq, Ord, Generic)
 
@@ -103,7 +119,6 @@ data LegacyRepo = LegacyRepo
   --
   -- This field is not currently stored in the config file, but is filled
   -- in automagically for known repos.
-  , legacyRepoCacheDir :: FilePath
   }
   deriving (Show, Eq, Ord, Generic)
 
@@ -113,6 +128,7 @@ instance Structured LegacyRepo
 -- | Different kinds of repositories
 --
 -- NOTE: It is important that this type remains serializable.
+-- TODO: Rename to Repository? and rename the typeclass?
 data Repo r where
   -- | Local repository, without index.
   RepoLocalNoIndex :: Located LocalRepo -> Repo LocalRepo
@@ -121,9 +137,44 @@ data Repo r where
   -- | Secure repositories
   RepoSecure :: Located SecureRepo -> Repo SecureRepo
 
+instance GShow Repo where
+  gshowsPrec = defaultGshowsPrec
+
+instance GEq Repo where
+  geq (RepoLocalNoIndex lhs) (RepoLocalNoIndex rhs) | lhs == rhs = Just Refl
+  geq (RepoLegacy lhs) (RepoLegacy rhs) | lhs == rhs = Just Refl
+  geq (RepoSecure lhs) (RepoSecure rhs) | lhs == rhs = Just Refl
+  geq _ _ = Nothing
+
+instance GCompare Repo where
+  gcompare (RepoLocalNoIndex x) (RepoLocalNoIndex y) | x < y = GLT
+  gcompare (RepoLocalNoIndex x) (RepoLocalNoIndex y) | x == y = GEQ
+  gcompare (RepoLocalNoIndex _) (RepoLocalNoIndex _) = GGT
+  gcompare (RepoLocalNoIndex x) (RepoLegacy y) = GLT
+  gcompare (RepoLocalNoIndex x) (RepoSecure y) = GLT
+  gcompare (RepoLegacy x) (RepoLocalNoIndex y) = GGT
+  gcompare (RepoLegacy x) (RepoLegacy y) | x < y = GLT
+  gcompare (RepoLegacy x) (RepoLegacy y) | x == y = GEQ
+
 deriving instance Show (Repo r)
 deriving instance Eq (Repo r)
 deriving instance Ord (Repo r)
+
+-- deriving instance Generic (Repo r)
+
+instance Binary (Repo r) where
+  get = error "TODO"
+  put = error "TODO"
+
+instance Typeable r => Structured (Repo r) where
+  structure = error "TODO"
+
+instance Binary (Some Repo) where
+  get = error "TODO"
+  put = error "TODO"
+
+instance Structured (Some Repo) where
+  structure = error "TODO"
 
 class Repository r where
   repositoryName :: r -> RepoName
@@ -137,33 +188,42 @@ instance Repository LegacyRepo where
 instance Repository SecureRepo where
   repositoryName = secureRepoName
 
-class Repository r => RepositoryHasURI r where
-  repositoryURI :: r -> URI
+class Repository r => RepositoryIsRemote r where
+  _remoteRepositoryURI :: Lens' r URI
+  remoteRepositoryShouldTryHttps :: r -> Bool
 
-instance RepositoryHasURI LegacyRepo where
-  repositoryURI = legacyRepoURI
+instance RepositoryIsRemote SecureRepo where
+  _remoteRepositoryURI f s =
+    fmap (\x -> s{secureRepoURI = x}) (f (secureRepoURI s))
+  remoteRepositoryShouldTryHttps = secureRepoShouldTryHttps
 
-instance RepositoryHasURI SecureRepo where
-  repositoryURI = secureRepoURI
+instance RepositoryIsRemote LegacyRepo where
+  _remoteRepositoryURI f s =
+    fmap (\x -> s{legacyRepoURI = x}) (f (legacyRepoURI s))
+  remoteRepositoryShouldTryHttps = legacyRepoShouldTryHttps
 
-class Remote r
+remoteRepositoryURI :: RepositoryIsRemote r => r -> URI
+remoteRepositoryURI = view _remoteRepositoryURI
 
-instance Remote SecureRepo
+data RemoteRepository where
+  RemoteRepository :: RepositoryIsRemote r => Repo r -> RemoteRepository
 
-instance Remote LegacyRepo
+deriving instance Show RemoteRepository
 
-data RemoteRepository r where
-  RemoteRepository :: Remote r => Repo r -> RemoteRepository r
+-- deriving instance Eq RemoteRepository
+-- deriving instance Ord RemoteRepository
 
-asRepo :: Some RemoteRepository -> Some Repo
-asRepo (Some (RemoteRepository repo)) = Some repo
+-- instance GShow RemoteRepository where
+--   gshowsPrec = defaultGshowsPrec
 
--- deriving instance Generic (Repo r)
+asRepo :: RemoteRepository -> Some Repo
+asRepo (RemoteRepository repo) = Some repo
 
--- instance Binary Repo
--- instance Structured Repo
-
-data Some f = forall a. Some (f a)
+-- TODO: for compat
+repoLocalDir :: Some Repo -> FilePath
+repoLocalDir (Some (RepoLocalNoIndex (Located dir _))) = dir
+repoLocalDir (Some (RepoLegacy (Located dir _))) = dir
+repoLocalDir (Some (RepoSecure (Located dir _))) = dir
 
 data Located r = Located
   { repositoryCacheDir :: FilePath
@@ -222,9 +282,11 @@ withRepoContext'
   ignoreExpiry
   extraPaths = \callback -> do
     for_ localNoIndexRepos $ \local ->
-      unless (FilePath.Posix.isAbsolute (localRepoPath local)) $
-        warn verbosity $
-          "file+noindex " ++ unRepoName (localRepoName local) ++ " repository path is not absolute; this is fragile, and not recommended"
+      unless (FilePath.Posix.isAbsolute (localRepoPath local))
+        $ warn verbosity
+        $ "file+noindex "
+        ++ unRepoName (localRepoName local)
+        ++ " repository path is not absolute; this is fragile, and not recommended"
 
     transportRef <- newMVar Nothing
     let httpLib =
@@ -243,36 +305,32 @@ withRepoContext'
       secureRemoteRepos :: [Located SecureRepo]
       secureRemoteRepos = [repo | (Some (RepoSecure repo)) <- map asRepo allRemoteRepos]
 
-      parseRemoteRepo :: RemoteRepo -> Some RemoteRepository
+      parseRemoteRepo :: RemoteRepo -> RemoteRepository
       parseRemoteRepo RemoteRepo{..}
         | Just True <- remoteRepoSecure =
-            Some $
-              RemoteRepository $
-                RepoSecure $
-                  Located cacheDir $
-                    SecureRepo
-                      { secureRepoName = remoteRepoName
-                      , secureRepoURI = remoteRepoURI
-                      , secureRepoRootKeys = remoteRepoRootKeys
-                      , secureRepoKeyThreshold = remoteRepoKeyThreshold
-                      , secureRepoShouldTryHttps = remoteRepoShouldTryHttps
-                      , secureRepoCacheDir = cacheDir
-                      }
+            RemoteRepository
+              $ RepoSecure
+              $ Located cacheDir
+              $ SecureRepo
+                { secureRepoName = remoteRepoName
+                , secureRepoURI = remoteRepoURI
+                , secureRepoRootKeys = remoteRepoRootKeys
+                , secureRepoKeyThreshold = remoteRepoKeyThreshold
+                , secureRepoShouldTryHttps = remoteRepoShouldTryHttps
+                }
         | otherwise =
-            Some $
-              RemoteRepository $
-                RepoLegacy $
-                  Located cacheDir $
-                    LegacyRepo
-                      { legacyRepoName = remoteRepoName
-                      , legacyRepoURI = remoteRepoURI
-                      , legacyRepoShouldTryHttps = remoteRepoShouldTryHttps
-                      , legacyRepoCacheDir = cacheDir
-                      }
+            RemoteRepository
+              $ RepoLegacy
+              $ Located cacheDir
+              $ LegacyRepo
+                { legacyRepoName = remoteRepoName
+                , legacyRepoURI = remoteRepoURI
+                , legacyRepoShouldTryHttps = remoteRepoShouldTryHttps
+                }
         where
           cacheDir = sharedCacheDir </> unRepoName remoteRepoName
 
-      allRemoteRepos :: [Some RemoteRepository]
+      allRemoteRepos :: [RemoteRepository]
       allRemoteRepos = map parseRemoteRepo remoteRepos
 
       allLocalNoIndexRepos :: [Repo LocalRepo]
@@ -354,23 +412,23 @@ initSecureRepo verbosity httpLib (Located cacheDir SecureRepo{..}) = \callback -
   mirrors <-
     if requiresBootstrap
       then do
-        info verbosity $
-          "Trying to locate mirrors via DNS for "
-            ++ "initial bootstrap of secure "
-            ++ "repository '"
-            ++ show secureRepoURI
-            ++ "' ..."
+        info verbosity
+          $ "Trying to locate mirrors via DNS for "
+          ++ "initial bootstrap of secure "
+          ++ "repository '"
+          ++ show secureRepoURI
+          ++ "' ..."
 
         Sec.DNS.queryBootstrapMirrors verbosity secureRepoURI
       else pure []
 
   withRepo mirrors cache $ \r -> do
-    when requiresBootstrap $
-      Sec.uncheckClientErrors $
-        Sec.bootstrap
-          r
-          (map Sec.KeyId secureRepoRootKeys)
-          (Sec.KeyThreshold (fromIntegral secureRepoKeyThreshold))
+    when requiresBootstrap
+      $ Sec.uncheckClientErrors
+      $ Sec.bootstrap
+        r
+        (map Sec.KeyId secureRepoRootKeys)
+        (Sec.KeyThreshold (fromIntegral secureRepoKeyThreshold))
     callback $ r
   where
     -- Initialize local or remote repo depending on the URI
@@ -404,43 +462,64 @@ initSecureRepo verbosity httpLib (Located cacheDir SecureRepo{..}) = \callback -
     logTUF :: Sec.LogMessage -> IO ()
     logTUF = info verbosity . Sec.pretty
 
-remoteRepoCheckHttps :: RepositoryHasURI r => Verbosity -> HttpTransport -> r -> IO ()
+remoteRepoCheckHttps :: RepositoryIsRemote r => Verbosity -> HttpTransport -> r -> IO ()
 remoteRepoCheckHttps verbosity transport repo
-  | uriScheme (repositoryURI repo) == "https:"
+  | uriScheme (remoteRepositoryURI repo) == "https:"
   , not (transportSupportsHttps transport) =
-      die' verbosity $
-        "The remote repository '"
-          ++ unRepoName (repositoryName repo)
-          ++ "' specifies a URL that "
-          ++ requiresHttpsErrorMessage
+      die' verbosity
+        $ "The remote repository '"
+        ++ unRepoName (repositoryName repo)
+        ++ "' specifies a URL that "
+        ++ requiresHttpsErrorMessage
   | otherwise = return ()
 
-remoteRepoTryUpgradeToHttps :: Verbosity -> HttpTransport -> RemoteRepo -> IO RemoteRepo
+remoteRepoTryUpgradeToHttps :: RepositoryIsRemote r => Verbosity -> HttpTransport -> r -> IO r
 remoteRepoTryUpgradeToHttps verbosity transport repo
-  | remoteRepoShouldTryHttps repo
-  , uriScheme (remoteRepoURI repo) == "http:"
+  | remoteRepositoryShouldTryHttps repo
+  , uriScheme (remoteRepositoryURI repo) == "http:"
   , not (transportSupportsHttps transport)
   , not (transportManuallySelected transport) =
-      die' verbosity $
-        "The builtin HTTP implementation does not support HTTPS, but using "
-          ++ "HTTPS for authenticated uploads is recommended. "
-          ++ "The transport implementations with HTTPS support are "
-          ++ intercalate ", " [name | (name, _, True, _) <- supportedTransports]
-          ++ "but they require the corresponding external program to be "
-          ++ "available. You can either make one available or use plain HTTP by "
-          ++ "using the global flag --http-transport=plain-http (or putting the "
-          ++ "equivalent in the config file). With plain HTTP, your password "
-          ++ "is sent using HTTP digest authentication so it cannot be easily "
-          ++ "intercepted, but it is not as secure as using HTTPS."
-  | remoteRepoShouldTryHttps repo
-  , uriScheme (remoteRepoURI repo) == "http:"
+      die' verbosity
+        $ "The builtin HTTP implementation does not support HTTPS, but using "
+        ++ "HTTPS for authenticated uploads is recommended. "
+        ++ "The transport implementations with HTTPS support are "
+        ++ intercalate ", " [name | (name, _, True, _) <- supportedTransports]
+        ++ "but they require the corresponding external program to be "
+        ++ "available. You can either make one available or use plain HTTP by "
+        ++ "using the global flag --http-transport=plain-http (or putting the "
+        ++ "equivalent in the config file). With plain HTTP, your password "
+        ++ "is sent using HTTP digest authentication so it cannot be easily "
+        ++ "intercepted, but it is not as secure as using HTTPS."
+  | remoteRepositoryShouldTryHttps repo
+  , uriScheme (remoteRepositoryURI repo) == "http:"
   , transportSupportsHttps transport =
-      return
-        repo
-          { remoteRepoURI = (remoteRepoURI repo){uriScheme = "https:"}
-          }
+      return $ over _remoteRepositoryURI (\uri -> uri{uriScheme = "https:"}) repo
   | otherwise =
       return repo
+
+-- | Generate the URI of the tarball for a given package.
+-- TODO: this should be a method of the RepositoryIsRemote class
+packageURI :: RepositoryIsRemote r => r -> PackageId -> URI
+packageURI repo pkgid
+  | isOldHackageURI (remoteRepositoryURI repo) =
+      (remoteRepositoryURI repo)
+        { uriPath =
+            FilePath.Posix.joinPath
+              [ uriPath (remoteRepositoryURI repo)
+              , prettyShow (packageName pkgid)
+              , prettyShow (packageVersion pkgid)
+              , prettyShow pkgid FilePath.Posix.<.> "tar.gz"
+              ]
+        }
+packageURI repo pkgid =
+  (remoteRepositoryURI repo)
+    { uriPath =
+        FilePath.Posix.joinPath
+          [ uriPath (remoteRepositoryURI repo)
+          , "package"
+          , prettyShow pkgid FilePath.Posix.<.> "tar.gz"
+          ]
+    }
 
 -- | Utility function for legacy support.
 isOldHackageURI :: URI -> Bool

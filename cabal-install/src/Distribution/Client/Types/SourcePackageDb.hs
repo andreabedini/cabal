@@ -24,7 +24,7 @@ data SourcePackageDb = SourcePackageDb
   { packageIndex :: PackageIndex UnresolvedSourcePackage
   , packagePreferences :: Map PackageName VersionRange
   }
-  deriving (Eq, Generic)
+  deriving (Generic)
 
 instance Binary SourcePackageDb
 

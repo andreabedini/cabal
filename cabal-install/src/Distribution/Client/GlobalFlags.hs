@@ -8,30 +8,16 @@
 module Distribution.Client.GlobalFlags
   ( GlobalFlags (..)
   , defaultGlobalFlags
+  , withRepoContext
   ) where
 
 import Distribution.Client.Compat.Prelude
 import Prelude ()
 
-import Distribution.Client.HttpUtils
-  ( HttpTransport
-  , configureTransport
-  )
-import Distribution.Client.Repository
-  ( LocalRepo (..)
-  , RemoteRepo (..)
-  , Repo (..)
-  , localRepoCacheKey
-  , unRepoName
-  )
 import Distribution.Simple.Setup
   ( Flag (..)
   , flagToMaybe
   , fromFlag
-  )
-import Distribution.Simple.Utils
-  ( info
-  , warn
   )
 import Distribution.Utils.NubList
   ( NubList
@@ -42,31 +28,7 @@ import Distribution.Client.IndexUtils.ActiveRepos
   ( ActiveRepos
   )
 
-import Control.Concurrent
-  ( MVar
-  , modifyMVar
-  , newMVar
-  )
-import qualified Data.Map as Map
-import Network.URI
-  ( URI
-  , uriPath
-  , uriScheme
-  )
-import System.FilePath
-  ( (</>)
-  )
-
-import qualified Distribution.Client.Security.DNS as Sec.DNS
-import qualified Distribution.Client.Security.HTTP as Sec.HTTP
-import qualified Hackage.Security.Client as Sec
-import qualified Hackage.Security.Client.Repository.Cache as Sec
-import qualified Hackage.Security.Client.Repository.Local as Sec.Local
-import qualified Hackage.Security.Client.Repository.Remote as Sec.Remote
-import qualified Hackage.Security.Util.Path as Sec
-import qualified Hackage.Security.Util.Pretty as Sec
-
-import qualified System.FilePath.Posix as FilePath.Posix
+import Distribution.Client.Repository
 
 -- ------------------------------------------------------------
 
@@ -82,8 +44,10 @@ data GlobalFlags = GlobalFlags
   , globalConstraintsFile :: Flag FilePath
   , globalRemoteRepos :: NubList RemoteRepo
   -- ^ Available Hackage servers.
+  -- NOTE: this is the parsed type RemoteRepo
   , globalCacheDir :: Flag FilePath
   , globalLocalNoIndexRepos :: NubList LocalRepo
+  -- ^ NOTE: this is the parsed type LocalRepo
   , globalActiveRepos :: Flag ActiveRepos
   , globalLogsDir :: Flag FilePath
   , globalIgnoreExpiry :: Flag Bool

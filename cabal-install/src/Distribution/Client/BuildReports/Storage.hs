@@ -77,7 +77,7 @@ import System.FilePath
   , (</>)
   )
 
-storeAnonymous :: [(BuildReport, Maybe Repo)] -> IO ()
+storeAnonymous :: [(BuildReport, Maybe (Some Repo))] -> IO ()
 storeAnonymous reports =
   sequence_
     [ appendFile file (concatMap format reports')
