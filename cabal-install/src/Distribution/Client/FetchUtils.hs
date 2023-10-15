@@ -72,9 +72,6 @@ import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import qualified Control.Exception.Safe as Safe
 import qualified Data.Map as Map
-import Network.URI
-  ( URI (uriPath)
-  )
 import System.Directory
   ( createDirectoryIfMissing
   , doesFileExist
@@ -87,7 +84,6 @@ import System.FilePath
   )
 import qualified System.FilePath.Posix as FilePath.Posix
   ( combine
-  , joinPath
   )
 import System.IO
   ( hClose
@@ -324,8 +320,8 @@ asyncFetchPackages verbosity repoCtxt pkglocs body = do
           -- It is essential that we don't catch async exceptions here,
           -- specifically 'AsyncCancelled' thrown at us from 'concurrently'.
           result <-
-            Safe.try
-              $ fetchPackage (verboseUnmarkOutput verbosity) repoCtxt pkgloc
+            Safe.try $
+              fetchPackage (verboseUnmarkOutput verbosity) repoCtxt pkgloc
           putMVar var result
 
   (_, res) <-
@@ -368,7 +364,7 @@ packageFile :: Some Repo -> PackageId -> FilePath
 packageFile repo pkgid =
   packageDir repo pkgid
     </> prettyShow pkgid
-    <.> "tar.gz"
+      <.> "tar.gz"
 
 -- | Generate the full path to the directory where the local cached copy of
 -- the tarball for a given @PackageIdentifier@ is stored.

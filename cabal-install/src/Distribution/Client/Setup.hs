@@ -129,11 +129,11 @@ import Distribution.Solver.Types.Settings
 
 import Distribution.Client.GlobalFlags
   ( GlobalFlags (..)
-  , RepoContext (..)
   , defaultGlobalFlags
   , withRepoContext
   )
 import Distribution.Client.ManpageFlags (ManpageFlags, defaultManpageFlags, manpageOptions)
+import Distribution.Client.Repository (RepoContext (..))
 import qualified Distribution.Compat.CharParsing as P
 import Distribution.FieldGrammar.Newtypes (SpecVersion (..))
 import Distribution.PackageDescription

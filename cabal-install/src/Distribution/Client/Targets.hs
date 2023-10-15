@@ -74,7 +74,7 @@ import Distribution.Solver.Types.SourcePackage
 import qualified Codec.Archive.Tar as Tar
 import qualified Codec.Archive.Tar.Entry as Tar
 import Distribution.Client.FetchUtils
-import Distribution.Client.GlobalFlags
+import Distribution.Client.Repository
   ( RepoContext (..)
   )
 import qualified Distribution.Client.Tar as Tar

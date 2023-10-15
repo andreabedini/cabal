@@ -110,9 +110,6 @@ import Distribution.Utils.NubList
 import qualified Data.ByteString as BS
 import qualified Data.Map as M
 import Distribution.Client.Errors
-import Distribution.Client.HttpUtils
-  ( isOldHackageURI
-  )
 import Distribution.Client.ParseUtils
   ( parseFields
   , ppFields
@@ -120,6 +117,9 @@ import Distribution.Client.ParseUtils
   )
 import Distribution.Client.ProjectFlags (ProjectFlags (..))
 import Distribution.Client.ReplFlags
+import Distribution.Client.Repository
+  ( isOldHackageURI
+  )
 import Distribution.Client.Version
   ( cabalInstallVersion
   )
