@@ -2,9 +2,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -67,8 +65,7 @@ import Distribution.Client.Types.RepoName
 import Distribution.Simple.Utils (die', info, warn)
 
 import Data.GADT.Compare
-import Data.Type.Equality (TestEquality (testEquality), type (:~:) (..))
-import Distribution.Compat.Lens (Lens', over, view)
+import Distribution.Compat.Lens (over, view)
 import Distribution.Package (packageName, packageVersion)
 import Distribution.Types.PackageId (PackageId)
 import Distribution.Utils.Structured (Structured (..))
@@ -79,51 +76,13 @@ import qualified Hackage.Security.Client.Repository.Remote as Sec.Remote
 import qualified Hackage.Security.Util.Path as Sec
 import qualified Hackage.Security.Util.Pretty as Sec
 
--- NOTE: we are going to use RemoteRepo as representative of the repository syntax
--- but turn it into SomeRepo when we need to work with it
+import Data.Type.Equality
+import Distribution.Client.Repository.Class
+import Distribution.Client.Repository.Legacy
+import Distribution.Client.Repository.Secure
 
--- | A secure repository
-data SecureRepo = SecureRepo
-  -- NOTE: mostly copied from RemoteRepo
-  { secureRepoName :: RepoName
-  , secureRepoURI :: URI
-  , -- 'Nothing' here represents "whatever the default is"; this is important
-    -- to allow for a smooth transition from opt-in to opt-out security
-    -- (once we switch to opt-out, all access to the central Hackage
-    -- repository should be secure by default)
-    secureRepoRootKeys :: [String]
-  -- ^ Root key IDs (for bootstrapping)
-  , secureRepoKeyThreshold :: Int
-  -- ^ Threshold for verification during bootstrapping
-  , secureRepoShouldTryHttps :: Bool
-  -- ^ Normally a repo just specifies an HTTP or HTTPS URI, but as a
-  -- special case we may know a repo supports both and want to try HTTPS
-  -- if we can, but still allow falling back to HTTP.
-  --
-  -- This field is not currently stored in the config file, but is filled
-  -- in automagically for known repos.
-  }
-  deriving (Show, Eq, Ord, Generic)
-
-instance Binary SecureRepo
-instance Structured SecureRepo
-
--- | A legacy repository
-data LegacyRepo = LegacyRepo
-  { legacyRepoName :: RepoName
-  , legacyRepoURI :: URI
-  , legacyRepoShouldTryHttps :: Bool
-  -- ^ Normally a repo just specifies an HTTP or HTTPS URI, but as a
-  -- special case we may know a repo supports both and want to try HTTPS
-  -- if we can, but still allow falling back to HTTP.
-  --
-  -- This field is not currently stored in the config file, but is filled
-  -- in automagically for known repos.
-  }
-  deriving (Show, Eq, Ord, Generic)
-
-instance Binary LegacyRepo
-instance Structured LegacyRepo
+-- NOTE: We are going to keep RemoteRepo as representative of the user input syntax
+-- We will turn it into Repo after parsing.
 
 -- | Different kinds of repositories
 --
@@ -175,32 +134,6 @@ instance Binary (Some Repo) where
 
 instance Structured (Some Repo) where
   structure = error "TODO"
-
-class Repository r where
-  repositoryName :: r -> RepoName
-
-instance Repository LocalRepo where
-  repositoryName = localRepoName
-
-instance Repository LegacyRepo where
-  repositoryName = legacyRepoName
-
-instance Repository SecureRepo where
-  repositoryName = secureRepoName
-
-class Repository r => RepositoryIsRemote r where
-  _remoteRepositoryURI :: Lens' r URI
-  remoteRepositoryShouldTryHttps :: r -> Bool
-
-instance RepositoryIsRemote SecureRepo where
-  _remoteRepositoryURI f s =
-    fmap (\x -> s{secureRepoURI = x}) (f (secureRepoURI s))
-  remoteRepositoryShouldTryHttps = secureRepoShouldTryHttps
-
-instance RepositoryIsRemote LegacyRepo where
-  _remoteRepositoryURI f s =
-    fmap (\x -> s{legacyRepoURI = x}) (f (legacyRepoURI s))
-  remoteRepositoryShouldTryHttps = legacyRepoShouldTryHttps
 
 remoteRepositoryURI :: RepositoryIsRemote r => r -> URI
 remoteRepositoryURI = view _remoteRepositoryURI
@@ -282,11 +215,11 @@ withRepoContext'
   ignoreExpiry
   extraPaths = \callback -> do
     for_ localNoIndexRepos $ \local ->
-      unless (FilePath.Posix.isAbsolute (localRepoPath local))
-        $ warn verbosity
-        $ "file+noindex "
-        ++ unRepoName (localRepoName local)
-        ++ " repository path is not absolute; this is fragile, and not recommended"
+      unless (FilePath.Posix.isAbsolute (localRepoPath local)) $
+        warn verbosity $
+          "file+noindex "
+            ++ unRepoName (localRepoName local)
+            ++ " repository path is not absolute; this is fragile, and not recommended"
 
     transportRef <- newMVar Nothing
     let httpLib =
@@ -308,25 +241,25 @@ withRepoContext'
       parseRemoteRepo :: RemoteRepo -> RemoteRepository
       parseRemoteRepo RemoteRepo{..}
         | Just True <- remoteRepoSecure =
-            RemoteRepository
-              $ RepoSecure
-              $ Located cacheDir
-              $ SecureRepo
-                { secureRepoName = remoteRepoName
-                , secureRepoURI = remoteRepoURI
-                , secureRepoRootKeys = remoteRepoRootKeys
-                , secureRepoKeyThreshold = remoteRepoKeyThreshold
-                , secureRepoShouldTryHttps = remoteRepoShouldTryHttps
-                }
+            RemoteRepository $
+              RepoSecure $
+                Located cacheDir $
+                  SecureRepo
+                    { secureRepoName = remoteRepoName
+                    , secureRepoURI = remoteRepoURI
+                    , secureRepoRootKeys = remoteRepoRootKeys
+                    , secureRepoKeyThreshold = remoteRepoKeyThreshold
+                    , secureRepoShouldTryHttps = remoteRepoShouldTryHttps
+                    }
         | otherwise =
-            RemoteRepository
-              $ RepoLegacy
-              $ Located cacheDir
-              $ LegacyRepo
-                { legacyRepoName = remoteRepoName
-                , legacyRepoURI = remoteRepoURI
-                , legacyRepoShouldTryHttps = remoteRepoShouldTryHttps
-                }
+            RemoteRepository $
+              RepoLegacy $
+                Located cacheDir $
+                  LegacyRepo
+                    { legacyRepoName = remoteRepoName
+                    , legacyRepoURI = remoteRepoURI
+                    , legacyRepoShouldTryHttps = remoteRepoShouldTryHttps
+                    }
         where
           cacheDir = sharedCacheDir </> unRepoName remoteRepoName
 
@@ -412,23 +345,23 @@ initSecureRepo verbosity httpLib (Located cacheDir SecureRepo{..}) = \callback -
   mirrors <-
     if requiresBootstrap
       then do
-        info verbosity
-          $ "Trying to locate mirrors via DNS for "
-          ++ "initial bootstrap of secure "
-          ++ "repository '"
-          ++ show secureRepoURI
-          ++ "' ..."
+        info verbosity $
+          "Trying to locate mirrors via DNS for "
+            ++ "initial bootstrap of secure "
+            ++ "repository '"
+            ++ show secureRepoURI
+            ++ "' ..."
 
         Sec.DNS.queryBootstrapMirrors verbosity secureRepoURI
       else pure []
 
   withRepo mirrors cache $ \r -> do
-    when requiresBootstrap
-      $ Sec.uncheckClientErrors
-      $ Sec.bootstrap
-        r
-        (map Sec.KeyId secureRepoRootKeys)
-        (Sec.KeyThreshold (fromIntegral secureRepoKeyThreshold))
+    when requiresBootstrap $
+      Sec.uncheckClientErrors $
+        Sec.bootstrap
+          r
+          (map Sec.KeyId secureRepoRootKeys)
+          (Sec.KeyThreshold (fromIntegral secureRepoKeyThreshold))
     callback $ r
   where
     -- Initialize local or remote repo depending on the URI
@@ -466,11 +399,11 @@ remoteRepoCheckHttps :: RepositoryIsRemote r => Verbosity -> HttpTransport -> r 
 remoteRepoCheckHttps verbosity transport repo
   | uriScheme (remoteRepositoryURI repo) == "https:"
   , not (transportSupportsHttps transport) =
-      die' verbosity
-        $ "The remote repository '"
-        ++ unRepoName (repositoryName repo)
-        ++ "' specifies a URL that "
-        ++ requiresHttpsErrorMessage
+      die' verbosity $
+        "The remote repository '"
+          ++ unRepoName (repositoryName repo)
+          ++ "' specifies a URL that "
+          ++ requiresHttpsErrorMessage
   | otherwise = return ()
 
 remoteRepoTryUpgradeToHttps :: RepositoryIsRemote r => Verbosity -> HttpTransport -> r -> IO r
@@ -479,17 +412,17 @@ remoteRepoTryUpgradeToHttps verbosity transport repo
   , uriScheme (remoteRepositoryURI repo) == "http:"
   , not (transportSupportsHttps transport)
   , not (transportManuallySelected transport) =
-      die' verbosity
-        $ "The builtin HTTP implementation does not support HTTPS, but using "
-        ++ "HTTPS for authenticated uploads is recommended. "
-        ++ "The transport implementations with HTTPS support are "
-        ++ intercalate ", " [name | (name, _, True, _) <- supportedTransports]
-        ++ "but they require the corresponding external program to be "
-        ++ "available. You can either make one available or use plain HTTP by "
-        ++ "using the global flag --http-transport=plain-http (or putting the "
-        ++ "equivalent in the config file). With plain HTTP, your password "
-        ++ "is sent using HTTP digest authentication so it cannot be easily "
-        ++ "intercepted, but it is not as secure as using HTTPS."
+      die' verbosity $
+        "The builtin HTTP implementation does not support HTTPS, but using "
+          ++ "HTTPS for authenticated uploads is recommended. "
+          ++ "The transport implementations with HTTPS support are "
+          ++ intercalate ", " [name | (name, _, True, _) <- supportedTransports]
+          ++ "but they require the corresponding external program to be "
+          ++ "available. You can either make one available or use plain HTTP by "
+          ++ "using the global flag --http-transport=plain-http (or putting the "
+          ++ "equivalent in the config file). With plain HTTP, your password "
+          ++ "is sent using HTTP digest authentication so it cannot be easily "
+          ++ "intercepted, but it is not as secure as using HTTPS."
   | remoteRepositoryShouldTryHttps repo
   , uriScheme (remoteRepositoryURI repo) == "http:"
   , transportSupportsHttps transport =

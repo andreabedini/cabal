@@ -162,6 +162,9 @@ library
         Distribution.Client.Reconfigure
         Distribution.Client.ReplFlags
         Distribution.Client.Repository
+        Distribution.Client.Repository.Class
+        Distribution.Client.Repository.Secure
+        Distribution.Client.Repository.Legacy
         Distribution.Client.Run
         Distribution.Client.Sandbox
         Distribution.Client.Sandbox.PackageEnvironment
