@@ -26,7 +26,6 @@ import Distribution.Client.ProjectBuilding.Types
 import Distribution.Client.ProjectPlanning.Types
 import Distribution.Client.Types.ConfiguredId (confInstId)
 import Distribution.Client.Types.PackageLocation (PackageLocation (..))
-import Distribution.Client.Types.Repo (RemoteRepo (..), Repo (..))
 import Distribution.Client.Types.SourceRepo (SourceRepoMaybe, SourceRepositoryPackage (..))
 import Distribution.Client.Version (cabalInstallVersion)
 
@@ -83,6 +82,7 @@ import qualified Data.Set as Set
 import System.FilePath
 import System.IO
 
+import Distribution.Client.Repository (Located (..), Repo (..), RepositoryIsRemote (remoteRepositoryURI), repoLocalDir)
 import Distribution.Simple.Program.GHC (packageDbArgsDb)
 
 -----------------------------------------------------------------------------
@@ -259,20 +259,20 @@ encodePlanAsJson distDirLayout elaboratedInstallPlan elaboratedSharedConfig =
         repoToJ :: Repo -> J.Value
         repoToJ repo =
           case repo of
-            RepoLocalNoIndex{..} ->
+            RepoLocalNoIndex _ ->
               J.object
                 [ "type" J..= J.String "local-repo-no-index"
-                , "path" J..= J.String repoLocalDir
+                , "path" J..= J.String (repoLocalDir repo)
                 ]
-            RepoRemote{..} ->
+            RepoLegacy (Located _ r) ->
               J.object
                 [ "type" J..= J.String "remote-repo"
-                , "uri" J..= J.String (show (remoteRepoURI repoRemote))
+                , "uri" J..= J.String (show (remoteRepositoryURI r))
                 ]
-            RepoSecure{..} ->
+            RepoSecure (Located _ r) ->
               J.object
                 [ "type" J..= J.String "secure-repo"
-                , "uri" J..= J.String (show (remoteRepoURI repoRemote))
+                , "uri" J..= J.String (show (remoteRepositoryURI r))
                 ]
 
         sourceRepoToJ :: SourceRepoMaybe -> J.Value

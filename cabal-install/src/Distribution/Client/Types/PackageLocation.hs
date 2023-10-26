@@ -11,8 +11,6 @@ module Distribution.Client.Types.PackageLocation
 import Distribution.Client.Compat.Prelude
 import Prelude ()
 
-import Data.Some
-
 import Distribution.Types.PackageId (PackageId)
 
 import Distribution.Client.Repository
@@ -31,7 +29,7 @@ data PackageLocation local
   | -- | A package as a tarball from a remote URI
     RemoteTarballPackage URI local
   | -- | A package available as a tarball from a repository.
-    RepoTarballPackage (Some Repo) PackageId local
+    RepoTarballPackage Repo PackageId local
   | -- | A package available from a version control system source repository
     RemoteSourceRepoPackage SourceRepoMaybe local
   deriving (Show, Eq, Ord, Functor, Generic, Typeable)

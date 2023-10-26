@@ -77,7 +77,7 @@ import System.FilePath
   , (</>)
   )
 
-storeAnonymous :: [(BuildReport, Maybe (Some Repo))] -> IO ()
+storeAnonymous :: [(BuildReport, Maybe Repo)] -> IO ()
 storeAnonymous reports =
   sequence_
     [ appendFile file (concatMap format reports')
@@ -95,16 +95,16 @@ storeAnonymous reports =
     separate =
       map (\rs@((_, repo, _) : _) -> (repo, [r | (r, _, _) <- rs]))
         . map (concatMap toList)
-        . L.groupBy (equating (repoName' . head))
-        . sortBy (comparing (repoName' . head))
-        . groupBy (equating repoName')
+        . L.groupBy (equating (repositoryName' . head))
+        . sortBy (comparing (repositoryName' . head))
+        . groupBy (equating repositoryName')
         . onlyRemote
 
-    repoName' (_, _, rrepo) = remoteRepoName rrepo
+    repositoryName' (_, _, rrepo) = repositoryName rrepo
 
     onlyRemote
       :: [(BuildReport, Maybe Repo)]
-      -> [(BuildReport, Repo, RemoteRepo)]
+      -> [(BuildReport, Repo, Repo'Remote)]
     onlyRemote rs =
       [ (report, repo, remoteRepo)
       | (report, Just repo) <- rs

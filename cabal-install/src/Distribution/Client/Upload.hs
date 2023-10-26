@@ -5,7 +5,6 @@ import qualified Prelude as Unsafe (head, read, tail)
 
 import Distribution.Client.HttpUtils
   ( HttpTransport (..)
-  , remoteRepoTryUpgradeToHttps
   )
 import Distribution.Client.Setup
   ( IsCandidate (..)
@@ -17,7 +16,6 @@ import Distribution.Client.Types.Credentials
   , Token (..)
   , Username (..)
   )
-import Distribution.Client.Types.Repo (RemoteRepo (..), Repo, maybeRepoRemote)
 import Distribution.Client.Types.RepoName (unRepoName)
 
 import Distribution.Client.Config
@@ -28,6 +26,7 @@ import Distribution.Client.BuildReports.Anonymous (parseBuildReport)
 import qualified Distribution.Client.BuildReports.Anonymous as BuildReport
 import qualified Distribution.Client.BuildReports.Upload as BuildReport
 import Distribution.Client.Errors
+import Distribution.Client.Repository (RemoteRepo (..), Repo, Repo'Remote, Repository (..), RepositoryIsRemote (..), maybeRepoRemote, remoteRepoTryUpgradeToHttps)
 import Network.HTTP (Header (..), HeaderName (..))
 import Network.URI (URI (uriAuthority, uriPath), URIAuth (uriRegName))
 import System.Directory
@@ -65,7 +64,7 @@ upload verbosity repoCtxt mToken mUsername mPassword isCandidate paths = do
       [] -> dieWithException verbosity NoRemoteRepositories
       (r : rs) -> remoteRepoTryUpgradeToHttps verbosity transport (last (r :| rs))
   let targetRepoURI :: URI
-      targetRepoURI = remoteRepoURI targetRepo
+      targetRepoURI = remoteRepositoryURI targetRepo
       domain :: String
       domain = maybe "Hackage" uriRegName $ uriAuthority targetRepoURI
       rootIfEmpty x = if null x then "/" else x
@@ -123,7 +122,7 @@ uploadDoc verbosity repoCtxt mToken mUsername mPassword isCandidate path = do
     case [remoteRepo | Just remoteRepo <- map maybeRepoRemote repos] of
       [] -> dieWithException verbosity NoRemoteRepositories
       (r : rs) -> remoteRepoTryUpgradeToHttps verbosity transport (last (r :| rs))
-  let targetRepoURI = remoteRepoURI targetRepo
+  let targetRepoURI = remoteRepositoryURI targetRepo
       domain = maybe "Hackage" uriRegName $ uriAuthority targetRepoURI
       rootIfEmpty x = if null x then "/" else x
       uploadURI =
@@ -217,15 +216,15 @@ report :: Verbosity -> RepoContext -> Maybe Token -> Maybe Username -> Maybe Pas
 report verbosity repoCtxt mToken mUsername mPassword = do
   let repos :: [Repo]
       repos = repoContextRepos repoCtxt
-      remoteRepos :: [RemoteRepo]
+      remoteRepos :: [Repo'Remote]
       remoteRepos = mapMaybe maybeRepoRemote repos
   for_ remoteRepos $ \remoteRepo -> do
-    let domain = maybe "Hackage" uriRegName $ uriAuthority (remoteRepoURI remoteRepo)
+    let domain = maybe "Hackage" uriRegName $ uriAuthority (remoteRepositoryURI remoteRepo)
     auth <- createAuth domain mToken mUsername mPassword
 
     reportsDir <- defaultReportsDir
     let srcDir :: FilePath
-        srcDir = reportsDir </> unRepoName (remoteRepoName remoteRepo)
+        srcDir = reportsDir </> unRepoName (repositoryName remoteRepo)
     -- We don't want to bomb out just because we haven't built any packages
     -- from this repo yet.
     srcExists <- doesDirectoryExist srcDir
@@ -246,7 +245,7 @@ report verbosity repoCtxt mToken mUsername mPassword = do
                   verbosity
                   repoCtxt
                   auth
-                  (remoteRepoURI remoteRepo)
+                  (remoteRepositoryURI remoteRepo)
                   [(report', Just buildLog)]
                 return ()
 

@@ -87,15 +87,15 @@ import Distribution.Client.DistDirLayout
   , ProjectRoot (..)
   , defaultProjectFile
   )
-import Distribution.Client.GlobalFlags
-  ( RepoContext (..)
-  , withRepoContext'
-  )
 import Distribution.Client.HttpUtils
   ( HttpTransport
   , configureTransport
   , downloadURI
   , transportCheckHttps
+  )
+import Distribution.Client.Repository
+  ( RepoContext (..)
+  , withRepoContext'
   )
 import Distribution.Client.Types
 import Distribution.Client.Utils.Parsec (renderParseError)
@@ -455,7 +455,7 @@ resolveBuildTimeSettings
           cabalLogsDirectory
             </> "$compiler"
             </> "$libname"
-            <.> "log"
+              <.> "log"
       givenTemplate = flagToMaybe projectConfigLogFile
 
       useDefaultTemplate

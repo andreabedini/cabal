@@ -137,7 +137,7 @@ checkFetched loc = case loc of
       (checkRepoTarballFetched repo pkgid)
 
 -- | Like 'checkFetched' but for the specific case of a 'RepoTarballPackage'.
-checkRepoTarballFetched :: Some Repo -> PackageId -> IO (Maybe FilePath)
+checkRepoTarballFetched :: Repo -> PackageId -> IO (Maybe FilePath)
 checkRepoTarballFetched repo pkgid = do
   let file = packageFile repo pkgid
   exists <- doesFileExist file
@@ -145,7 +145,7 @@ checkRepoTarballFetched repo pkgid = do
     then return (Just file)
     else return Nothing
 
-verifyFetchedTarball :: Verbosity -> RepoContext -> Some Repo -> PackageId -> IO Bool
+verifyFetchedTarball :: Verbosity -> RepoContext -> Repo -> PackageId -> IO Bool
 verifyFetchedTarball verbosity repoCtxt repo pkgid =
   let file = packageFile repo pkgid
       handleError :: IO Bool -> IO Bool
@@ -160,7 +160,7 @@ verifyFetchedTarball verbosity repoCtxt repo pkgid =
           then return True -- if the file does not exist, it vacuously passes validation, since it will be downloaded as necessary with what we will then check is a valid hash.
           else case repo of
             -- a secure repo has hashes we can compare against to confirm this is the correct file.
-            Some (RepoSecure repo') ->
+            RepoSecure repo' ->
               repoContextWithSecureRepo repoCtxt repo' $ \repoSecure ->
                 Sec.withIndex repoSecure $ \callbacks ->
                   let warnAndFail s = warn verbosity ("Fetched tarball " ++ file ++ " does not match server, will redownload: " ++ s) >> return False
@@ -218,7 +218,7 @@ fetchPackage verbosity repoCtxt loc = case loc of
       return path
 
 -- | Fetch a repo package if we don't have it already.
-fetchRepoTarball :: Verbosity -> RepoContext -> Some Repo -> PackageId -> IO FilePath
+fetchRepoTarball :: Verbosity -> RepoContext -> Repo -> PackageId -> IO FilePath
 fetchRepoTarball verbosity' repoCtxt repo pkgid = do
   fetched <- doesFileExist (packageFile repo pkgid)
   if fetched
@@ -236,9 +236,9 @@ fetchRepoTarball verbosity' repoCtxt repo pkgid = do
 
     downloadRepoPackage :: IO FilePath
     downloadRepoPackage = case repo of
-      Some RepoLocalNoIndex{} ->
+      RepoLocalNoIndex{} ->
         return (packageFile repo pkgid)
-      Some (RepoLegacy (Located _ legacyRepo)) -> do
+      RepoLegacy (Located _ legacyRepo) -> do
         transport <- repoContextGetTransport repoCtxt
         remoteRepoCheckHttps verbosity transport legacyRepo
         let uri = packageURI legacyRepo pkgid
@@ -247,7 +247,7 @@ fetchRepoTarball verbosity' repoCtxt repo pkgid = do
         createDirectoryIfMissing True dir
         _ <- downloadURI transport verbosity uri path
         return path
-      Some (RepoSecure repo') ->
+      RepoSecure repo' ->
         repoContextWithSecureRepo repoCtxt repo' $ \rep -> do
           let dir = packageDir repo pkgid
               path = packageFile repo pkgid
@@ -360,7 +360,7 @@ waitAsyncFetchPackage verbosity downloadMap srcloc =
 
 -- | Generate the full path to the locally cached copy of
 -- the tarball for a given @PackageIdentifier@.
-packageFile :: Some Repo -> PackageId -> FilePath
+packageFile :: Repo -> PackageId -> FilePath
 packageFile repo pkgid =
   packageDir repo pkgid
     </> prettyShow pkgid
@@ -368,8 +368,8 @@ packageFile repo pkgid =
 
 -- | Generate the full path to the directory where the local cached copy of
 -- the tarball for a given @PackageIdentifier@ is stored.
-packageDir :: Some Repo -> PackageId -> FilePath
-packageDir (Some (RepoLocalNoIndex (Located _ (LocalRepo _ dir _)))) _pkgid = dir
+packageDir :: Repo -> PackageId -> FilePath
+packageDir (RepoLocalNoIndex (Located _ (LocalRepo _ dir _))) _pkgid = dir
 packageDir repo pkgid =
   repoLocalDir repo
     </> prettyShow (packageName pkgid)
