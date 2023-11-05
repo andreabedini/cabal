@@ -13,6 +13,7 @@ module Distribution.Fields.Pretty
   , PrettyField (..)
   , showFields
   , showFields'
+  , prettyFieldAnn
 
     -- * Transformation from 'P.Field'
   , fromParsecFields
@@ -44,6 +45,13 @@ data PrettyField ann
   | PrettySection ann FieldName [PP.Doc] [PrettyField ann]
   | PrettyEmpty
   deriving (Functor, Foldable, Traversable)
+
+
+prettyFieldAnn :: PrettyField ann -> Maybe ann
+prettyFieldAnn = \case
+  PrettyField ann _ _ -> Just ann
+  PrettySection ann _ _ _ -> Just ann
+  PrettyEmpty -> Nothing
 
 -- | Prettyprint a list of fields.
 --

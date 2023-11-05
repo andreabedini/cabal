@@ -32,6 +32,7 @@ import Language.Haskell.Extension             (Extension, KnownExtension, Langua
 import NoThunks.Class                         (NoThunks (..), OnlyCheckWhnf (..), noThunksInValues)
 import Test.Tasty                             (defaultMain, testGroup)
 import Test.Tasty.HUnit                       (assertFailure, testCase)
+import Distribution.Parsec.Position
 
 import Distribution.PackageDescription
 
@@ -79,6 +80,9 @@ instance NoThunks ForeignLibOption
 instance NoThunks ModuleReexport
 instance NoThunks LibraryVisibility
 instance NoThunks ForeignLibType
+instance NoThunks Position
+instance NoThunks ExactPosition
+instance NoThunks ExactPrintMeta
 instance NoThunks GenericPackageDescription
 instance NoThunks KnownRepoType
 instance NoThunks Library

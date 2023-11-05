@@ -40,7 +40,7 @@ import Distribution.Compat.Lens
 import Distribution.FieldGrammar
 import Distribution.FieldGrammar.Parsec (NamelessField (..))
 import Distribution.Fields.ConfVar (parseConditionConfVar)
-import Distribution.Fields.Field (FieldName, getName, sectionArgAnn)
+import Distribution.Fields.Field (FieldName, getName, sectionArgAnn, fieldLineAnn, sectionArgAnn, nameAnn)
 import Distribution.Fields.LexerMonad (LexWarning, toPWarnings)
 import Distribution.Fields.ParseResult
 import Distribution.Fields.Parser
@@ -94,11 +94,11 @@ parseGenericPackageDescription bs = do
     _ -> pure Nothing
 
   case readFields' bs'' of
-    Right (fs, lexWarnings) -> do
+    Right (fields, lexWarnings) -> do
       when patched $
         parseWarning zeroPos PWTQuirkyCabalFile "Legacy cabal file"
       -- UTF8 is validated in a prepass step, afterwards parsing is lenient.
-      parseGenericPackageDescription' csv lexWarnings invalidUtf8 fs
+      parseGenericPackageDescription' csv lexWarnings invalidUtf8 fields
     -- TODO: better marshalling of errors
     Left perr -> parseFatalFailure pos (show perr)
       where
@@ -153,11 +153,11 @@ parseGenericPackageDescription'
   -> Maybe Int
   -> [Field Position]
   -> ParseResult src GenericPackageDescription
-parseGenericPackageDescription' scannedVer lexWarnings utf8WarnPos fs = do
+parseGenericPackageDescription' scannedVer lexWarnings utf8WarnPos fieldPositions = do
   parseWarnings (toPWarnings lexWarnings)
   for_ utf8WarnPos $ \pos ->
     parseWarning zeroPos PWTUTF $ "UTF8 encoding problem at byte offset " ++ show pos
-  let (syntax, fs') = sectionizeFields fs
+  let (syntax, fs') = sectionizeFields fieldPositions
   let (fields, sectionFields) = takeFields fs'
 
   -- cabal-version
@@ -201,7 +201,8 @@ parseGenericPackageDescription' scannedVer lexWarnings utf8WarnPos fs = do
 
   -- Sections
   let gpd =
-        emptyGenericPackageDescription
+        (emptyGenericPackageDescription
+          { exactPrintMeta = ExactPrintMeta { exactPositions = toExact fieldPositions, exactComments = mempty} })
           & L.packageDescription .~ pd
   gpd1 <- view stateGpd <$> execStateT (goSections specVer sectionFields) (SectionS gpd Map.empty)
 
@@ -239,6 +240,20 @@ parseGenericPackageDescription' scannedVer lexWarnings utf8WarnPos fs = do
 -- See #4899
 cabalFormatVersionsDesc :: String
 cabalFormatVersionsDesc = "Current cabal-version values are listed at https://cabal.readthedocs.io/en/stable/file-format-changelog.html."
+
+toExact :: [Field Position] -> Map FieldName ExactPosition
+toExact = foldr toExactStep mempty
+
+toExactStep :: Field Position -> Map FieldName ExactPosition -> Map FieldName ExactPosition
+toExactStep field prev =  case field of
+  Field name lines' ->
+    Map.insert (getName name)
+               (ExactPosition { namePosition = (nameAnn name), argumentPosition = (fieldLineAnn <$> lines')})
+                prev
+  Section name args fields' ->
+    Map.insert (getName name)
+               (ExactPosition { namePosition = (nameAnn name), argumentPosition = (sectionArgAnn <$> args)})
+                          $ foldr toExactStep prev fields'
 
 goSections :: CabalSpecVersion -> [Field Position] -> SectionParser src ()
 goSections specVer = traverse_ process

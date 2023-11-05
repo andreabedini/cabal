@@ -653,26 +653,16 @@ testTargetSelectorAmbiguous reportSubCase = do
       -> FilePath
       -> SourcePackage (PackageLocation a)
     mkpkgAt pkgidstr exes loc =
-      SourcePackage
-        { srcpkgPackageId = pkgid
-        , srcpkgSource = LocalUnpackedPackage loc
-        , srcpkgDescrOverride = Nothing
-        , srcpkgDescription =
-            GenericPackageDescription
-              { packageDescription = emptyPackageDescription{package = pkgid}
-              , gpdScannedVersion = Nothing
-              , genPackageFlags = []
-              , condLibrary = Nothing
-              , condSubLibraries = []
-              , condForeignLibs = []
-              , condExecutables =
-                  [ (exeName exe, CondNode exe [] [])
-                  | exe <- exes
-                  ]
-              , condTestSuites = []
-              , condBenchmarks = []
-              }
+      SourcePackage {
+        srcpkgPackageId = pkgid,
+        srcpkgSource = LocalUnpackedPackage loc,
+        srcpkgDescrOverride  = Nothing,
+        srcpkgDescription = emptyGenericPackageDescription {
+          packageDescription = emptyPackageDescription { package = pkgid },
+          condExecutables    = [ ( exeName exe, CondNode exe [] [] )
+                               | exe <- exes ]
         }
+      }
       where
         pkgid = fromMaybe (error $ "failed to parse " ++ pkgidstr) $ simpleParse pkgidstr
 
