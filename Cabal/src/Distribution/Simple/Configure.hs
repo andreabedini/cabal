@@ -406,14 +406,14 @@ configure ::
   (GenericPackageDescription, HookedBuildInfo) ->
   ConfigFlags ->
   IO LocalBuildInfo
-configure (pkg_descr0, pbi) cfg = do
+configure (g_pkg_descr, pbi) cfg = do
   -- Determine the component we are configuring, if a user specified
   -- one on the command line.  We use a fake, flattened version of
   -- the package since at this point, we're not really sure what
   -- components we *can* configure.  @Nothing@ means that we should
   -- configure everything (the old behavior).
   (mb_cname :: Maybe ComponentName) <- do
-    let flat_pkg_descr = flattenPackageDescription pkg_descr0
+    let flat_pkg_descr = flattenPackageDescription g_pkg_descr
     targets <- readBuildTargets verbosity flat_pkg_descr (configArgs cfg)
     -- TODO: bleat if you use the module/file syntax
     let targets' = [cname | BuildTargetComponent cname <- targets]
@@ -425,12 +425,12 @@ configure (pkg_descr0, pbi) cfg = do
 
   let use_external_internal_deps = isJust mb_cname
   case mb_cname of
-    Nothing -> setupMessage verbosity "Configuring" (packageId pkg_descr0)
+    Nothing -> setupMessage verbosity "Configuring" (packageId g_pkg_descr)
     Just cname ->
       setupMessage'
         verbosity
         "Configuring"
-        (packageId pkg_descr0)
+        (packageId g_pkg_descr)
         cname
         (Just (configInstantiateWith cfg))
 
@@ -439,7 +439,7 @@ configure (pkg_descr0, pbi) cfg = do
     dieWithException verbosity ConfigCIDValidForPreComponent
 
   checkDeprecatedFlags verbosity cfg
-  checkExactConfiguration verbosity pkg_descr0 cfg
+  checkExactConfiguration verbosity g_pkg_descr cfg
 
   -- Where to build the package
   let buildDir :: FilePath -- e.g. dist/build
@@ -459,10 +459,7 @@ configure (pkg_descr0, pbi) cfg = do
   -- compPlatform:    the platform we're building for
   -- programDb:  location and args of all programs we're
   --                  building with
-  ( comp :: Compiler,
-    compPlatform :: Platform,
-    programDb :: ProgramDb
-    ) <-
+  (comp, compPlatform, programDb) <-
     configCompilerEx
       (flagToMaybe (configHcFlavor cfg))
       (flagToMaybe (configHcPath cfg))
@@ -471,7 +468,7 @@ configure (pkg_descr0, pbi) cfg = do
       (lessVerbose verbosity)
 
   -- The InstalledPackageIndex of all installed packages
-  installedPackageSet :: InstalledPackageIndex <-
+  installedPackageSet <-
     getInstalledPackages
       (lessVerbose verbosity)
       comp
@@ -481,12 +478,13 @@ configure (pkg_descr0, pbi) cfg = do
   -- The set of package names which are "shadowed" by internal
   -- packages, and which component they map to
   let internalPackageSet :: Set LibraryName
-      internalPackageSet = getInternalLibraries pkg_descr0
+      internalPackageSet = getInternalLibraries g_pkg_descr
 
   -- Make a data structure describing what components are enabled.
-  let enabled :: ComponentRequestedSpec
-      enabled = case mb_cname of
-        Just cname -> OneComponentRequestedSpec cname
+  let componentRequestedSpec :: ComponentRequestedSpec
+      componentRequestedSpec = case mb_cname of
+        Just cname ->
+          OneComponentRequestedSpec cname
         Nothing ->
           ComponentRequestedSpec
             { -- The flag name (@--enable-tests@) is a
@@ -497,10 +495,11 @@ configure (pkg_descr0, pbi) cfg = do
               -- @buildable: False@ might make it
               -- not possible to enable.
               testsRequested = fromFlag (configTests cfg),
-              benchmarksRequested =
-                fromFlag (configBenchmarks cfg)
+              benchmarksRequested = fromFlag (configBenchmarks cfg)
             }
-  -- Some sanity checks related to enabling components.
+
+  -- Some sanity checks related to enabling components. The flags --enable-tests
+  -- and --enable-benchmarks are incompatible with per-component mode.
   when
     ( isJust mb_cname
         && (fromFlag (configTests cfg) || fromFlag (configBenchmarks cfg))
@@ -511,7 +510,7 @@ configure (pkg_descr0, pbi) cfg = do
   when (fromFlag (configDynExe cfg) && fromFlag (configFullyStaticExe cfg)) $
     dieWithException verbosity SanityCheckForDynamicStaticLinking
 
-  -- allConstraints:  The set of all 'Dependency's we have.  Used ONLY
+  -- allConstraints:  The set of all 'Dependency's we have. Used ONLY
   --                  to 'configureFinalizedPackage'.
   -- requiredDepsMap: A map from 'PackageName' to the specifically
   --                  required 'InstalledPackageInfo', due to --dependency
@@ -556,7 +555,7 @@ configure (pkg_descr0, pbi) cfg = do
           use_external_internal_deps
           (fromFlagOrDefault False (configExactConfiguration cfg))
           (fromFlagOrDefault False (configAllowDependingOnPrivateLibs cfg))
-          (packageName pkg_descr0)
+          (packageName g_pkg_descr)
           installedPackageSet
           internalPackageSet
           promisedDepsSet
@@ -565,12 +564,12 @@ configure (pkg_descr0, pbi) cfg = do
   let res =
         configureFinalizedPackage
           cfg
-          enabled
+          componentRequestedSpec
           allConstraints
           dependencySatisfiable'
           comp
           compPlatform
-          pkg_descr0
+          g_pkg_descr
 
   (pkg_descr, flags) <- case res of
     Left missing -> dieWithException verbosity (EncounteredMissingDependency missing)
@@ -589,14 +588,12 @@ configure (pkg_descr0, pbi) cfg = do
     "Finalized package description:\n"
       ++ showPackageDescription pkg_descr
 
-  let cabalFileDir =
-        maybe "." takeDirectory $
-          flagToMaybe (configCabalFilePath cfg)
-  checkCompilerProblems verbosity comp pkg_descr enabled
+  let cabalFileDir = maybe "." takeDirectory $ flagToMaybe (configCabalFilePath cfg)
+  checkCompilerProblems verbosity comp pkg_descr componentRequestedSpec
   checkPackageProblems
     verbosity
     cabalFileDir
-    pkg_descr0
+    g_pkg_descr
     (updatePackageDescription pbi pkg_descr)
 
   -- The list of 'InstalledPackageInfo' recording the selected
@@ -629,18 +626,16 @@ configure (pkg_descr0, pbi) cfg = do
       installedPackageSet
       requiredDepsMap
       pkg_descr
-      enabled
+      componentRequestedSpec
 
-  -- Compute installation directory templates, based on user
-  -- configuration.
-  --
-  -- TODO: Move this into a helper function.
-  defaultDirs :: InstallDirTemplates <-
+  -- Compute installation directory templates, based on user configuration.
+  defaultDirs <-
     defaultInstallDirs'
       use_external_internal_deps
       (compilerFlavor comp)
       (fromFlag (configUserInstall cfg))
       (hasLibs pkg_descr)
+
   let installDirs :: InstallDirTemplates
       installDirs =
         combineInstallDirs
@@ -650,36 +645,28 @@ configure (pkg_descr0, pbi) cfg = do
 
   -- Check languages and extensions
   -- TODO: Move this into a helper function.
-  let langlist =
-        nub $
-          catMaybes $
-            map
-              defaultLanguage
-              (enabledBuildInfos pkg_descr enabled)
+  let langlist = nub $ mapMaybe defaultLanguage (enabledBuildInfos pkg_descr componentRequestedSpec)
   let langs = unsupportedLanguages comp langlist
-  when (not (null langs)) $
+  unless (null langs) $
     dieWithException verbosity $
-      UnsupportedLanguages (packageId pkg_descr0) (compilerId comp) (map prettyShow langs)
-  let extlist =
-        nub $
-          concatMap
-            allExtensions
-            (enabledBuildInfos pkg_descr enabled)
+      UnsupportedLanguages (packageId g_pkg_descr) (compilerId comp) (map prettyShow langs)
+
+  let extlist = nub $ concatMap allExtensions (enabledBuildInfos pkg_descr componentRequestedSpec)
   let exts = unsupportedExtensions comp extlist
-  when (not (null exts)) $
+  unless (null exts) $
     dieWithException verbosity $
-      UnsupportedLanguageExtension (packageId pkg_descr0) (compilerId comp) (map prettyShow exts)
+      UnsupportedLanguageExtension (packageId g_pkg_descr) (compilerId comp) (map prettyShow exts)
 
   -- Check foreign library build requirements
-  let flibs = [flib | CFLib flib <- enabledComponents pkg_descr enabled]
+  let flibs = [flib | CFLib flib <- enabledComponents pkg_descr componentRequestedSpec]
   let unsupportedFLibs = unsupportedForeignLibs comp compPlatform flibs
-  when (not (null unsupportedFLibs)) $
+  unless (null unsupportedFLibs) $
     dieWithException verbosity $
       CantFindForeignLibraries unsupportedFLibs
 
   -- Configure certain external build tools, see below for which ones.
   let requiredBuildTools = do
-        bi <- enabledBuildInfos pkg_descr enabled
+        bi <- enabledBuildInfos pkg_descr componentRequestedSpec
         -- First, we collect any tool dep that we know is external. This is,
         -- in practice:
         --
@@ -707,7 +694,7 @@ configure (pkg_descr0, pbi) cfg = do
       >>= configureRequiredPrograms verbosity requiredBuildTools
 
   (pkg_descr', programDb'') <-
-    configurePkgconfigPackages verbosity pkg_descr programDb' enabled
+    configurePkgconfigPackages verbosity pkg_descr programDb' componentRequestedSpec
 
   -- Compute internal component graph
   --
@@ -724,7 +711,7 @@ configure (pkg_descr0, pbi) cfg = do
       configureComponentLocalBuildInfos
         verbosity
         use_external_internal_deps
-        enabled
+        componentRequestedSpec
         (fromFlagOrDefault False (configDeterministic cfg))
         (configIPID cfg)
         (configCID cfg)
@@ -896,7 +883,7 @@ configure (pkg_descr0, pbi) cfg = do
           LocalBuildInfo
             { configFlags = cfg,
               flagAssignment = flags,
-              componentEnabledSpec = enabled,
+              componentEnabledSpec = componentRequestedSpec,
               extraConfigArgs = [], -- Currently configure does not
               -- take extra args, but if it
               -- did they would go here.
@@ -1806,7 +1793,7 @@ combinedConstraints ::
     ( [PackageVersionConstraint],
       Map (PackageName, ComponentName) InstalledPackageInfo
     )
-combinedConstraints constraints dependencies installedPackages = do
+combinedConstraints constraints givenComponents installedPackages = do
   when (not (null badComponentIds)) $
     Left $
       CombinedConstraints (dispDependencies badComponentIds)
@@ -1825,7 +1812,7 @@ combinedConstraints constraints dependencies installedPackages = do
     idConstraintMap :: Map (PackageName, ComponentName) InstalledPackageInfo
     idConstraintMap =
       Map.fromList
-        -- NB: do NOT use the packageName from
+        -- NOTE: do NOT use the packageName from
         -- dependenciesPkgInfo!
         [ ((pn, cname), pkg)
           | (pn, cname, _, Just pkg) <- dependenciesPkgInfo
@@ -1835,11 +1822,8 @@ combinedConstraints constraints dependencies installedPackages = do
     dependenciesPkgInfo :: [(PackageName, ComponentName, ComponentId, Maybe InstalledPackageInfo)]
     dependenciesPkgInfo =
       [ (pkgname, CLibName lname, cid, mpkg)
-        | GivenComponent pkgname lname cid <- dependencies,
-          let mpkg =
-                PackageIndex.lookupComponentId
-                  installedPackages
-                  cid
+        | GivenComponent pkgname lname cid <- givenComponents,
+          let mpkg = PackageIndex.lookupComponentId installedPackages cid
       ]
 
     -- If we looked up a package specified by an installed package id
