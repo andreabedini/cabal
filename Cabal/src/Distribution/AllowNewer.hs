@@ -1,27 +1,23 @@
--- | Utilities to relax version bounds on dependencies
 {-# LANGUAGE DeriveGeneric #-}
+
+-- | Utilities to relax version bounds on dependencies
 module Distribution.AllowNewer
-  ( AllowNewer (..)
-  , AllowOlder (..)
-  , RelaxDeps(..)
-  , RelaxedDep (..)
-  , RelaxDepMod (..)
-  , RelaxKind (..)
-  , removeBound
-  -- , mkRelaxDeps
-  ) where
-
-import Distribution.Compat.Prelude
-
-import Distribution.Version
-
-import Distribution.Parsec ( Parsec (parsec))
-import Distribution.Types.PackageName (PackageName, mkPackageName)
+  ( RelaxDeps (..),
+    RelaxedDep (..),
+    RelaxDepMod (..),
+    RelaxKind (..),
+    removeBound,
+    -- , mkRelaxDeps
+  )
+where
 
 import qualified Distribution.Compat.CharParsing as P
+import Distribution.Compat.Prelude
+import Distribution.Parsec (Parsec (parsec), parsecLeadingCommaNonEmpty)
 import Distribution.Pretty (Pretty (pretty))
+import Distribution.Types.PackageName (PackageName, mkPackageName)
+import Distribution.Version
 import qualified Text.PrettyPrint as Disp
-import Distribution.Parsec (parsecLeadingCommaNonEmpty)
 
 data RelaxKind = RelaxLower | RelaxUpper
 
@@ -32,32 +28,13 @@ data RelaxKind = RelaxLower | RelaxUpper
 -- it may make sense to move these definitions to the Solver.Types
 -- module
 
--- | 'RelaxDeps' in the context of upper bounds (i.e. for @--allow-newer@ flag)
-newtype AllowNewer = AllowNewer {unAllowNewer :: RelaxDeps}
-  deriving (Eq, Read, Show, Generic)
-
-instance Binary AllowNewer
-instance Structured AllowNewer
-
-instance Semigroup AllowNewer where
-  AllowNewer x <> AllowNewer y = AllowNewer (x <> y)
-
--- | 'RelaxDeps' in the context of lower bounds (i.e. for @--allow-older@ flag)
-newtype AllowOlder = AllowOlder {unAllowOlder :: RelaxDeps}
-  deriving (Eq, Read, Show, Generic)
-
-instance Binary AllowOlder
-instance Structured AllowOlder
-
-instance Semigroup AllowOlder where
-  AllowOlder x <> AllowOlder y = AllowOlder (x <> y)
-
 -- | FIXME: Dependencies can be relaxed either for all packages in the install plan, or
 -- only for some packages.
 data RelaxDeps = RelaxDeps (Maybe RelaxDepMod) [RelaxedDep]
   deriving (Eq, Read, Show, Generic)
 
 instance Binary RelaxDeps
+
 instance Structured RelaxDeps
 
 instance Semigroup RelaxDeps where
@@ -106,6 +83,7 @@ data RelaxedDep = RelaxedDep !RelaxDepMod !PackageName
   deriving (Eq, Read, Show, Generic)
 
 instance Binary RelaxedDep
+
 instance Structured RelaxedDep
 
 -- | Modifier for dependency relaxation
@@ -117,11 +95,12 @@ data RelaxDepMod
   deriving (Eq, Read, Show, Generic)
 
 instance Binary RelaxDepMod
+
 instance Structured RelaxDepMod
 
 instance Semigroup RelaxDepMod where
   -- FIXME: who wins here?
-  lhs <> rhs = lhs 
+  lhs <> rhs = lhs
 
 instance Pretty RelaxedDep where
   pretty (RelaxedDep RelaxDepModNone subj) = pretty subj
@@ -130,7 +109,7 @@ instance Pretty RelaxedDep where
 instance Parsec RelaxedDep where
   parsec = RelaxedDep <$> modP <*> parsec
 
-modP :: P.CharParsing m => m RelaxDepMod
+modP :: (P.CharParsing m) => m RelaxDepMod
 modP = RelaxDepModCaret <$ P.char '^' <|> pure RelaxDepModNone
 
 removeBound :: RelaxKind -> RelaxDepMod -> VersionRange -> VersionRange

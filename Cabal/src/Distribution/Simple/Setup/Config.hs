@@ -61,7 +61,7 @@ import qualified Text.PrettyPrint as Disp
 import Distribution.Compat.Semigroup (Last' (..), Option' (..))
 import Distribution.Compat.Stack
 
-import Distribution.AllowNewer (AllowNewer (..), AllowOlder (..), RelaxDepMod (..), RelaxDeps (..), RelaxedDep (..))
+import Distribution.AllowNewer (RelaxDepMod (..), RelaxDeps (..), RelaxedDep (..))
 import Distribution.Simple.Setup.Common
 
 -- ------------------------------------------------------------
@@ -221,10 +221,10 @@ data ConfigFlags = ConfigFlags
   -- ^ Allow depending on private sublibraries. This is used by external
   -- tools (like cabal-install) so they can add multiple-public-libraries
   -- compatibility to older ghcs by checking visibility externally.
-  , configAllowNewer :: Flag AllowNewer
+  , configAllowNewer :: Flag RelaxDeps
   -- ^ Ignore upper bounds on all or some dependencies.
   -- Nothing means option not set.
-  , configAllowOlder :: Flag AllowOlder
+  , configAllowOlder :: Flag RelaxDeps
   -- ^ Ignore lower bounds on all or some dependencies.
   -- Nothing means option not set.
   }
@@ -842,8 +842,8 @@ configureOptions showOrParseArgs =
               ++ " DEPS is a comma or space separated list of DEP or PKG:DEP,"
               ++ " where PKG or DEP can be *."
           )
-          (fmap unAllowOlder . configAllowOlder)
-          (\v flags -> flags{configAllowOlder = fmap AllowOlder v})
+          configAllowOlder
+          (\v flags -> flags{configAllowOlder = v})
           ( optArg
               "DEPS"
               (Flag <$> parsecToReadEErr unexpectMsgString parsec)
@@ -857,8 +857,8 @@ configureOptions showOrParseArgs =
               ++ " DEPS is a comma or space separated list of DEP or PKG:DEP,"
               ++ " where PKG or DEP can be *."
           )
-          (fmap unAllowNewer . configAllowNewer)
-          (\v flags -> flags{configAllowNewer = fmap AllowNewer v})
+          configAllowNewer
+          (\v flags -> flags{configAllowNewer = v})
           ( optArg
               "DEPS"
               (Flag <$> parsecToReadEErr unexpectMsgString parsec)

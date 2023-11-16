@@ -835,8 +835,8 @@ data ConfigExFlags = ConfigExFlags
   , configExConstraints :: [(UserConstraint, ConstraintSource)]
   , configPreferences :: [PackageVersionConstraint]
   , configSolver :: Flag PreSolver
-  , configAllowNewer :: Maybe AllowNewer
-  , configAllowOlder :: Maybe AllowOlder
+  , configExAllowNewer :: Maybe AllowNewer
+  , configExAllowOlder :: Maybe AllowOlder
   , configWriteGhcEnvironmentFilesPolicy
       :: Flag WriteGhcEnvironmentFilesPolicy
   }
@@ -854,8 +854,9 @@ configureExCommand =
           fst
           setFst
           ( filter
-              ( (`notElem` ["constraint", "dependency", "promised-dependency", "exact-configuration"])
-                  . optionName
+              ( (`notElem` [
+                  "constraint", "dependency", "promised-dependency", "exact-configuration", "allow-newer", "allow-older"
+                ]) . optionName
               )
               $ configureOptions showOrParseArgs
           )
@@ -933,8 +934,8 @@ configureExOptions _showOrParseArgs src =
       []
       ["allow-older"]
       ("Ignore lower bounds in all dependencies or DEPS")
-      (fmap unAllowOlder . configAllowOlder)
-      (\v flags -> flags{configAllowOlder = fmap AllowOlder v})
+      (fmap unAllowOlder . configExAllowOlder)
+      (\v flags -> flags{configExAllowOlder = fmap AllowOlder v})
       ( optArg
           "DEPS"
           (parsecToReadEErr unexpectMsgString relaxDepsParser)
@@ -945,8 +946,8 @@ configureExOptions _showOrParseArgs src =
       []
       ["allow-newer"]
       ("Ignore upper bounds in all dependencies or DEPS")
-      (fmap unAllowNewer . configAllowNewer)
-      (\v flags -> flags{configAllowNewer = fmap AllowNewer v})
+      (fmap unAllowNewer . configExAllowNewer)
+      (\v flags -> flags{configExAllowNewer = fmap AllowNewer v})
       ( optArg
           "DEPS"
           (parsecToReadEErr unexpectMsgString relaxDepsParser)
