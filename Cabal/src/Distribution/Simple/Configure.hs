@@ -1121,40 +1121,44 @@ dependencySatisfiable
   promisedDeps
   requiredDepsMap
   (Dependency depName vr sublibs)
-    | exact_config =
-        -- When we're given '--exact-configuration', we assume that all
-        -- dependencies and flags are exactly specified on the command
-        -- line. Thus we only consult the 'requiredDepsMap'. Note that
-        -- we're not doing the version range check, so if there's some
-        -- dependency that wasn't specified on the command line,
-        -- 'finalizePD' will fail.
-        -- TODO: mention '--exact-configuration' in the error message
-        -- when this fails?
-        if isInternalDep && not use_external_internal_deps
-          then -- Except for internal deps, when we're NOT per-component mode;
-          -- those are just True.
-            internalDepSatisfiable
-          else -- Backward compatibility for the old sublibrary syntax
+    -- When we're given '--exact-configuration', we assume that all
+    -- dependencies and flags are exactly specified on the command
+    -- line. Thus we only consult the 'requiredDepsMap'. Note that
+    -- we're not doing the version range check, so if there's some
+    -- dependency that wasn't specified on the command line,
+    -- 'finalizePD' will fail.
+    -- TODO: mention '--exact-configuration' in the error message
+    -- when this fails?
 
-            ( sublibs == mainLibSet
-                && Map.member
-                  ( pn,
-                    CLibName $
-                      LSubLibName $
-                        packageNameToUnqualComponentName depName
-                  )
-                  requiredDepsMap
-            )
-              || all visible sublibs
-    | isInternalDep =
-        if use_external_internal_deps
-          then -- When we are doing per-component configure, we now need to
-          -- test if the internal dependency is in the index.  This has
-          -- DIFFERENT semantics from normal dependency satisfiability.
-            internalDepSatisfiableExternally
-          else -- If a 'PackageName' is defined by an internal component, the dep is
-          -- satisfiable (we're going to build it ourselves)
-            internalDepSatisfiable
+    --
+    -- Except for internal deps, when we're NOT per-component mode;
+    -- those are just True.
+    | exact_config,
+      isInternalDep,
+      not use_external_internal_deps =
+        internalDepSatisfiable
+    --
+    --
+    --
+    | exact_config =
+        somethingForBackwardCompatibility || all visible sublibs
+    -- When we are doing per-component configure, we now need to
+    -- test if the internal dependency is in the index.  This has
+    -- DIFFERENT semantics from normal dependency satisfiability.
+    | isInternalDep,
+      use_external_internal_deps =
+        internalDepSatisfiableExternally
+    --
+    --
+    --
+    | isInternalDep,
+      not use_external_internal_deps =
+        -- If a 'PackageName' is defined by an internal component,
+        -- the dep is satisfiable (we're going to build it ourselves)
+        internalDepSatisfiable
+    --
+    --
+    --
     | otherwise =
         depSatisfiable
     where
@@ -1166,8 +1170,16 @@ dependencySatisfiable
 
       internalDepSatisfiable =
         Set.isSubsetOf (NES.toSet sublibs) packageLibraries
+
       internalDepSatisfiableExternally =
         all (\ln -> not $ null $ PackageIndex.lookupInternalDependency installedPackageSet pn vr ln) sublibs
+
+      somethingForBackwardCompatibility =
+        -- Backward compatibility for the old sublibrary syntax
+        sublibs == mainLibSet
+          && Map.member
+            (pn, CLibName $ LSubLibName $ packageNameToUnqualComponentName depName)
+            requiredDepsMap
 
       -- Check whether a library exists and is visible.
       -- We don't disambiguate between dependency on non-existent or private
