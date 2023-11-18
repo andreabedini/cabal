@@ -39,6 +39,7 @@ import qualified Codec.Archive.Tar.Entry                as Tar
 import qualified Data.ByteString                        as B
 import qualified Data.ByteString.Char8                  as B8
 import qualified Data.ByteString.Lazy                   as BSL
+import qualified Distribution.Fields.Lexer              as Lexer
 import qualified Distribution.Fields.Parser             as Parsec
 import qualified Distribution.Fields.Pretty             as PP
 import qualified Distribution.PackageDescription.Parsec as Parsec
@@ -71,7 +72,12 @@ parseIndex :: (Monoid a, NFData a) => (Tar.EpochTime -> FilePath -> Bool)
 parseIndex predicate action = do
     configPath <- getCabalConfigPath
     cfg        <- B.readFile configPath
-    cfgFields  <- either (fail . show) pure $ Parsec.readFields cfg
+    cfgFields  <- case Parsec.readFields cfg of
+                    Right c  -> return c
+                    Left err -> do
+                        putStrLn $ "Error while parsing " ++ configPath
+                        print err
+                        exitFailure
     repoCache  <- case lookupInConfig "remote-repo-cache" cfgFields of
                     []        -> getCacheDirPath   -- Default
                     (rrc : _) -> return rrc        -- User-specified
@@ -316,6 +322,16 @@ roundtripTest testFieldsTransform fpath bs = do
                 fail "parse error"
 
 -------------------------------------------------------------------------------
+-- Lexer roundtrip test
+-------------------------------------------------------------------------------
+
+lexerRoundtripTest :: FilePath -> B8.ByteString -> IO (Sum Int)
+lexerRoundtripTest fpath bs = do
+    let (ws, xs) = Lexer.lexByteString bs
+    traverse_ print xs
+    return mempty
+
+-------------------------------------------------------------------------------
 -- Main
 -------------------------------------------------------------------------------
 
@@ -337,9 +353,10 @@ main = join (O.execParser opts)
     optsP = subparser
         [ command "read-fields" readFieldsP
           "Parse outer format (to '[Field]', TODO: apply Quirks)"
-        , command "parsec"      parsecP     "Parse GPD with parsec"
-        , command "roundtrip"   roundtripP  "parse . pretty . parse = parse"
-        , command "check"       checkP      "Check GPD"
+        , command "parsec"          parsecP       "Parse GPD with parsec"
+        , command "roundtrip"       roundtripP    "parse . pretty . parse = parse"
+        , command "check"           checkP        "Check GPD"
+        , command "roundtrip-lexer" lexerRoundtripP "lex and unlex"
         ] <|> pure defaultA
 
     defaultA = do
@@ -370,6 +387,11 @@ main = join (O.execParser opts)
     roundtripP = roundtripA <$> prefixP <*> testFieldsP <*> indexP
     roundtripA pfx testFieldsTransform idx = do
         Sum n <- parseIndex (mkPredicate pfx idx) (roundtripTest testFieldsTransform)
+        putStrLn $ show n ++ " files processed"
+
+    lexerRoundtripP = lexerRoundtripA <$> prefixP
+    lexerRoundtripA pfx = do
+        Sum n <- parseIndex pfx lexerRoundtripTest
         putStrLn $ show n ++ " files processed"
 
     checkP = checkA <$> prefixP <*> indexP
