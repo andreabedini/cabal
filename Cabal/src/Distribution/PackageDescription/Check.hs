@@ -232,6 +232,7 @@ checkGenericPackageDescription
           condExecutables_
           condTestSuites_
           condBenchmarks_
+          _
         ) =
     do
       -- § Description and names.

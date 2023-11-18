@@ -2,6 +2,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE LambdaCase #-}
+
+-----------------------------------------------------------------------------
 
 -- |
 -- Module      :  Distribution.PackageDescription.Parsec
@@ -40,7 +43,7 @@ import Distribution.Compat.Lens
 import Distribution.FieldGrammar
 import Distribution.FieldGrammar.Parsec (NamelessField (..))
 import Distribution.Fields.ConfVar (parseConditionConfVar)
-import Distribution.Fields.Field (FieldName, getName, sectionArgAnn, fieldLineAnn, sectionArgAnn, nameAnn)
+import Distribution.Fields.Field (FieldName, getName, fieldLineAnn, sectionArgAnn, nameAnn)
 import Distribution.Fields.LexerMonad (LexWarning, toPWarnings)
 import Distribution.Fields.ParseResult
 import Distribution.Fields.Parser
@@ -241,19 +244,26 @@ parseGenericPackageDescription' scannedVer lexWarnings utf8WarnPos fieldPosition
 cabalFormatVersionsDesc :: String
 cabalFormatVersionsDesc = "Current cabal-version values are listed at https://cabal.readthedocs.io/en/stable/file-format-changelog.html."
 
-toExact :: [Field Position] -> Map FieldName ExactPosition
-toExact = foldr toExactStep mempty
+toExact :: [Field Position] -> Map [NameSpace] ExactPosition
+toExact = foldr (toExactStep []) mempty
 
-toExactStep :: Field Position -> Map FieldName ExactPosition -> Map FieldName ExactPosition
-toExactStep field prev =  case field of
+toExactStep :: [NameSpace] -> Field Position -> Map [NameSpace] ExactPosition -> Map [NameSpace] ExactPosition
+toExactStep prevNamespace field prev =  case field of
   Field name lines' ->
-    Map.insert (getName name)
+    Map.insert nameSpace  
                (ExactPosition { namePosition = (nameAnn name), argumentPosition = (fieldLineAnn <$> lines')})
                 prev
   Section name args fields' ->
-    Map.insert (getName name)
+    Map.insert nameSpace
                (ExactPosition { namePosition = (nameAnn name), argumentPosition = (sectionArgAnn <$> args)})
-                          $ foldr toExactStep prev fields'
+                          $ foldr (toExactStep nameSpace) prev fields'
+  where
+    nameSpace = prevNamespace <> [toNameSpace field]
+
+toNameSpace :: Field a -> NameSpace
+toNameSpace = \case
+  Field name _ -> NameSpace { nameSpaceName = getName name, nameSpaceSectionArgs = [] }
+  Section name args _ -> NameSpace { nameSpaceName = getName name, nameSpaceSectionArgs = sectionArgContent <$> args }
 
 goSections :: CabalSpecVersion -> [Field Position] -> SectionParser src ()
 goSections specVer = traverse_ process
