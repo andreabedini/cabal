@@ -1,0 +1,117 @@
+name: Validate old GHCs
+
+# We use bash as default even in windows
+# to try keep the workflow as uniform as possible
+defaults:
+  run:
+    shell: bash
+
+# See: https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#concurrency.
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+# Note: This workflow file contains the required job "Validate post job". We are using path filtering
+# here to ignore PRs which only change documentation. This can cause a problem, see the workflow file
+# "validate.skip.yml" for a description of the problem and the solution provided in that file.
+on:
+  push:
+    paths-ignore:
+      - 'doc/**'
+      - '**/README.md'
+      - 'CONTRIBUTING.md'
+    branches:
+      - master
+  pull_request:
+    paths-ignore:
+      - 'doc/**'
+      - '**/README.md'
+      - 'CONTRIBUTING.md'
+  release:
+    types:
+      - created
+
+env:
+  COMMON_FLAGS: '-j 2 -v'
+
+jobs:
+  validate-old-ghcs:
+    name: Validate old GHC ${{ matrix.extra-ghc }}
+    runs-on: ubuntu-latest
+    # This job needs an older ubuntu (16.04) cause
+    # the required old ghcs using the `-dyn` flavour
+    # are not installable from ppa/hvr in newer ones
+    # see https://github.com/haskell/cabal/issues/8011
+    container:
+      image: phadej/ghc:8.8.4-xenial
+
+    strategy:
+      matrix:
+        # Newer ghc versions than 8.8.4 have to be installed with ghcup cause
+        # they are not available in ppa/hvr. The ghcup installation
+        # needs `sudo` which is not available in the xenial container
+        ghc: ["8.8.4"]
+        extra-ghc: ["7.10.3", "7.8.4", "7.6.3", "7.4.2", "7.2.2", "7.0.4"]
+
+    steps:
+
+      # We can't use actions/checkout with the xenial docker container
+      # cause it does not work with the git version included in it, see:
+      # https://github.com/actions/checkout/issues/170
+      # https://github.com/actions/checkout/issues/295
+      # - uses: actions/checkout@v4
+      - name: Checkout
+        run: |
+          echo $GITHUB_REF $GITHUB_SHA
+          git clone --depth 1 https://github.com/$GITHUB_REPOSITORY.git .
+          git fetch origin $GITHUB_SHA:temporary-ci-branch
+          git checkout $GITHUB_SHA || (git fetch && git checkout $GITHUB_SHA)
+
+      - name: Install extra compiler
+        run: |
+          apt-get update
+          apt-get install -y ghc-${{ matrix.extra-ghc }}-dyn
+
+      - uses: haskell-actions/setup@v2
+        id: setup-haskell
+        with:
+          ghc-version: ${{ matrix.ghc }}
+          # Make sure this bindist works in this old environment
+          cabal-version: 3.10.1.0
+
+      # As we are reusing the cached build dir from the previous step
+      # the generated artifacts are available here,
+      # including the cabal executable and the test suite
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ${{ steps.setup-haskell.outputs.cabal-store }}
+            dist-*
+          key: ${{ runner.os }}-${{ matrix.ghc }}-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-${{ matrix.ghc }}-
+
+      - name: Validate build
+        run: sh validate.sh ${{ env.COMMON_FLAGS }} -s build
+
+      - name: "Validate lib-suite-extras --extra-hc ghc-${{ matrix.extra-ghc }}"
+        env:
+          EXTRA_GHC: "/opt/ghc/${{ matrix.extra-ghc }}/bin/ghc-${{ matrix.extra-ghc }}"
+        run: sh validate.sh ${{ env.COMMON_FLAGS }} --lib-only -s lib-suite-extras --extra-hc ${{ env.EXTRA_GHC }}
+
+  # We use this job as a summary of the workflow
+  # It will fail if any of the previous jobs does it
+  # This way we can use it exclusively in branch protection rules
+  # and abstract away the concrete jobs of the workflow, including their names
+  validate-post-job:
+    if: always()
+    name: Validate post job
+    runs-on: ubuntu-latest
+    # IMPORTANT! Any job added to the workflow should be added here too
+    needs: [validate-old-ghcs]
+
+    steps:
+      - run: |
+          echo "jobs info: ${{ toJSON(needs) }}"
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
+
