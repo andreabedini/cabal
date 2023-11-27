@@ -50,6 +50,9 @@ module Distribution.Client.ProjectConfig
   , resolveSolverSettings
   , BuildTimeSettings (..)
   , resolveBuildTimeSettings
+  , configureCompiler
+  , programDbSignature
+  , resolveProgramDb
 
     -- * Checking configuration
   , checkBadPerPackageCompilerPaths
@@ -153,7 +156,7 @@ import Distribution.Simple.InstallDirs
   , toPathTemplate
   )
 import Distribution.Simple.Program
-  ( ConfiguredProgram (..)
+  ( ConfiguredProgram (..), ProgramSearchPathEntry (..), programPath
   )
 import Distribution.Simple.Setup
   ( Flag (Flag)
@@ -222,6 +225,9 @@ import System.IO
   ( IOMode (ReadMode)
   , withBinaryFile
   )
+import Distribution.Simple.Program.Db (modifyProgramSearchPath, defaultProgramDb, userSpecifyPaths, ProgramDb, configuredPrograms)
+import Distribution.Simple.Program.Find (getSystemSearchPath)
+import qualified Distribution.Simple.Configure as Cabal
 
 ----------------------------------------
 -- Resolving configuration to settings
@@ -495,6 +501,102 @@ resolveBuildTimeSettings
         | isJust givenTemplate = True
         | isParallelBuild buildSettingNumJobs = False
         | otherwise = False
+
+resolveProgramDb :: PackageConfig -> ProgramDb
+resolveProgramDb
+      PackageConfig
+        { packageConfigProgramPaths
+        , packageConfigProgramPathExtra
+        }
+    = userSpecifyPaths (Map.toList (getMapLast packageConfigProgramPaths))
+            . modifyProgramSearchPath
+              ( [ ProgramSearchPathDir dir
+                | dir <- fromNubList packageConfigProgramPathExtra
+                ]
+                  ++
+              )
+            $ defaultProgramDb
+
+configureCompiler
+  :: Verbosity
+  -> DistDirLayout
+  -> ProjectConfig
+  -> Rebuild (Compiler, Platform, ProgramDb)
+configureCompiler
+  verbosity
+  DistDirLayout
+    { distProjectCacheFile
+    }
+  ProjectConfig
+    { projectConfigShared =
+      ProjectConfigShared
+        { projectConfigHcFlavor
+        , projectConfigHcPath
+        , projectConfigHcPkg
+        }
+    , projectConfigLocalPackages
+    } = do
+    let fileMonitorCompiler = newFileMonitor . distProjectCacheFile $ "compiler"
+    let progdb = resolveProgramDb projectConfigLocalPackages
+
+    progsearchpath <- liftIO $ getSystemSearchPath
+    rerunIfChanged
+      verbosity
+      fileMonitorCompiler
+      ( hcFlavor
+      , hcPath
+      , hcPkg
+      , progsearchpath
+      , programDbSignature progdb
+      )
+      $ do
+        liftIO $ info verbosity "Compiler settings changed, reconfiguring..."
+        result@(_, _, progdb') <-
+          liftIO $
+            Cabal.configCompilerEx
+              hcFlavor
+              hcPath
+              hcPkg
+              progdb
+              verbosity
+
+        -- Note that we added the user-supplied program locations and args
+        -- for /all/ programs, not just those for the compiler prog and
+        -- compiler-related utils. In principle we don't know which programs
+        -- the compiler will configure (and it does vary between compilers).
+        -- We do know however that the compiler will only configure the
+        -- programs it cares about, and those are the ones we monitor here.
+        monitorFiles (programsMonitorFiles progdb')
+
+        return result
+    where
+      hcFlavor = flagToMaybe projectConfigHcFlavor
+      hcPath = flagToMaybe projectConfigHcPath
+      hcPkg = flagToMaybe projectConfigHcPkg
+
+programsMonitorFiles :: ProgramDb -> [MonitorFilePath]
+programsMonitorFiles progdb =
+  [ monitor
+  | prog <- configuredPrograms progdb
+  , monitor <-
+      monitorFileSearchPath
+        (programMonitorFiles prog)
+        (programPath prog)
+  ]
+
+-- | Select the bits of a 'ProgramDb' to monitor for value changes.
+-- Use 'programsMonitorFiles' for the files to monitor.
+programDbSignature :: ProgramDb -> [ConfiguredProgram]
+programDbSignature progdb =
+  [ prog
+    { programMonitorFiles = []
+    , programOverrideEnv =
+        filter
+          ((/= "PATH") . fst)
+          (programOverrideEnv prog)
+    }
+  | prog <- configuredPrograms progdb
+  ]
 
 ---------------------------------------------
 -- Reading and writing project config files
