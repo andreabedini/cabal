@@ -6,70 +6,70 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Distribution.Parsec
-  ( Parsec (..)
-  , ParsecParser (..)
-  , runParsecParser
-  , runParsecParser'
-  , simpleParsec
-  , simpleParsecBS
-  , simpleParsec'
-  , simpleParsecW'
-  , lexemeParsec
-  , eitherParsec
-  , explicitEitherParsec
-  , explicitEitherParsec'
+  ( Parsec (..),
+    ParsecParser (..),
+    runParsecParser,
+    runParsecParser',
+    simpleParsec,
+    simpleParsecBS,
+    simpleParsec',
+    simpleParsecW',
+    lexemeParsec,
+    eitherParsec,
+    explicitEitherParsec,
+    explicitEitherParsec',
 
     -- * CabalParsing and diagnostics
-  , CabalParsing (..)
+    CabalParsing (..),
 
     -- ** Warnings
-  , PWarnType (..)
-  , PWarning (..)
-  , showPWarning
+    PWarnType (..),
+    PWarning (..),
+    showPWarning,
 
     -- ** Errors
-  , PError (..)
-  , showPError
+    PError (..),
+    showPError,
 
     -- * Position
-  , Position (..)
-  , incPos
-  , retPos
-  , showPos
-  , zeroPos
+    Position (..),
+    incPos,
+    retPos,
+    showPos,
+    zeroPos,
 
     -- * Utilities
-  , parsecToken
-  , parsecToken'
-  , parsecFilePath
-  , parsecQuoted
-  , parsecMaybeQuoted
-  , parsecCommaList
-  , parsecCommaNonEmpty
-  , parsecLeadingCommaList
-  , parsecLeadingCommaNonEmpty
-  , parsecOptCommaList
-  , parsecLeadingOptCommaList
-  , parsecStandard
-  , parsecUnqualComponentName
-  ) where
+    parsecToken,
+    parsecToken',
+    parsecFilePath,
+    parsecQuoted,
+    parsecMaybeQuoted,
+    parsecCommaList,
+    parsecCommaNonEmpty,
+    parsecLeadingCommaList,
+    parsecLeadingCommaNonEmpty,
+    parsecOptCommaList,
+    parsecLeadingOptCommaList,
+    parsecStandard,
+    parsecUnqualComponentName,
+  )
+where
 
 import Data.ByteString (ByteString)
 import Data.Char (digitToInt, intToDigit)
 import Data.List (transpose)
 import Distribution.CabalSpecVersion
+import qualified Distribution.Compat.CharParsing as P
+import qualified Distribution.Compat.DList as DList
+import qualified Distribution.Compat.MonadFail as Fail
 import Distribution.Compat.Prelude
 import Distribution.Parsec.Error (PError (..), showPError)
 import Distribution.Parsec.FieldLineStream (FieldLineStream, fieldLineStreamFromBS, fieldLineStreamFromString)
 import Distribution.Parsec.Position (Position (..), incPos, retPos, showPos, zeroPos)
 import Distribution.Parsec.Warning (PWarnType (..), PWarning (..), showPWarning)
 import Numeric (showIntAtBase)
-import Prelude ()
-
-import qualified Distribution.Compat.CharParsing as P
-import qualified Distribution.Compat.DList as DList
-import qualified Distribution.Compat.MonadFail as Fail
 import qualified Text.Parsec as Parsec
+import Prelude ()
 
 -------------------------------------------------------------------------------
 -- Class
@@ -79,7 +79,7 @@ import qualified Text.Parsec as Parsec
 --
 -- For parsing @.cabal@ like file structure, see "Distribution.Fields".
 class Parsec a where
-  parsec :: CabalParsing m => m a
+  parsec :: (CabalParsing m) => m a
 
 -- | Parsing class which
 --
@@ -99,9 +99,9 @@ lexemeParsec :: (CabalParsing m, Parsec a) => m a
 lexemeParsec = parsec <* P.spaces
 
 newtype ParsecParser a = PP
-  { unPP
-      :: CabalSpecVersion
-      -> Parsec.Parsec FieldLineStream [PWarning] a
+  { unPP ::
+      CabalSpecVersion ->
+      Parsec.Parsec FieldLineStream [PWarning] a
   }
 
 liftParsec :: Parsec.Parsec FieldLineStream [PWarning] a -> ParsecParser a
@@ -180,14 +180,14 @@ instance CabalParsing ParsecParser where
   askCabalSpecVersion = PP pure
 
 -- | Parse a 'String' with 'lexemeParsec'.
-simpleParsec :: Parsec a => String -> Maybe a
+simpleParsec :: (Parsec a) => String -> Maybe a
 simpleParsec =
   either (const Nothing) Just
     . runParsecParser lexemeParsec "<simpleParsec>"
     . fieldLineStreamFromString
 
 -- | Like 'simpleParsec' but for 'ByteString'
-simpleParsecBS :: Parsec a => ByteString -> Maybe a
+simpleParsecBS :: (Parsec a) => ByteString -> Maybe a
 simpleParsecBS =
   either (const Nothing) Just
     . runParsecParser lexemeParsec "<simpleParsec>"
@@ -196,7 +196,7 @@ simpleParsecBS =
 -- | Parse a 'String' with 'lexemeParsec' using specific 'CabalSpecVersion'.
 --
 -- @since 3.4.0.0
-simpleParsec' :: Parsec a => CabalSpecVersion -> String -> Maybe a
+simpleParsec' :: (Parsec a) => CabalSpecVersion -> String -> Maybe a
 simpleParsec' spec =
   either (const Nothing) Just
     . runParsecParser' spec lexemeParsec "<simpleParsec>"
@@ -206,14 +206,14 @@ simpleParsec' spec =
 -- Fail if there are any warnings.
 --
 -- @since 3.4.0.0
-simpleParsecW' :: Parsec a => CabalSpecVersion -> String -> Maybe a
+simpleParsecW' :: (Parsec a) => CabalSpecVersion -> String -> Maybe a
 simpleParsecW' spec =
   either (const Nothing) (\(x, ws) -> if null ws then Just x else Nothing)
     . runParsecParser' spec ((,) <$> lexemeParsec <*> liftParsec Parsec.getState) "<simpleParsec>"
     . fieldLineStreamFromString
 
 -- | Parse a 'String' with 'lexemeParsec'.
-eitherParsec :: Parsec a => String -> Either String a
+eitherParsec :: (Parsec a) => String -> Either String a
 eitherParsec = explicitEitherParsec parsec
 
 -- | Parse a 'String' with given 'ParsecParser'. Trailing whitespace is accepted.
@@ -243,7 +243,7 @@ runParsecParser = runParsecParser' cabalSpecLatest
 runParsecParser' :: CabalSpecVersion -> ParsecParser a -> FilePath -> FieldLineStream -> Either Parsec.ParseError a
 runParsecParser' v p n = Parsec.runParser (unPP p v <* P.eof) [] n
 
-instance Parsec a => Parsec (Identity a) where
+instance (Parsec a) => Parsec (Identity a) where
   parsec = Identity <$> parsec
 
 instance Parsec Bool where
@@ -261,26 +261,26 @@ instance Parsec Bool where
             "Boolean values are case sensitive, use 'True' or 'False'."
 
 -- | @[^ ,]@
-parsecToken :: CabalParsing m => m String
+parsecToken :: (CabalParsing m) => m String
 parsecToken = parsecHaskellString <|> ((P.munch1 (\x -> not (isSpace x) && x /= ',') P.<?> "identifier") >>= checkNotDoubleDash)
 
 -- | @[^ ]@
-parsecToken' :: CabalParsing m => m String
+parsecToken' :: (CabalParsing m) => m String
 parsecToken' = parsecHaskellString <|> ((P.munch1 (not . isSpace) P.<?> "token") >>= checkNotDoubleDash)
 
-checkNotDoubleDash :: CabalParsing m => String -> m String
+checkNotDoubleDash :: (CabalParsing m) => String -> m String
 checkNotDoubleDash s = do
   when (s == "--") $
     parsecWarning PWTDoubleDash $
       unwords
-        [ "Double-dash token found."
-        , "Note: there are no end-of-line comments in .cabal files, only whole line comments."
-        , "Use \"--\" (quoted double dash) to silence this warning, if you actually want -- token"
+        [ "Double-dash token found.",
+          "Note: there are no end-of-line comments in .cabal files, only whole line comments.",
+          "Use \"--\" (quoted double dash) to silence this warning, if you actually want -- token"
         ]
 
   return s
 
-parsecFilePath :: CabalParsing m => m FilePath
+parsecFilePath :: (CabalParsing m) => m FilePath
 parsecFilePath = parsecToken
 
 -- | Parse a benchmark/test-suite types.
@@ -298,10 +298,10 @@ parsecStandard f = do
 -- each component must contain an alphabetic character, to avoid
 -- ambiguity in identifiers like foo-1 (the 1 is the version number).
 
-parsecCommaList :: CabalParsing m => m a -> m [a]
+parsecCommaList :: (P.CharParsing m) => m a -> m [a]
 parsecCommaList p = P.sepBy (p <* P.spaces) (P.char ',' *> P.spaces P.<?> "comma")
 
-parsecCommaNonEmpty :: CabalParsing m => m a -> m (NonEmpty a)
+parsecCommaNonEmpty :: (P.CharParsing m) => m a -> m (NonEmpty a)
 parsecCommaNonEmpty p = P.sepByNonEmpty (p <* P.spaces) (P.char ',' *> P.spaces P.<?> "comma")
 
 -- | Like 'parsecCommaList' but accept leading or trailing comma.
@@ -311,12 +311,11 @@ parsecCommaNonEmpty p = P.sepByNonEmpty (p <* P.spaces) (P.char ',' *> P.spaces 
 -- (comma p)*    -- leading comma
 -- (p comma)*    -- trailing comma
 -- @
-parsecLeadingCommaList :: CabalParsing m => m a -> m [a]
-parsecLeadingCommaList p = do
-  c <- P.optional comma
-  case c of
-    Nothing -> toList <$> P.sepEndByNonEmpty lp comma <|> pure []
-    Just _ -> toList <$> P.sepByNonEmpty lp comma
+parsecLeadingCommaList :: (P.CharParsing m) => m a -> m [a]
+parsecLeadingCommaList p =
+  toList <$> (comma *> P.sepByNonEmpty lp comma)
+    <|> toList <$> P.sepEndByNonEmpty lp comma
+    <|> pure []
   where
     lp = p <* P.spaces
     comma = P.char ',' *> P.spaces P.<?> "comma"
@@ -324,17 +323,15 @@ parsecLeadingCommaList p = do
 -- |
 --
 -- @since 3.4.0.0
-parsecLeadingCommaNonEmpty :: CabalParsing m => m a -> m (NonEmpty a)
-parsecLeadingCommaNonEmpty p = do
-  c <- P.optional comma
-  case c of
-    Nothing -> P.sepEndByNonEmpty lp comma
-    Just _ -> P.sepByNonEmpty lp comma
+parsecLeadingCommaNonEmpty :: (P.CharParsing m) => m a -> m (NonEmpty a)
+parsecLeadingCommaNonEmpty p =
+  (comma *> P.sepByNonEmpty lp comma)
+    <|> P.sepEndByNonEmpty lp comma
   where
     lp = p <* P.spaces
     comma = P.char ',' *> P.spaces P.<?> "comma"
 
-parsecOptCommaList :: CabalParsing m => m a -> m [a]
+parsecOptCommaList :: (P.CharParsing m) => m a -> m [a]
 parsecOptCommaList p = P.sepBy (p <* P.spaces) (P.optional comma)
   where
     comma = P.char ',' *> P.spaces
@@ -352,32 +349,25 @@ parsecOptCommaList p = P.sepBy (p <* P.spaces) (P.optional comma)
 -- @
 --
 -- @since 3.0.0.0
-parsecLeadingOptCommaList :: CabalParsing m => m a -> m [a]
-parsecLeadingOptCommaList p = do
-  c <- P.optional comma
-  case c of
-    Nothing -> sepEndBy1Start <|> pure []
-    Just _ -> toList <$> P.sepByNonEmpty lp comma
+parsecLeadingOptCommaList :: (P.CharParsing m) => m a -> m [a]
+parsecLeadingOptCommaList p =
+  toList <$> (comma *> P.sepByNonEmpty lp comma)
+    <|> sepEndBy1Start
+    <|> pure []
   where
     lp = p <* P.spaces
     comma = P.char ',' *> P.spaces P.<?> "comma"
-
-    sepEndBy1Start = do
-      x <- lp
-      c <- P.optional comma
-      case c of
-        Nothing -> (x :) <$> many lp
-        Just _ -> (x :) <$> P.sepEndBy lp comma
+    sepEndBy1Start = liftA2 (:) lp $ (comma *> (P.sepEndBy lp comma)) <|> many lp
 
 -- | Content isn't unquoted
-parsecQuoted :: CabalParsing m => m a -> m a
+parsecQuoted :: (P.CharParsing m) => m a -> m a
 parsecQuoted = P.between (P.char '"') (P.char '"')
 
 -- | @parsecMaybeQuoted p = 'parsecQuoted' p <|> p@.
-parsecMaybeQuoted :: CabalParsing m => m a -> m a
+parsecMaybeQuoted :: (P.CharParsing m) => m a -> m a
 parsecMaybeQuoted p = parsecQuoted p <|> p
 
-parsecUnqualComponentName :: forall m. CabalParsing m => m String
+parsecUnqualComponentName :: forall m. (CabalParsing m) => m String
 parsecUnqualComponentName = state0 DList.empty
   where
     --
@@ -440,20 +430,20 @@ parsecUnqualComponentName = state0 DList.empty
     alt :: m String -> m String -> m String
     !alt = (<|>)
 
-stringLiteral :: forall m. P.CharParsing m => m String
+stringLiteral :: forall m. (P.CharParsing m) => m String
 stringLiteral = lit
   where
     lit :: m String
     lit =
       foldr (maybe id (:)) ""
         <$> P.between (P.char '"') (P.char '"' P.<?> "end of string") (many stringChar)
-        P.<?> "string"
+          P.<?> "string"
 
     stringChar :: m (Maybe Char)
     stringChar =
       Just <$> stringLetter
         <|> stringEscape
-        P.<?> "string character"
+          P.<?> "string character"
 
     stringLetter :: m Char
     stringLetter = P.satisfy (\c -> (c /= '"') && (c /= '\\') && (c > '\026'))
@@ -471,7 +461,7 @@ stringLiteral = lit
     escapeEmpty = P.char '&'
     escapeGap = P.skipSpaces1 *> (P.char '\\' P.<?> "end of string gap")
 
-escapeCode :: forall m. P.CharParsing m => m Char
+escapeCode :: forall m. (P.CharParsing m) => m Char
 escapeCode = (charEsc <|> charNum <|> charAscii <|> charControl) P.<?> "escape code"
   where
     charControl, charNum :: m Char
@@ -534,42 +524,42 @@ escapeCode = (charEsc <|> charNum <|> charAscii <|> charControl) P.<?> "escape c
     asciiMap = zip (ascii3codes ++ ascii2codes) (ascii3 ++ ascii2)
     ascii2codes, ascii3codes :: [String]
     ascii2codes =
-      [ "BS"
-      , "HT"
-      , "LF"
-      , "VT"
-      , "FF"
-      , "CR"
-      , "SO"
-      , "SI"
-      , "EM"
-      , "FS"
-      , "GS"
-      , "RS"
-      , "US"
-      , "SP"
+      [ "BS",
+        "HT",
+        "LF",
+        "VT",
+        "FF",
+        "CR",
+        "SO",
+        "SI",
+        "EM",
+        "FS",
+        "GS",
+        "RS",
+        "US",
+        "SP"
       ]
     ascii3codes =
-      [ "NUL"
-      , "SOH"
-      , "STX"
-      , "ETX"
-      , "EOT"
-      , "ENQ"
-      , "ACK"
-      , "BEL"
-      , "DLE"
-      , "DC1"
-      , "DC2"
-      , "DC3"
-      , "DC4"
-      , "NAK"
-      , "SYN"
-      , "ETB"
-      , "CAN"
-      , "SUB"
-      , "ESC"
-      , "DEL"
+      [ "NUL",
+        "SOH",
+        "STX",
+        "ETX",
+        "EOT",
+        "ENQ",
+        "ACK",
+        "BEL",
+        "DLE",
+        "DC1",
+        "DC2",
+        "DC3",
+        "DC4",
+        "NAK",
+        "SYN",
+        "ETB",
+        "CAN",
+        "SUB",
+        "ESC",
+        "DEL"
       ]
     ascii2, ascii3 :: String
     ascii2 = "\BS\HT\LF\VT\FF\CR\SO\SI\EM\FS\GS\RS\US\SP"
