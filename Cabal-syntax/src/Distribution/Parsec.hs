@@ -320,11 +320,10 @@ parsecCommaNonEmpty p = P.sepByNonEmpty (p <* P.spaces) (P.char ',' *> P.spaces 
 -- (p comma)*    -- trailing comma
 -- @
 parsecLeadingCommaList :: CabalParsing m => m a -> m [a]
-parsecLeadingCommaList p = do
-  c <- P.optional comma
-  case c of
-    Nothing -> toList <$> P.sepEndByNonEmpty lp comma <|> pure []
-    Just _ -> toList <$> P.sepByNonEmpty lp comma
+parsecLeadingCommaList p =
+  toList <$> (comma *> P.sepByNonEmpty lp comma)
+    <|> toList <$> P.sepEndByNonEmpty lp comma
+    <|> pure []
   where
     lp = p <* P.spaces
     comma = P.char ',' *> P.spaces P.<?> "comma"
@@ -333,11 +332,9 @@ parsecLeadingCommaList p = do
 --
 -- @since 3.4.0.0
 parsecLeadingCommaNonEmpty :: CabalParsing m => m a -> m (NonEmpty a)
-parsecLeadingCommaNonEmpty p = do
-  c <- P.optional comma
-  case c of
-    Nothing -> P.sepEndByNonEmpty lp comma
-    Just _ -> P.sepByNonEmpty lp comma
+parsecLeadingCommaNonEmpty p =
+  (comma *> P.sepByNonEmpty lp comma)
+    <|> P.sepEndByNonEmpty lp comma
   where
     lp = p <* P.spaces
     comma = P.char ',' *> P.spaces P.<?> "comma"
@@ -361,21 +358,14 @@ parsecOptCommaList p = P.sepBy (p <* P.spaces) (P.optional comma)
 --
 -- @since 3.0.0.0
 parsecLeadingOptCommaList :: CabalParsing m => m a -> m [a]
-parsecLeadingOptCommaList p = do
-  c <- P.optional comma
-  case c of
-    Nothing -> sepEndBy1Start <|> pure []
-    Just _ -> toList <$> P.sepByNonEmpty lp comma
+parsecLeadingOptCommaList p =
+  toList <$> (comma *> P.sepByNonEmpty lp comma)
+    <|> sepEndBy1Start
+    <|> pure []
   where
     lp = p <* P.spaces
     comma = P.char ',' *> P.spaces P.<?> "comma"
-
-    sepEndBy1Start = do
-      x <- lp
-      c <- P.optional comma
-      case c of
-        Nothing -> (x :) <$> many lp
-        Just _ -> (x :) <$> P.sepEndBy lp comma
+    sepEndBy1Start = liftA2 (:) lp $ (comma *> (P.sepEndBy lp comma)) <|> many lp
 
 -- | Content isn't unquoted
 parsecQuoted :: CabalParsing m => m a -> m a
