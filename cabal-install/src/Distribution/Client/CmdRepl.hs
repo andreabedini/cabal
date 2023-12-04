@@ -330,7 +330,9 @@ replAction flags@NixStyleFlags{extraFlags = r@ReplFlags{..}, ..} targetStrings g
               <> replUseMulti
             then
               baseCtx
-                & lProjectConfig . lProjectConfigShared . lProjectConfigConstraints
+                & lProjectConfig
+                  . lProjectConfigShared
+                  . lProjectConfigConstraints
                   %~ (multiReplCabalConstraint :)
             else baseCtx
 

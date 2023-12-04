@@ -40,8 +40,6 @@ module Distribution.Client.ProjectPlanning
   , CannotPruneDependencies (..)
 
     -- * Utils required for building
-  , pkgHasEphemeralBuildTargets
-  , elabBuildTargetWholeComponents
   , configureCompiler
 
     -- * Setup.hs CLI flags for building
@@ -88,10 +86,9 @@ import Distribution.Client.DistDirLayout
 import Distribution.Client.FetchUtils
 import qualified Distribution.Client.IndexUtils as IndexUtils
 import qualified Distribution.Client.InstallPlan as InstallPlan
-import Distribution.Client.JobControl
+import Distribution.Client.ProjectPlanning.SetupPolicy
 import Distribution.Client.Setup hiding (cabalVersion, packageName)
 import Distribution.Client.SetupWrapper
-import Distribution.Client.ProjectPlanning.SetupPolicy
 import qualified Distribution.Client.SolverInstallPlan as SolverInstallPlan
 import Distribution.Client.Targets (userToPackageConstraint)
 import Distribution.Client.Types
@@ -2200,9 +2197,9 @@ elaborateInstallPlan
               if shouldBuildInplaceOnly pkg
                 then BuildInplaceOnly OnDisk
                 else BuildAndInstall
+
+            -- FIXME: remove this, it is entirely shared
             elabPackageDbs = projectConfigPackageDBs sharedPackageConfig
-            elabBuildPackageDBStack = buildAndRegisterDbs
-            elabRegisterPackageDBStack = buildAndRegisterDbs
 
             elabSetupScriptStyle = packageSetupScriptStyle elabPkgDescription
             elabSetupScriptCliVersion =
@@ -2211,8 +2208,13 @@ elaborateInstallPlan
                 elabPkgDescription
                 libDepGraph
                 deps0
+
+            -- FIXME: why this repetition?
+            elabBuildPackageDBStack = buildAndRegisterDbs
+            elabRegisterPackageDBStack = buildAndRegisterDbs
             elabSetupPackageDBStack = buildAndRegisterDbs
 
+            -- FIXME: why this repetition?
             elabInplaceBuildPackageDBStack = inplacePackageDbs
             elabInplaceRegisterPackageDBStack = inplacePackageDbs
             elabInplaceSetupPackageDBStack = inplacePackageDbs
@@ -2232,14 +2234,13 @@ elaborateInstallPlan
             elabProfExe = perPkgOptionFlag pkgid False packageConfigProf
             elabProfLib = pkgid `Set.member` pkgsUseProfilingLibrary
 
-            ( elabProfExeDetail
-              , elabProfLibDetail
-              ) =
-                perPkgOptionLibExeFlag
-                  pkgid
-                  ProfDetailDefault
-                  packageConfigProfDetail
-                  packageConfigProfLibDetail
+            (elabProfExeDetail, elabProfLibDetail) =
+              perPkgOptionLibExeFlag
+                pkgid
+                ProfDetailDefault
+                packageConfigProfDetail
+                packageConfigProfLibDetail
+
             elabCoverage = perPkgOptionFlag pkgid False packageConfigCoverage
 
             elabOptimization = perPkgOptionFlag pkgid NormalOptimisation packageConfigOptimization
@@ -2261,6 +2262,7 @@ elaborateInstallPlan
                 | prog <- configuredPrograms compilerprogdb
                 ]
                 <> perPkgOptionMapLast pkgid packageConfigProgramPaths
+
             elabProgramArgs =
               Map.fromList
                 [ (programId prog, args)
@@ -2269,6 +2271,9 @@ elaborateInstallPlan
                 , not (null args)
                 ]
                 <> perPkgOptionMapMappend pkgid packageConfigProgramArgs
+
+            -- FIXME: this should be added as a later pass
+
             elabProgramPathExtra = perPkgOptionNubList pkgid packageConfigProgramPathExtra
             elabConfigureScriptArgs = perPkgOptionList pkgid packageConfigConfigureArgs
             elabExtraLibDirs = perPkgOptionList pkgid packageConfigExtraLibDirs
@@ -3116,29 +3121,6 @@ nubComponentTargets =
     -- build command actually support building specific files or modules.
     setupHsSupportsSubComponentTargets = False
 
--- TODO: when that changes, adjust this test, e.g.
--- \| pkgSetupScriptCliVersion >= Version [x,y] []
-
-pkgHasEphemeralBuildTargets :: ElaboratedConfiguredPackage -> Bool
-pkgHasEphemeralBuildTargets elab =
-  (not . null) (elabReplTarget elab)
-    || (not . null) (elabTestTargets elab)
-    || (not . null) (elabBenchTargets elab)
-    || (not . null) (elabHaddockTargets elab)
-    || (not . null)
-      [ () | ComponentTarget _ subtarget <- elabBuildTargets elab, subtarget /= WholeComponent
-      ]
-
--- | The components that we'll build all of, meaning that after they're built
--- we can skip building them again (unlike with building just some modules or
--- other files within a component).
-elabBuildTargetWholeComponents
-  :: ElaboratedConfiguredPackage
-  -> Set ComponentName
-elabBuildTargetWholeComponents elab =
-  Set.fromList
-    [cname | ComponentTarget cname WholeComponent <- elabBuildTargets elab]
-
 ------------------------------------------------------------------------------
 
 -- * Install plan pruning
@@ -3728,26 +3710,26 @@ newtype CannotPruneDependencies
 -- in the store and local dbs.
 
 setupHsScriptOptions
-  :: ElaboratedReadyPackage
-  -> ElaboratedInstallPlan
+  :: ElaboratedConfiguredPackage
+  -- -> ElaboratedInstallPlan
   -> ElaboratedSharedConfig
-  -> DistDirLayout
-  -> FilePath
-  -> FilePath
-  -> Bool
-  -> Lock
+  -- -> DistDirLayout
+  -- -> FilePath
+  -- -> FilePath
+  -- -> Bool
+  -- -> Lock
   -> SetupScriptOptions
 -- TODO: Fix this so custom is a separate component.  Custom can ALWAYS
 -- be a separate component!!!
 setupHsScriptOptions
-  (ReadyPackage elab@ElaboratedConfiguredPackage{..})
-  plan
-  ElaboratedSharedConfig{..}
-  distdir
-  srcdir
-  builddir
-  isParallelBuild
-  cacheLock =
+  elab@ElaboratedConfiguredPackage{..}
+  -- plan
+  ElaboratedSharedConfig{..} =
+    -- distdir
+    -- srcdir
+    -- builddir
+    -- isParallelBuild
+    -- cacheLock
     SetupScriptOptions
       { useCabalVersion = thisVersion elabSetupScriptCliVersion
       , useCabalSpecVersion = Just elabSetupScriptCliVersion
@@ -3763,19 +3745,25 @@ setupHsScriptOptions
       , useDependenciesExclusive = True
       , useVersionMacros = elabSetupScriptStyle == SetupCustomExplicitDeps
       , useProgramDb = pkgConfigCompilerProgs
-      , useDistPref = builddir
       , useLoggingHandle = Nothing -- this gets set later
-      , useWorkingDir = Just srcdir
       , useExtraPathEnv = elabExeDependencyPaths elab ++ elabProgramPathExtra
-      , -- note that the above adds the extra-prog-path directly following the elaborated
-        -- dep paths, so that it overrides the normal path, but _not_ the elaborated extensions
-        -- for build-tools-depends.
-        useExtraEnvOverrides = dataDirsEnvironmentForPlan distdir plan
       , useWin32CleanHack = False -- TODO: [required eventually]
-      , forceExternalSetupMethod = isParallelBuild
-      , setupCacheLock = Just cacheLock
       , isInteractive = False
+      , useDistPref = mempty
+      , useWorkingDir = mempty
+      , useExtraEnvOverrides = mempty
+      , forceExternalSetupMethod = False
+      , setupCacheLock = Nothing
+      -- , useDistPref = builddir
+      -- , useWorkingDir = Just srcdir
+      -- , -- note that useExtraPathEnv adds the extra-prog-path directly following the elaborated
+      --   -- dep paths, so that it overrides the normal path, but _not_ the elaborated extensions
+      --   -- for build-tools-depends.
+      --   useExtraEnvOverrides = dataDirsEnvironmentForPlan distdir plan
+      -- , forceExternalSetupMethod = isParallelBuild
+      -- , setupCacheLock = Just cacheLock
       }
+
 -- | To be used for the input for elaborateInstallPlan.
 --
 -- TODO: [code cleanup] make InstallDirs.defaultInstallDirs pure.
@@ -3869,26 +3857,22 @@ computeInstallDirs storeDirLayout defaultInstallDirs elaboratedShared elab
 -- make the various Setup.hs {configure,build,copy} flags
 
 setupHsConfigureFlags
-  :: ElaboratedReadyPackage
+  :: ElaboratedConfiguredPackage
   -> ElaboratedSharedConfig
-  -> Verbosity
-  -> FilePath
   -> Cabal.ConfigFlags
 setupHsConfigureFlags
-  (ReadyPackage elab@ElaboratedConfiguredPackage{..})
-  sharedConfig@ElaboratedSharedConfig{..}
-  verbosity
-  builddir =
+  elab@ElaboratedConfiguredPackage{..}
+  sharedConfig@ElaboratedSharedConfig{..} =
     sanityCheckElaboratedConfiguredPackage
       sharedConfig
       elab
       (Cabal.ConfigFlags{..})
     where
       configArgs = mempty -- unused, passed via args
-      configDistPref = toFlag builddir
       configCabalFilePath = mempty
-      configVerbosity = toFlag verbosity
 
+      configDistPref = mempty -- moved to ProjectBuilding toFlag builddir
+      configVerbosity = mempty -- toFlag verbosity
       configInstantiateWith = Map.toList elabInstantiatedWith
 
       configDeterministic = mempty -- doesn't matter, configIPID/configCID overridese
@@ -3921,6 +3905,7 @@ setupHsConfigureFlags
                 "ghc"
                 ["-hide-all-packages"]
                 elabProgramArgs
+
       configProgramPathExtra = toNubList elabProgramPathExtra
       configHcFlavor = toFlag (compilerFlavor pkgConfigCompiler)
       configHcPath = mempty -- we use configProgramPaths instead
@@ -3962,9 +3947,7 @@ setupHsConfigureFlags
       configProgSuffix = maybe mempty toFlag elabProgSuffix
 
       configInstallDirs =
-        fmap
-          (toFlag . InstallDirs.toPathTemplate)
-          elabInstallDirs
+        toFlag . InstallDirs.toPathTemplate <$> elabInstallDirs
 
       -- we only use configDependencies, unless we're talking to an old Cabal
       -- in which case we use configConstraints
@@ -4033,24 +4016,17 @@ setupHsConfigureArgs elab@(ElaboratedConfiguredPackage{elabPkgOrComp = ElabCompo
         (compComponentName comp)
 
 setupHsBuildFlags
-  :: Flag String
-  -> ElaboratedConfiguredPackage
+  :: ElaboratedConfiguredPackage
   -> ElaboratedSharedConfig
-  -> Verbosity
-  -> FilePath
   -> Cabal.BuildFlags
-setupHsBuildFlags par_strat elab _ verbosity builddir =
+setupHsBuildFlags _ _ =
   Cabal.BuildFlags
     { buildProgramPaths = mempty -- unused, set at configure time
     , buildProgramArgs = mempty -- unused, set at configure time
-    , buildVerbosity = toFlag verbosity
-    , buildDistPref = toFlag builddir
+    , buildVerbosity = mempty -- moved to ProjectBuilding
+    , buildDistPref = mempty -- moved to ProjectBuilding
     , buildNumJobs = mempty -- TODO: [nice to have] sometimes want to use toFlag (Just numBuildJobs),
-    , buildUseSemaphore =
-        if elabSetupScriptCliVersion elab >= mkVersion [3, 11, 0, 0]
-          then -- Cabal 3.11 is the first version that supports parallelism semaphores
-            par_strat
-          else mempty
+    , buildUseSemaphore = mempty
     , buildArgs = mempty -- unused, passed via args not flags
     , buildCabalFilePath = mempty
     }
@@ -4068,13 +4044,11 @@ setupHsBuildArgs (ElaboratedConfiguredPackage{elabPkgOrComp = ElabComponent _}) 
 setupHsTestFlags
   :: ElaboratedConfiguredPackage
   -> ElaboratedSharedConfig
-  -> Verbosity
-  -> FilePath
   -> Cabal.TestFlags
-setupHsTestFlags (ElaboratedConfiguredPackage{..}) _ verbosity builddir =
+setupHsTestFlags (ElaboratedConfiguredPackage{..}) _ =
   Cabal.TestFlags
-    { testDistPref = toFlag builddir
-    , testVerbosity = toFlag verbosity
+    { testDistPref = mempty -- moved to ProjectBuilding
+    , testVerbosity = mempty -- moved to ProjectBuilding
     , testMachineLog = maybe mempty toFlag elabTestMachineLog
     , testHumanLog = maybe mempty toFlag elabTestHumanLog
     , testShowDetails = maybe (Flag Cabal.Always) toFlag elabTestShowDetails
@@ -4092,13 +4066,11 @@ setupHsTestArgs elab =
 setupHsBenchFlags
   :: ElaboratedConfiguredPackage
   -> ElaboratedSharedConfig
-  -> Verbosity
-  -> FilePath
   -> Cabal.BenchmarkFlags
-setupHsBenchFlags (ElaboratedConfiguredPackage{..}) _ verbosity builddir =
+setupHsBenchFlags (ElaboratedConfiguredPackage{..}) _ =
   Cabal.BenchmarkFlags
-    { benchmarkDistPref = toFlag builddir
-    , benchmarkVerbosity = toFlag verbosity
+    { benchmarkDistPref = mempty -- moved to ProjectBuilding
+    , benchmarkVerbosity = mempty -- moved to ProjectBuilding
     , benchmarkOptions = elabBenchmarkOptions
     }
 
@@ -4109,15 +4081,13 @@ setupHsBenchArgs elab =
 setupHsReplFlags
   :: ElaboratedConfiguredPackage
   -> ElaboratedSharedConfig
-  -> Verbosity
-  -> FilePath
   -> Cabal.ReplFlags
-setupHsReplFlags _ sharedConfig verbosity builddir =
+setupHsReplFlags _ sharedConfig =
   Cabal.ReplFlags
     { replProgramPaths = mempty -- unused, set at configure time
     , replProgramArgs = mempty -- unused, set at configure time
-    , replVerbosity = toFlag verbosity
-    , replDistPref = toFlag builddir
+    , replVerbosity = mempty -- moved to ProjectBuilding
+    , replDistPref = mempty -- moved to ProjectBuilding
     , replReload = mempty -- only used as callback from repl
     , replReplOptions = pkgConfigReplOptions sharedConfig -- runtime override for repl flags
     }
@@ -4129,53 +4099,42 @@ setupHsReplArgs elab =
 setupHsCopyFlags
   :: ElaboratedConfiguredPackage
   -> ElaboratedSharedConfig
-  -> Verbosity
-  -> FilePath
-  -> FilePath
   -> Cabal.CopyFlags
-setupHsCopyFlags _ _ verbosity builddir destdir =
+setupHsCopyFlags _ _ =
   Cabal.CopyFlags
     { copyArgs = [] -- TODO: could use this to only copy what we enabled
-    , copyDest = toFlag (InstallDirs.CopyTo destdir)
-    , copyDistPref = toFlag builddir
-    , copyVerbosity = toFlag verbosity
+    , copyDest = mempty -- moved to ProjectBuilding toFlag (InstallDirs.CopyTo destdir)
+    , copyDistPref = mempty -- moved to ProjectBuilding toFlag builddir
+    , copyVerbosity = mempty -- moved to ProjectBuilding toFlag verbosity
     , copyCabalFilePath = mempty
     }
 
 setupHsRegisterFlags
   :: ElaboratedConfiguredPackage
   -> ElaboratedSharedConfig
-  -> Verbosity
-  -> FilePath
-  -> FilePath
   -> Cabal.RegisterFlags
 setupHsRegisterFlags
   ElaboratedConfiguredPackage{..}
-  _
-  verbosity
-  builddir
-  pkgConfFile =
+  _ =
     Cabal.RegisterFlags
       { regPackageDB = mempty -- misfeature
       , regGenScript = mempty -- never use
-      , regGenPkgConf = toFlag (Just pkgConfFile)
+      , regVerbosity = mempty -- moved to projectBuilding
+      , regDistPref = mempty -- moved to projectBuilding
+      , regGenPkgConf = mempty -- moved to projectBuilding
       , regInPlace = case elabBuildStyle of
           BuildInplaceOnly{} -> toFlag True
           BuildAndInstall -> toFlag False
       , regPrintId = mempty -- never use
-      , regDistPref = toFlag builddir
       , regArgs = []
-      , regVerbosity = toFlag verbosity
       , regCabalFilePath = mempty
       }
 
 setupHsHaddockFlags
   :: ElaboratedConfiguredPackage
   -> ElaboratedSharedConfig
-  -> Verbosity
-  -> FilePath
   -> Cabal.HaddockFlags
-setupHsHaddockFlags (ElaboratedConfiguredPackage{..}) (ElaboratedSharedConfig{..}) verbosity builddir =
+setupHsHaddockFlags (ElaboratedConfiguredPackage{..}) (ElaboratedSharedConfig{..}) =
   Cabal.HaddockFlags
     { haddockProgramPaths =
         case lookupProgram haddockProgram pkgConfigCompilerProgs of
@@ -4201,9 +4160,9 @@ setupHsHaddockFlags (ElaboratedConfiguredPackage{..}) (ElaboratedSharedConfig{..
     , haddockQuickJump = toFlag elabHaddockQuickJump
     , haddockHscolourCss = maybe mempty toFlag elabHaddockHscolourCss
     , haddockContents = maybe mempty toFlag elabHaddockContents
-    , haddockDistPref = toFlag builddir
+    , haddockDistPref = mempty -- moved to ProjectBuilding
     , haddockKeepTempFiles = mempty -- TODO: from build settings
-    , haddockVerbosity = toFlag verbosity
+    , haddockVerbosity = mempty -- moved to ProjectBuilding
     , haddockCabalFilePath = mempty
     , haddockIndex = maybe mempty toFlag elabHaddockIndex
     , haddockBaseUrl = maybe mempty toFlag elabHaddockBaseUrl

@@ -221,6 +221,7 @@ import Distribution.Version
   )
 #ifdef MIN_VERSION_unix
 import           System.Posix.Signals (sigKILL, sigSEGV)
+import Distribution.Client.ProjectPlanning.ConcretePlan
 
 #endif
 
@@ -330,6 +331,8 @@ data ProjectBuildContext = ProjectBuildContext
   -- This is the plan that will be executed during the build phase. So
   -- this contains only a subset of packages in the project.
   , elaboratedShared :: ElaboratedSharedConfig
+  , concretePlan :: ConcreteInstallPlan
+  , concreteShared :: ConcreteSharedConfig
   -- ^ The part of the install plan that's shared between all packages in
   -- the plan. This does not change between the two plan variants above,
   -- so there is just the one copy.
@@ -406,14 +409,16 @@ runProjectPreBuildPhase
     --
     (elaboratedPlan', targets) <- selectPlanSubset elaboratedPlan
 
+    let (concretePlan, concreteShared) = toConcrete elaboratedPlan' elaboratedShared
+
     -- Check which packages need rebuilding.
     -- This also gives us more accurate reasons for the --dry-run output.
     --
     pkgsBuildStatus <-
       rebuildTargetsDryRun
         distDirLayout
-        elaboratedShared
-        elaboratedPlan'
+        concreteShared
+        concretePlan
 
     -- Improve the plan by marking up-to-date packages as installed.
     --
@@ -427,6 +432,8 @@ runProjectPreBuildPhase
       ProjectBuildContext
         { elaboratedPlanOriginal = elaboratedPlan
         , elaboratedPlanToExecute = elaboratedPlan''
+        , concretePlan
+        , concreteShared
         , elaboratedShared
         , pkgsBuildStatus
         , targetsMap = targets
@@ -454,8 +461,8 @@ runProjectBuildPhase
         projectConfig
         distDirLayout
         (cabalStoreDirLayout cabalDirLayout)
-        elaboratedPlanToExecute
-        elaboratedShared
+        concretePlan
+        concreteShared
         pkgsBuildStatus
         buildSettings
     where
@@ -1039,10 +1046,8 @@ printPlan
       showConfigureFlags elab =
         let fullConfigureFlags =
               setupHsConfigureFlags
-                (ReadyPackage elab)
+                elab
                 elaboratedShared
-                verbosity
-                "$builddir"
             -- \| Given a default value @x@ for a flag, nub @Flag x@
             -- into @NoFlag@.  This gives us a tidier command line
             -- rendering.

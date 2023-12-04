@@ -48,14 +48,12 @@ import Distribution.Client.NixStyleOptions
   , defaultNixStyleFlags
   , nixStyleOptions
   )
+import Distribution.Client.ProjectBuilding (dataDirsEnvironmentForPlan)
 import Distribution.Client.ProjectOrchestration
 import Distribution.Client.ProjectPlanning
   ( ElaboratedConfiguredPackage (..)
   , ElaboratedInstallPlan
   , binDirectoryFor
-  )
-import Distribution.Client.ProjectPlanning.Types
-  ( dataDirsEnvironmentForPlan
   )
 import Distribution.Client.ScriptUtils
   ( AcceptNoTargets (..)
@@ -299,7 +297,7 @@ runAction flags@NixStyleFlags{..} targetAndArgs globalFlags =
             , progInvokeEnv =
                 dataDirsEnvironmentForPlan
                   (distDirLayout baseCtx)
-                  elaboratedPlan
+                  $ concretePlan buildCtx
             }
   where
     (targetStr, args) = splitAt 1 targetAndArgs

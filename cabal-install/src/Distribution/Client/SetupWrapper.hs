@@ -21,9 +21,11 @@
 -- runs it with the given arguments.
 module Distribution.Client.SetupWrapper
   ( getSetup
+  , getSetupMethod
   , runSetup
   , runSetupCommand
   , setupWrapper
+  , Setup(..)
   , SetupScriptOptions (..)
   , defaultSetupScriptOptions
   ) where
@@ -46,7 +48,7 @@ import Distribution.Package
   , newSimpleUnitId
   , packageName
   , packageVersion
-  , unsafeMkDefUnitId
+  , unsafeMkDefUnitId, Package (..)
   )
 import Distribution.PackageDescription
   ( BuildType (..)
@@ -202,7 +204,6 @@ data Setup = Setup
   , setupScriptOptions :: SetupScriptOptions
   , setupVersion :: Version
   , setupBuildType :: BuildType
-  , setupPackage :: PackageDescription
   }
 
 -- | @SetupMethod@ represents one of the methods used to run Cabal commands.
@@ -357,10 +358,9 @@ type SetupRunner =
 getSetup
   :: Verbosity
   -> SetupScriptOptions
-  -> Maybe PackageDescription
+  -> PackageDescription
   -> IO Setup
-getSetup verbosity options mpkg = do
-  pkg <- maybe getPkg return mpkg
+getSetup verbosity options pkg = do
   let options' =
         options
           { useCabalVersion =
@@ -368,22 +368,17 @@ getSetup verbosity options mpkg = do
                 (useCabalVersion options)
                 (orLaterVersion (mkVersion (cabalSpecMinimumLibraryVersion (specVersion pkg))))
           }
-      buildType' = buildType pkg
+
   (version, method, options'') <-
-    getSetupMethod verbosity options' pkg buildType'
+    getSetupMethod verbosity options' (packageId pkg) (buildType pkg)
+
   return
     Setup
       { setupMethod = method
       , setupScriptOptions = options''
       , setupVersion = version
-      , setupBuildType = buildType'
-      , setupPackage = pkg
+      , setupBuildType = buildType pkg
       }
-  where
-    getPkg =
-      tryFindPackageDesc verbosity (fromMaybe "." (useWorkingDir options))
-        >>= readGenericPackageDescription verbosity
-        >>= return . packageDescription
 
 -- | Decide if we're going to be able to do a direct internal call to the
 -- entry point in the Cabal library or if we're going to have to compile
@@ -391,19 +386,21 @@ getSetup verbosity options mpkg = do
 getSetupMethod
   :: Verbosity
   -> SetupScriptOptions
-  -> PackageDescription
+  -> PackageIdentifier
   -> BuildType
   -> IO (Version, SetupMethod, SetupScriptOptions)
-getSetupMethod verbosity options pkg buildType'
+getSetupMethod verbosity options pkgId buildType'
   | buildType' == Custom
       || maybe False (cabalVersion /=) (useCabalSpecVersion options)
       || not (cabalVersion `withinRange` useCabalVersion options) =
-      getExternalSetupMethod verbosity options pkg buildType'
+      getExternalSetupMethod verbosity options pkgId buildType'
+
   | isJust (useLoggingHandle options)
       -- Forcing is done to use an external process e.g. due to parallel
       -- build concerns.
       || forceExternalSetupMethod options =
       return (cabalVersion, SelfExecMethod, options)
+
   | otherwise = return (cabalVersion, InternalMethod, options)
 
 runSetupMethod :: WithCallStack (SetupMethod -> SetupRunner)
@@ -495,13 +492,19 @@ setupWrapper
   -> (Version -> [String])
   -> IO ()
 setupWrapper verbosity options mpkg cmd flags extraArgs = do
-  setup <- getSetup verbosity options mpkg
+  pkg <- maybe getPkg return mpkg
+  setup <- getSetup verbosity options pkg
   runSetupCommand
     verbosity
     setup
     cmd
     (flags $ setupVersion setup)
     (extraArgs $ setupVersion setup)
+  where
+    getPkg =
+      tryFindPackageDesc verbosity (fromMaybe "." (useWorkingDir options))
+        >>= readGenericPackageDescription verbosity
+        >>= return . packageDescription
 
 -- ------------------------------------------------------------
 
@@ -632,17 +635,16 @@ externalSetupMethod path verbosity options _ args =
 getExternalSetupMethod
   :: Verbosity
   -> SetupScriptOptions
-  -> PackageDescription
+  -> PackageId
   -> BuildType
   -> IO (Version, SetupMethod, SetupScriptOptions)
-getExternalSetupMethod verbosity options pkg bt = do
+getExternalSetupMethod verbosity options pkgId bt = do
   debug verbosity $ "Using external setup method with build-type " ++ show bt
-  debug verbosity $
-    "Using explicit dependencies: "
-      ++ show (useDependenciesExclusive options)
+  debug verbosity $ "Using explicit dependencies: " ++ show (useDependenciesExclusive options)
   createDirectoryIfMissingVerbose verbosity True setupDir
   (cabalLibVersion, mCabalLibInstalledPkgId, options') <- cabalLibVersionToUse
   debug verbosity $ "Using Cabal library version " ++ prettyShow cabalLibVersion
+
   path <-
     if useCachedSetupExecutable
       then
@@ -714,37 +716,45 @@ getExternalSetupMethod verbosity options pkg bt = do
     -- The version chosen here must match the one used in 'compileSetupExecutable'
     -- (See issue #3433).
     cabalLibVersionToUse
-      :: IO
-          ( Version
-          , Maybe ComponentId
-          , SetupScriptOptions
-          )
-    cabalLibVersionToUse =
-      case find (isCabalPkgId . snd) (useDependencies options) of
-        Just (unitId, pkgId) -> do
-          let version = pkgVersion pkgId
+      :: IO (Version, Maybe ComponentId, SetupScriptOptions)
+    cabalLibVersionToUse = do
+      let cabalLibVersionToUsePolicy = 
+            case find (isCabalPkgId . snd) (useDependencies options) of
+              Just (unitId, pkgId') ->
+                Just (Just unitId, pkgVersion pkgId')
+              Nothing ->
+                case useCabalSpecVersion options of
+                  Just version ->
+                    Just (Nothing, version)
+                  Nothing ->
+                    Nothing
+
+      case cabalLibVersionToUsePolicy of
+        Just (mUnitId, version) -> do
           updateSetupScript version bt
           writeSetupVersionFile version
-          return (version, Just unitId, options)
-        Nothing ->
-          case useCabalSpecVersion options of
+          return (version, mUnitId, options)
+        Nothing -> do
+          savedVer <- savedVersion
+
+          useExisting <- case savedVer of
+            Just version | version `withinRange` useCabalVersion options -> do
+              -- Does the previously compiled setup executable
+              -- still exist and is it up-to date?
+              useExisting <- canUseExistingSetup version
+              if useExisting
+                then return (Just version)
+                else return Nothing
+            _otherwise ->
+              return Nothing
+
+          case useExisting of
             Just version -> do
               updateSetupScript version bt
-              writeSetupVersionFile version
               return (version, Nothing, options)
-            Nothing -> do
-              savedVer <- savedVersion
-              case savedVer of
-                Just version | version `withinRange` useCabalVersion options ->
-                  do
-                    updateSetupScript version bt
-                    -- Does the previously compiled setup executable
-                    -- still exist and is it up-to date?
-                    useExisting <- canUseExistingSetup version
-                    if useExisting
-                      then return (version, Nothing, options)
-                      else installedVersion
-                _ -> installedVersion
+            Nothing ->
+              installedVersion
+
       where
         -- This check duplicates the checks in 'getCachedSetupExecutable' /
         -- 'compileSetupExecutable'. Unfortunately, we have to perform it twice
@@ -765,19 +775,10 @@ getExternalSetupMethod verbosity options pkg bt = do
         writeSetupVersionFile version =
           writeFile setupVersionFile (show version ++ "\n")
 
-        installedVersion
-          :: IO
-              ( Version
-              , Maybe InstalledPackageId
-              , SetupScriptOptions
-              )
+        installedVersion :: IO (Version, Maybe InstalledPackageId, SetupScriptOptions)
         installedVersion = do
           (comp, progdb, options') <- configureCompiler options
-          (version, mipkgid, options'') <-
-            installedCabalVersion
-              options'
-              comp
-              progdb
+          (version, mipkgid, options'') <- installedCabalVersion options' comp progdb
           updateSetupScript version bt
           writeSetupVersionFile version
           return (version, mipkgid, options'')
@@ -821,15 +822,11 @@ getExternalSetupMethod verbosity options pkg bt = do
       :: SetupScriptOptions
       -> Compiler
       -> ProgramDb
-      -> IO
-          ( Version
-          , Maybe InstalledPackageId
-          , SetupScriptOptions
-          )
+      -> IO ( Version , Maybe InstalledPackageId , SetupScriptOptions)
     installedCabalVersion options' _ _
-      | packageName pkg == mkPackageName "Cabal"
+      | packageName pkgId == mkPackageName "Cabal"
           && bt == Custom =
-          return (packageVersion pkg, Nothing, options')
+          return (packageVersion pkgId, Nothing, options')
     installedCabalVersion options' compiler progdb = do
       index <- maybeGetInstalledPackages options' compiler progdb
       let cabalDepName = mkPackageName "Cabal"
@@ -837,7 +834,7 @@ getExternalSetupMethod verbosity options pkg bt = do
           options'' = options'{usePackageIndex = Just index}
       case PackageIndex.lookupDependency index cabalDepName cabalDepVersion of
         [] ->
-          dieWithException verbosity $ InstalledCabalVersion (packageName pkg) (useCabalVersion options)
+          dieWithException verbosity $ InstalledCabalVersion (packageName pkgId) (useCabalVersion options)
         pkgs ->
           let ipkginfo = fromMaybe err $ safeHead . snd . bestVersion fst $ pkgs
               err = error "Distribution.Client.installedCabalVersion: empty version list"
@@ -1071,7 +1068,7 @@ getExternalSetupMethod verbosity options pkg bt = do
           let ghcCmdLine = renderGhcOptions compiler platform ghcOptions
           when (useVersionMacros options') $
             rewriteFileEx verbosity cppMacrosFile $
-              generatePackageVersionMacros (pkgVersion $ package pkg) (map snd selectedDeps)
+              generatePackageVersionMacros (packageVersion pkgId) (map snd selectedDeps)
           case useLoggingHandle options of
             Nothing -> runDbProgram verbosity program progdb ghcCmdLine
             -- If build logging is enabled, redirect compiler output to

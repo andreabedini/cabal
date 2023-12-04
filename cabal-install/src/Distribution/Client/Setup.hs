@@ -32,6 +32,7 @@ module Distribution.Client.Setup
   , ConfigExFlags (..)
   , defaultConfigExFlags
   , buildCommand
+  , filterBuildFlags
   , BuildFlags (..)
   , filterTestFlags
   , replCommand
@@ -1073,6 +1074,12 @@ buildCommand =
     }
   where
     parent = Cabal.buildCommand defaultProgramDb
+
+filterBuildFlags :: BuildFlags -> Version -> BuildFlags
+filterBuildFlags flags cabalLibVersion
+  | cabalLibVersion >= mkVersion [3, 11, 0, 0] = flags
+  -- TODO: revisit the naming convention as described in the comment below
+  | otherwise = flags{buildUseSemaphore = NoFlag}
 
 -- ------------------------------------------------------------
 

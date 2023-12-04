@@ -39,6 +39,9 @@ module Distribution.Client.ProjectBuilding
   , BuildResult (..)
   , BuildFailure (..)
   , BuildFailureReason (..)
+
+    -- ** FIXME: Other to figure out
+  , dataDirsEnvironmentForPlan
   ) where
 
 import Distribution.Client.Compat.Prelude
@@ -65,12 +68,13 @@ import Distribution.Client.InstallPlan
 import qualified Distribution.Client.InstallPlan as InstallPlan
 import Distribution.Client.JobControl
 import Distribution.Client.Setup
-  ( filterConfigureFlags
+  ( filterBuildFlags
+  , filterConfigureFlags
   , filterHaddockArgs
   , filterHaddockFlags
   , filterTestFlags
   )
-import Distribution.Client.SetupWrapper
+import Distribution.Client.SetupWrapper hiding (getSetup)
 import Distribution.Client.SourceFiles
 import Distribution.Client.SrcDist (allPackageSourceFiles)
 import qualified Distribution.Client.Tar as Tar
@@ -88,12 +92,10 @@ import Distribution.Client.Utils
   , removeExistingFile
   )
 
-import Distribution.Compat.Lens
 import Distribution.InstalledPackageInfo (InstalledPackageInfo)
 import qualified Distribution.InstalledPackageInfo as Installed
 import Distribution.Package
 import qualified Distribution.PackageDescription as PD
-import Distribution.Simple.BuildPaths (haddockDirName)
 import Distribution.Simple.Command (CommandUI)
 import Distribution.Simple.Compiler
   ( Compiler
@@ -104,13 +106,11 @@ import Distribution.Simple.Compiler
 import qualified Distribution.Simple.InstallDirs as InstallDirs
 import Distribution.Simple.LocalBuildInfo
   ( ComponentName (..)
-  , LibraryName (..)
   )
 import Distribution.Simple.Program
 import qualified Distribution.Simple.Register as Cabal
 import qualified Distribution.Simple.Setup as Cabal
 import Distribution.Types.BuildType
-import Distribution.Types.PackageDescription.Lens (componentModules)
 
 import Distribution.Compat.Graph (IsNode (..))
 import Distribution.Simple.Utils
@@ -131,7 +131,9 @@ import System.FilePath (dropDrive, makeRelative, normalise, takeDirectory, (<.>)
 import System.IO (Handle, IOMode (AppendMode), withFile)
 import System.Semaphore (SemaphoreName (..))
 
+import Data.Bifunctor (second)
 import Distribution.Client.Errors
+import Distribution.Client.ProjectPlanning.ConcretePlan (ConcreteConfiguredPackage (..), ConcreteInstallPlan, ConcretePlanPackage, ConcreteSetupConfig (csoBuildType), ConcreteSharedConfig (..))
 import Distribution.Compat.Directory (listDirectory)
 import Distribution.Simple.Flag (fromFlagOrDefault)
 
@@ -205,15 +207,15 @@ import Distribution.Simple.Flag (fromFlagOrDefault)
 -- 'InstallPlan.Installed' state when we find that they're already up to date.
 rebuildTargetsDryRun
   :: DistDirLayout
-  -> ElaboratedSharedConfig
-  -> ElaboratedInstallPlan
+  -> ConcreteSharedConfig
+  -> ConcreteInstallPlan
   -> IO BuildStatusMap
 rebuildTargetsDryRun distDirLayout@DistDirLayout{..} shared =
   -- Do the various checks to work out the 'BuildStatus' of each package
   foldMInstallPlanDepOrder dryRunPkg
   where
     dryRunPkg
-      :: ElaboratedPlanPackage
+      :: ConcretePlanPackage
       -> [BuildStatus]
       -> IO BuildStatus
     dryRunPkg (InstallPlan.PreExisting _pkg) _depsBuildStatus =
@@ -221,7 +223,7 @@ rebuildTargetsDryRun distDirLayout@DistDirLayout{..} shared =
     dryRunPkg (InstallPlan.Installed _pkg) _depsBuildStatus =
       return BuildStatusInstalled
     dryRunPkg (InstallPlan.Configured pkg) depsBuildStatus = do
-      mloc <- checkFetched (elabPkgSourceLocation pkg)
+      mloc <- checkFetched (ccpSourceLocation pkg)
       case mloc of
         Nothing -> return BuildStatusDownload
         Just (LocalUnpackedPackage srcdir) ->
@@ -241,12 +243,12 @@ rebuildTargetsDryRun distDirLayout@DistDirLayout{..} shared =
           dryRunTarballPkg pkg depsBuildStatus tarball
 
     dryRunTarballPkg
-      :: ElaboratedConfiguredPackage
+      :: ConcreteConfiguredPackage
       -> [BuildStatus]
       -> FilePath
       -> IO BuildStatus
     dryRunTarballPkg pkg depsBuildStatus tarball =
-      case elabBuildStyle pkg of
+      case ccpBuildStyle pkg of
         BuildAndInstall -> return (BuildStatusUnpack tarball)
         BuildInplaceOnly{} -> do
           -- TODO: [nice to have] use a proper file monitor rather
@@ -260,7 +262,7 @@ rebuildTargetsDryRun distDirLayout@DistDirLayout{..} shared =
         srcdir = distUnpackedSrcDirectory (packageId pkg)
 
     dryRunLocalPkg
-      :: ElaboratedConfiguredPackage
+      :: ConcreteConfiguredPackage
       -> [BuildStatus]
       -> FilePath
       -> IO BuildStatus
@@ -286,7 +288,7 @@ rebuildTargetsDryRun distDirLayout@DistDirLayout{..} shared =
           newPackageFileMonitor
             shared
             distDirLayout
-            (elabDistDirParams shared pkg)
+            (mkDistParams pkg shared)
 
 -- | A specialised traversal over the packages in an install plan.
 --
@@ -358,7 +360,7 @@ improveInstallPlanWithUpToDatePackages pkgsBuildStatus =
 -- for other changes. This is the purpose of 'updatePackageConfigFileMonitor'
 -- and 'updatePackageBuildFileMonitor'.
 data PackageFileMonitor = PackageFileMonitor
-  { pkgFileMonitorConfig :: FileMonitor ElaboratedConfiguredPackage ()
+  { pkgFileMonitorConfig :: FileMonitor (Cabal.ConfigFlags, [String]) ()
   , pkgFileMonitorBuild :: FileMonitor (Set ComponentName) BuildResultMisc
   , pkgFileMonitorReg :: FileMonitor () (Maybe InstalledPackageInfo)
   }
@@ -371,7 +373,7 @@ data PackageFileMonitor = PackageFileMonitor
 type BuildResultMisc = (DocsResult, TestsResult)
 
 newPackageFileMonitor
-  :: ElaboratedSharedConfig
+  :: ConcreteSharedConfig
   -> DistDirLayout
   -> DistDirParams
   -> PackageFileMonitor
@@ -397,59 +399,60 @@ newPackageFileMonitor
           newFileMonitor (distPackageCacheFile dparams "registration")
       }
 
--- | Helper function for 'checkPackageFileMonitorChanged',
--- 'updatePackageConfigFileMonitor' and 'updatePackageBuildFileMonitor'.
+-- FIXME: double check this
+-- -- | Helper function for 'checkPackageFileMonitorChanged',
+-- -- 'updatePackageConfigFileMonitor' and 'updatePackageBuildFileMonitor'.
+-- --
+-- -- It selects the info from a 'ElaboratedConfiguredPackage' that are used by
+-- -- the 'FileMonitor's (in the 'PackageFileMonitor') to detect value changes.
+-- packageFileMonitorKeyValues
+--   :: ConcreteConfiguredPackage
+--   -> (Cabal.ConfigFlags, [String], Set ComponentName)
+-- packageFileMonitorKeyValues pkg =
+--   (ccpConfigureFlags pkg, ccpConfigureArgs pkg, buildComponents)
+--   where
+--     -- The first part is the value used to guard (re)configuring the package.
+--     -- That is, if this value changes then we will reconfigure.
+--     -- The ConcreteConfiguredPackage consists mostly (but not entirely) of
+--     -- information that affects the (re)configure step. But those parts that
+--     -- do not affect the configure step need to be nulled out. Those parts are
+--     -- the specific targets that we're going to build.
+--     --
 --
--- It selects the info from a 'ElaboratedConfiguredPackage' that are used by
--- the 'FileMonitor's (in the 'PackageFileMonitor') to detect value changes.
-packageFileMonitorKeyValues
-  :: ElaboratedConfiguredPackage
-  -> (ElaboratedConfiguredPackage, Set ComponentName)
-packageFileMonitorKeyValues elab =
-  (elab_config, buildComponents)
-  where
-    -- The first part is the value used to guard (re)configuring the package.
-    -- That is, if this value changes then we will reconfigure.
-    -- The ElaboratedConfiguredPackage consists mostly (but not entirely) of
-    -- information that affects the (re)configure step. But those parts that
-    -- do not affect the configure step need to be nulled out. Those parts are
-    -- the specific targets that we're going to build.
-    --
-
-    -- Additionally we null out the parts that don't affect the configure step because they're simply
-    -- about how tests or benchmarks are run
-
-    -- TODO there may be more things to null here too, in the future.
-
-    elab_config :: ElaboratedConfiguredPackage
-    elab_config =
-      elab
-        { elabBuildTargets = []
-        , elabTestTargets = []
-        , elabBenchTargets = []
-        , elabReplTarget = []
-        , elabHaddockTargets = []
-        , elabBuildHaddocks = False
-        , elabTestMachineLog = Nothing
-        , elabTestHumanLog = Nothing
-        , elabTestShowDetails = Nothing
-        , elabTestKeepTix = False
-        , elabTestTestOptions = []
-        , elabBenchmarkOptions = []
-        }
-
-    -- The second part is the value used to guard the build step. So this is
-    -- more or less the opposite of the first part, as it's just the info about
-    -- what targets we're going to build.
-    --
-    buildComponents :: Set ComponentName
-    buildComponents = elabBuildTargetWholeComponents elab
+--     -- Additionally we null out the parts that don't affect the configure step because they're simply
+--     -- about how tests or benchmarks are run
+--
+--     -- TODO there may be more things to null here too, in the future.
+--
+--     -- elab_config :: ConcreteConfiguredPackage
+--     -- elab_config =
+--     --   pkg
+--     --     { elabBuildTargets = []
+--     --     , elabTestTargets = []
+--     --     , elabBenchTargets = []
+--     --     , elabReplTarget = []
+--     --     , elabHaddockTargets = []
+--     --     , elabBuildHaddocks = False
+--     --     , elabTestMachineLog = Nothing
+--     --     , elabTestHumanLog = Nothing
+--     --     , elabTestShowDetails = Nothing
+--     --     , elabTestKeepTix = False
+--     --     , elabTestTestOptions = []
+--     --     , elabBenchmarkOptions = []
+--     --     }
+--
+--     -- The second part is the value used to guard the build step. So this is
+--     -- more or less the opposite of the first part, as it's just the info about
+--     -- what targets we're going to build.
+--     --
+--     buildComponents :: Set ComponentName
+--     buildComponents = elabBuildTargetWholeComponents pkg
 
 -- | Do all the checks on whether a package has changed and thus needs either
 -- rebuilding or reconfiguring and rebuilding.
 checkPackageFileMonitorChanged
   :: PackageFileMonitor
-  -> ElaboratedConfiguredPackage
+  -> ConcreteConfiguredPackage
   -> FilePath
   -> [BuildStatus]
   -> IO (Either BuildStatusRebuild BuildResult)
@@ -464,7 +467,7 @@ checkPackageFileMonitorChanged
       checkFileMonitorChanged
         pkgFileMonitorConfig
         srcdir
-        pkgconfig
+        (ccpConfigureFlags pkg, ccpConfigureArgs pkg)
     case configChanged of
       MonitorChanged monitorReason ->
         return (Left (BuildStatusConfigure monitorReason'))
@@ -483,7 +486,7 @@ checkPackageFileMonitorChanged
               checkFileMonitorChanged
                 pkgFileMonitorBuild
                 srcdir
-                buildComponents
+                (ccpBuildTargetWholeComponents pkg)
             regChanged <-
               checkFileMonitorChanged
                 pkgFileMonitorReg
@@ -509,7 +512,7 @@ checkPackageFileMonitorChanged
                   buildReason = BuildReasonFilesChanged monitorReason'
                   monitorReason' = fmap (const ()) monitorReason
               (MonitorUnchanged _ _, MonitorUnchanged _ _)
-                | pkgHasEphemeralBuildTargets pkg ->
+                | ccpHasEphemeralBuildTargets pkg ->
                     return (Left (BuildStatusBuild mreg buildReason))
                 where
                   buildReason = BuildReasonEphemeralTargets
@@ -524,7 +527,6 @@ checkPackageFileMonitorChanged
                 where
                   (docsResult, testsResult) = buildResult
     where
-      (pkgconfig, buildComponents) = packageFileMonitorKeyValues pkg
       changedToMaybe :: MonitorChanged a b -> Maybe b
       changedToMaybe (MonitorChanged _) = Nothing
       changedToMaybe (MonitorUnchanged x _) = Just x
@@ -532,27 +534,16 @@ checkPackageFileMonitorChanged
 updatePackageConfigFileMonitor
   :: PackageFileMonitor
   -> FilePath
-  -> ElaboratedConfiguredPackage
+  -> ConcreteConfiguredPackage
   -> IO ()
-updatePackageConfigFileMonitor
-  PackageFileMonitor{pkgFileMonitorConfig}
-  srcdir
-  pkg =
-    updateFileMonitor
-      pkgFileMonitorConfig
-      srcdir
-      Nothing
-      []
-      pkgconfig
-      ()
-    where
-      (pkgconfig, _buildComponents) = packageFileMonitorKeyValues pkg
+updatePackageConfigFileMonitor PackageFileMonitor{pkgFileMonitorConfig} srcdir pkg =
+  updateFileMonitor pkgFileMonitorConfig srcdir Nothing [] (ccpConfigureFlags pkg, ccpConfigureArgs pkg) ()
 
 updatePackageBuildFileMonitor
   :: PackageFileMonitor
   -> FilePath
   -> MonitorTimestamp
-  -> ElaboratedConfiguredPackage
+  -> ConcreteConfiguredPackage
   -> BuildStatusRebuild
   -> [MonitorFilePath]
   -> BuildResultMisc
@@ -573,8 +564,7 @@ updatePackageBuildFileMonitor
       buildComponents'
       buildResult
     where
-      (_pkgconfig, buildComponents) = packageFileMonitorKeyValues pkg
-
+      buildComponents = ccpBuildTargetWholeComponents pkg
       -- If the only thing that's changed is that we're now building extra
       -- components, then we can avoid later unnecessary rebuilds by saving the
       -- total set of components that have been built, namely the union of the
@@ -631,8 +621,8 @@ rebuildTargets
   -> ProjectConfig
   -> DistDirLayout
   -> StoreDirLayout
-  -> ElaboratedInstallPlan
-  -> ElaboratedSharedConfig
+  -> ConcreteInstallPlan
+  -> ConcreteSharedConfig
   -> BuildStatusMap
   -> BuildTimeSettings
   -> IO BuildOutcomes
@@ -644,9 +634,9 @@ rebuildTargets
   distDirLayout@DistDirLayout{..}
   storeDirLayout
   installPlan
-  sharedPackageConfig@ElaboratedSharedConfig
-    { pkgConfigCompiler = compiler
-    , pkgConfigCompilerProgs = progdb
+  sharedPackageConfig@ConcreteSharedConfig
+    { cscCompiler = compiler
+    , cscCompilerProgs = progdb
     }
   pkgsBuildStatus
   buildSettings@BuildTimeSettings
@@ -727,22 +717,21 @@ rebuildTargets
           | InstallPlan.Configured elab <- InstallPlan.toList installPlan
           , pkgdb <-
               concat
-                [ elabBuildPackageDBStack elab
-                , elabRegisterPackageDBStack elab
-                , elabSetupPackageDBStack elab
+                [ ccpBuildPackageDBStack elab
+                , ccpRegisterPackageDBStack elab
+                , ccpSetupPackageDBStack elab
                 ]
           ]
 
       offlineError :: BuildOutcomes
       offlineError = Map.fromList . map makeBuildOutcome $ packagesToDownload
         where
-          makeBuildOutcome :: ElaboratedConfiguredPackage -> (UnitId, BuildOutcome)
           makeBuildOutcome
-            ElaboratedConfiguredPackage
-              { elabUnitId
-              , elabPkgSourceId = PackageIdentifier{pkgName, pkgVersion}
+            ConcreteConfiguredPackage
+              { ccpUnitId
+              , ccpPackageId = PackageIdentifier{pkgName, pkgVersion}
               } =
-              ( elabUnitId
+              ( ccpUnitId
               , Left
                   ( BuildFailure
                       { buildFailureLogFile = Nothing
@@ -757,9 +746,9 @@ rebuildTargets
               ++ " version "
               ++ Disp.render (pretty v)
 
-      packagesToDownload :: [ElaboratedConfiguredPackage]
+      packagesToDownload :: [ConcreteConfiguredPackage]
       packagesToDownload =
-        [ elab | InstallPlan.Configured elab <- InstallPlan.reverseTopologicalOrder installPlan, isRemote $ elabPkgSourceLocation elab
+        [ elab | InstallPlan.Configured elab <- InstallPlan.reverseTopologicalOrder installPlan, isRemote $ ccpSourceLocation elab
         ]
         where
           isRemote :: PackageLocation a -> Bool
@@ -797,9 +786,9 @@ rebuildTarget
   -> AsyncFetchMap
   -> Lock
   -> Lock
-  -> ElaboratedSharedConfig
-  -> ElaboratedInstallPlan
-  -> ElaboratedReadyPackage
+  -> ConcreteSharedConfig
+  -> ConcreteInstallPlan
+  -> GenericReadyPackage ConcreteConfiguredPackage
   -> BuildStatus
   -> IO BuildResult
 rebuildTarget
@@ -840,6 +829,8 @@ rebuildTarget
           BuildStatusInstalled{} -> unexpectedState
           BuildStatusUpToDate{} -> unexpectedState
     where
+      dparams = mkDistParams pkg sharedPackageConfig
+
       unexpectedState = error "rebuildTarget: unexpected package status"
 
       downloadPhase :: IO BuildResult
@@ -849,23 +840,27 @@ rebuildTarget
             waitAsyncPackageDownload verbosity downloadMap pkg
         case downsrcloc of
           DownloadedTarball tarball -> unpackTarballPhase tarball
-      -- TODO: [nice to have] git/darcs repos etc
 
       unpackTarballPhase :: FilePath -> IO BuildResult
       unpackTarballPhase tarball =
-        withTarballLocalDirectory
-          verbosity
-          distDirLayout
-          tarball
-          (packageId pkg)
-          (elabDistDirParams sharedPackageConfig pkg)
-          (elabBuildStyle pkg)
-          (elabPkgDescriptionOverride pkg)
-          $ case elabBuildStyle pkg of
-            BuildAndInstall -> buildAndInstall
-            BuildInplaceOnly{} -> buildInplace buildStatus
-              where
-                buildStatus = BuildStatusConfigure MonitorFirstRun
+        case ccpBuildStyle pkg of
+          BuildAndInstall ->
+            withTarballLocalDirectory
+              verbosity
+              distDirLayout
+              tarball
+              (packageId pkg)
+              (ccpPkgDescriptionOverride pkg)
+              buildAndInstall
+          BuildInplaceOnly{} ->
+            withTarballLocalDirectoryInplaceOnly
+              verbosity
+              distDirLayout
+              tarball
+              (packageId pkg)
+              dparams
+              (ccpPkgDescriptionOverride pkg)
+              (buildInplace (BuildStatusConfigure MonitorFirstRun))
 
       -- Note that this really is rebuild, not build. It can only happen for
       -- 'BuildInplaceOnly' style packages. 'BuildAndInstall' style packages
@@ -873,16 +868,11 @@ rebuildTarget
       --
       rebuildPhase :: BuildStatusRebuild -> FilePath -> IO BuildResult
       rebuildPhase buildStatus srcdir =
-        assert
-          (isInplaceBuildStyle $ elabBuildStyle pkg)
+        assert (isInplaceBuildStyle $ ccpBuildStyle pkg) $
           buildInplace
-          buildStatus
-          srcdir
-          builddir
-        where
-          builddir =
-            distBuildDirectory
-              (elabDistDirParams sharedPackageConfig pkg)
+            buildStatus
+            srcdir
+            (distBuildDirectory dparams)
 
       buildAndInstall :: FilePath -> FilePath -> IO BuildResult
       buildAndInstall srcdir builddir =
@@ -920,6 +910,20 @@ rebuildTarget
           srcdir
           builddir
 
+mkDistParams :: ConcreteConfiguredPackage -> ConcreteSharedConfig -> DistDirParams
+mkDistParams pkg sharedConfig =
+  DistDirParams
+    { distParamUnitId = installedUnitId pkg
+    , distParamComponentId = ccpComponentId pkg
+    , distParamPackageId = ccpPackageId pkg
+    , distParamComponentName = case ccpPkgOrComp pkg of
+        ElabComponent comp -> compComponentName comp
+        ElabPackage _ -> Nothing
+    , distParamCompilerId = compilerId (cscCompiler sharedConfig)
+    , distParamPlatform = cscPlatform sharedConfig
+    , distParamOptimization = ccpOptimization pkg
+    }
+
 -- TODO: [nice to have] do we need to use a with-style for the temp
 -- files for downloading http packages, or are we going to cache them
 -- persistently?
@@ -935,7 +939,7 @@ rebuildTarget
 asyncDownloadPackages
   :: Verbosity
   -> ((RepoContext -> IO a) -> IO a)
-  -> ElaboratedInstallPlan
+  -> ConcreteInstallPlan
   -> BuildStatusMap
   -> (AsyncFetchMap -> IO a)
   -> IO a
@@ -951,7 +955,7 @@ asyncDownloadPackages verbosity withRepoCtx installPlan pkgsBuildStatus body
     pkgsToDownload :: [PackageLocation (Maybe FilePath)]
     pkgsToDownload =
       ordNub $
-        [ elabPkgSourceLocation elab
+        [ ccpSourceLocation elab
         | InstallPlan.Configured elab <-
             InstallPlan.reverseTopologicalOrder installPlan
         , let uid = installedUnitId elab
@@ -964,14 +968,14 @@ asyncDownloadPackages verbosity withRepoCtx installPlan pkgsBuildStatus body
 waitAsyncPackageDownload
   :: Verbosity
   -> AsyncFetchMap
-  -> ElaboratedConfiguredPackage
+  -> ConcreteConfiguredPackage
   -> IO DownloadedSourceLocation
 waitAsyncPackageDownload verbosity downloadMap elab = do
   pkgloc <-
     waitAsyncFetchPackage
       verbosity
       downloadMap
-      (elabPkgSourceLocation elab)
+      (ccpSourceLocation elab)
   case downloadedSourceLocation pkgloc of
     Just loc -> return loc
     Nothing -> fail "waitAsyncPackageDownload: unexpected source location"
@@ -996,8 +1000,6 @@ withTarballLocalDirectory
   -> DistDirLayout
   -> FilePath
   -> PackageId
-  -> DistDirParams
-  -> BuildStyle
   -> Maybe CabalFileText
   -> ( FilePath -- Source directory
        -> FilePath -- Build directory
@@ -1006,60 +1008,60 @@ withTarballLocalDirectory
   -> IO a
 withTarballLocalDirectory
   verbosity
-  distDirLayout@DistDirLayout{..}
+  distDirLayout
+  tarball
+  pkgid
+  pkgTextOverride
+  buildPkg = do
+    -- In this case we make a temp dir (e.g. tmp/src2345/), unpack
+    -- the tarball to it (e.g. tmp/src2345/foo-1.0/), and for
+    -- compatibility we put the dist dir within it
+    -- (i.e. tmp/src2345/foo-1.0/dist/).
+    --
+    -- Unfortunately, a few custom Setup.hs scripts do not respect
+    -- the --builddir flag and always look for it at ./dist/ so
+    -- this way we avoid breaking those packages
+    let tempDirectory = distTempDirectory distDirLayout
+    withTempDirectory verbosity tempDirectory "src" $ \unpackdir -> do
+      unpackPackageTarball verbosity tarball unpackdir pkgid pkgTextOverride
+      let srcdir = unpackdir </> prettyShow pkgid
+          builddir = srcdir </> "dist"
+      buildPkg srcdir builddir
+
+withTarballLocalDirectoryInplaceOnly
+  :: Verbosity
+  -> DistDirLayout
+  -> FilePath
+  -> PackageId
+  -> DistDirParams
+  -> Maybe CabalFileText
+  -> ( FilePath -- Source directory
+       -> FilePath -- Build directory
+       -> IO a
+     )
+  -> IO a
+withTarballLocalDirectoryInplaceOnly
+  verbosity
+  distDirLayout
   tarball
   pkgid
   dparams
-  buildstyle
   pkgTextOverride
-  buildPkg =
-    case buildstyle of
-      -- In this case we make a temp dir (e.g. tmp/src2345/), unpack
-      -- the tarball to it (e.g. tmp/src2345/foo-1.0/), and for
-      -- compatibility we put the dist dir within it
-      -- (i.e. tmp/src2345/foo-1.0/dist/).
-      --
-      -- Unfortunately, a few custom Setup.hs scripts do not respect
-      -- the --builddir flag and always look for it at ./dist/ so
-      -- this way we avoid breaking those packages
-      BuildAndInstall ->
-        let tmpdir = distTempDirectory
-         in withTempDirectory verbosity tmpdir "src" $ \unpackdir -> do
-              unpackPackageTarball
-                verbosity
-                tarball
-                unpackdir
-                pkgid
-                pkgTextOverride
-              let srcdir = unpackdir </> prettyShow pkgid
-                  builddir = srcdir </> "dist"
-              buildPkg srcdir builddir
-
-      -- In this case we make sure the tarball has been unpacked to the
-      -- appropriate location under the shared dist dir, and then build it
-      -- inplace there
-      BuildInplaceOnly{} -> do
-        let srcrootdir = distUnpackedSrcRootDirectory
-            srcdir = distUnpackedSrcDirectory pkgid
-            builddir = distBuildDirectory dparams
-        -- TODO: [nice to have] use a proper file monitor rather
-        -- than this dir exists test
-        exists <- doesDirectoryExist srcdir
-        unless exists $ do
-          createDirectoryIfMissingVerbose verbosity True srcrootdir
-          unpackPackageTarball
-            verbosity
-            tarball
-            srcrootdir
-            pkgid
-            pkgTextOverride
-          moveTarballShippedDistDirectory
-            verbosity
-            distDirLayout
-            srcrootdir
-            pkgid
-            dparams
-        buildPkg srcdir builddir
+  buildPkg = do
+    -- In this case we make sure the tarball has been unpacked to the
+    -- appropriate location under the shared dist dir, and then build it
+    -- inplace there
+    let srcrootdir = distUnpackedSrcRootDirectory distDirLayout
+        srcdir = distUnpackedSrcDirectory distDirLayout pkgid
+        builddir = distBuildDirectory distDirLayout dparams
+    -- TODO: [nice to have] use a proper file monitor rather
+    -- than this dir exists test
+    exists <- doesDirectoryExist srcdir
+    unless exists $ do
+      createDirectoryIfMissingVerbose verbosity True srcrootdir
+      unpackPackageTarball verbosity tarball srcrootdir pkgid pkgTextOverride
+      moveTarballShippedDistDirectory verbosity distDirLayout srcrootdir pkgid dparams
+    buildPkg srcdir builddir
 
 unpackPackageTarball
   :: Verbosity
@@ -1099,7 +1101,7 @@ unpackPackageTarball verbosity tarball parentdir pkgid pkgTextOverride =
       parentdir
         </> pkgsubdir
         </> prettyShow pkgname
-        <.> "cabal"
+          <.> "cabal"
     pkgsubdir = prettyShow pkgid
     pkgname = packageName pkgid
 
@@ -1147,9 +1149,9 @@ buildAndInstallUnpackedPackage
   -> BuildTimeSettings
   -> Lock
   -> Lock
-  -> ElaboratedSharedConfig
-  -> ElaboratedInstallPlan
-  -> ElaboratedReadyPackage
+  -> ConcreteSharedConfig
+  -> ConcreteInstallPlan
+  -> GenericReadyPackage ConcreteConfiguredPackage
   -> FilePath
   -> FilePath
   -> IO BuildResult
@@ -1166,10 +1168,10 @@ buildAndInstallUnpackedPackage
     }
   registerLock
   cacheLock
-  pkgshared@ElaboratedSharedConfig
-    { pkgConfigPlatform = platform
-    , pkgConfigCompiler = compiler
-    , pkgConfigCompilerProgs = progdb
+  ConcreteSharedConfig
+    { cscPlatform = platform
+    , cscCompiler = compiler
+    , cscCompilerProgs = progdb
     }
   plan
   rpkg@(ReadyPackage pkg)
@@ -1218,7 +1220,7 @@ buildAndInstallUnpackedPackage
             -- the store knows which dir will be the final store entry.
             let prefix =
                   normalise $
-                    dropDrive (InstallDirs.prefix (elabInstallDirs pkg))
+                    dropDrive (InstallDirs.prefix (ccpInstallDirs pkg))
                 entryDir = tmpDirNormalised </> prefix
 
             -- if there weren't anything to build, it might be that directory is not created
@@ -1227,7 +1229,7 @@ buildAndInstallUnpackedPackage
             createDirectoryIfMissingVerbose verbosity True entryDir
 
             let hashFileName = entryDir </> "cabal-hash.txt"
-                outPkgHashInputs = renderPackageHashInputs (packageHashInputs pkgshared pkg)
+                outPkgHashInputs = renderPackageHashInputs (ccpPackageHashInputs pkg)
 
             info verbosity $
               "creating file with the inputs used to compute the package hash: " ++ hashFileName
@@ -1268,7 +1270,7 @@ buildAndInstallUnpackedPackage
                 return (concat allFiles)
 
           registerPkg
-            | not (elabRequiresRegistration pkg) =
+            | not (ccpRequiresRegistration pkg) =
                 debug verbosity $
                   "registerPkg: elab does NOT require registration for "
                     ++ prettyShow uid
@@ -1278,11 +1280,11 @@ buildAndInstallUnpackedPackage
                 -- the installed package id is, not the build system.
                 ipkg0 <- generateInstalledPackageInfo
                 let ipkg = ipkg0{Installed.installedUnitId = uid}
-                assert
-                  ( elabRegisterPackageDBStack pkg
-                      == storePackageDBStack compid
-                  )
-                  (return ())
+                -- FIXME: why this?
+                -- assert
+                --   (elabRegisterPackageDBStack pkg == storePackageDBStack compid)
+                --   (return ())
+                --
                 criticalSection registerLock $
                   Cabal.registerPackage
                     verbosity
@@ -1333,7 +1335,7 @@ buildAndInstallUnpackedPackage
       compid = compilerId compiler
 
       dispname :: String
-      dispname = case elabPkgOrComp pkg of
+      dispname = case ccpPkgOrComp pkg of
         ElabPackage _ ->
           prettyShow pkgid
             ++ " (all, legacy fallback)"
@@ -1349,66 +1351,68 @@ buildAndInstallUnpackedPackage
           progressMessage verbosity phase dispname
 
       whenHaddock action
-        | hasValidHaddockTargets pkg = action
+        | ccpHasValidHaddockTargets pkg = action
         | otherwise = return ()
 
       configureCommand = Cabal.configureCommand defaultProgramDb
       configureFlags v =
         flip filterConfigureFlags v $
-          setupHsConfigureFlags
-            rpkg
-            pkgshared
-            verbosity
-            builddir
-      configureArgs _ = setupHsConfigureArgs pkg
+          (ccpConfigureFlags pkg)
+            { Cabal.configVerbosity = Cabal.toFlag verbosity
+            , Cabal.configDistPref = Cabal.toFlag builddir
+            }
+      configureArgs _ = ccpConfigureArgs pkg
+
+      -- FIXME: better name with better case?
+      comp_par_strat = Cabal.maybeToFlag (getSemaphoreName <$> maybe_semaphore)
 
       buildCommand = Cabal.buildCommand defaultProgramDb
-      comp_par_strat = case maybe_semaphore of
-        Just sem_name -> Cabal.Flag (getSemaphoreName sem_name)
-        _ -> Cabal.NoFlag
-      buildFlags _ = setupHsBuildFlags comp_par_strat pkg pkgshared verbosity builddir
+      buildFlags v =
+        flip filterBuildFlags v $
+          (ccpBuildFlags pkg)
+            { Cabal.buildVerbosity = Cabal.toFlag verbosity
+            , Cabal.buildDistPref = Cabal.toFlag builddir
+            , Cabal.buildUseSemaphore = comp_par_strat
+            }
 
       haddockCommand = Cabal.haddockCommand
       haddockFlags _ =
-        setupHsHaddockFlags
-          pkg
-          pkgshared
-          verbosity
-          builddir
+        (ccpHaddockFlags pkg)
+          { Cabal.haddockVerbosity = Cabal.toFlag verbosity
+          , Cabal.haddockDistPref = Cabal.toFlag builddir
+          }
 
       generateInstalledPackageInfo :: IO InstalledPackageInfo
       generateInstalledPackageInfo =
-        withTempInstalledPackageInfoFile
-          verbosity
-          distTempDirectory
-          $ \pkgConfDest -> do
-            let registerFlags _ =
-                  setupHsRegisterFlags
-                    pkg
-                    pkgshared
-                    verbosity
-                    builddir
-                    pkgConfDest
-            setup Cabal.registerCommand registerFlags
+        withTempInstalledPackageInfoFile verbosity distTempDirectory $ \pkgConfDest -> do
+          let registerFlags _ =
+                (ccpRegisterFlags pkg)
+                  { Cabal.regDistPref = Cabal.toFlag builddir
+                  , Cabal.regVerbosity = Cabal.toFlag verbosity
+                  , Cabal.regGenPkgConf = Cabal.toFlag (Just pkgConfDest)
+                  }
+          setup Cabal.registerCommand registerFlags
 
       copyFlags destdir _ =
-        setupHsCopyFlags
-          pkg
-          pkgshared
-          verbosity
-          builddir
-          destdir
+        (ccpCopyFlags pkg)
+          { Cabal.copyVerbosity = Cabal.toFlag verbosity
+          , Cabal.copyDistPref = Cabal.toFlag builddir
+          , Cabal.copyDest = Cabal.toFlag (InstallDirs.CopyTo destdir)
+          }
+
+      useExtraEnvOverrides = dataDirsEnvironmentForPlan distDirLayout plan
 
       scriptOptions =
-        setupHsScriptOptions
-          rpkg
-          plan
-          pkgshared
-          distDirLayout
-          srcdir
-          builddir
-          (isParallelBuild buildSettingNumJobs)
-          cacheLock
+        (ccpSetupScriptOptions pkg)
+          { useDistPref = builddir
+          , useWorkingDir = Just srcdir
+          , -- note that useExtraPathEnv adds the extra-prog-path directly following the elaborated
+            -- dep paths, so that it overrides the normal path, but _not_ the elaborated extensions
+            -- for build-tools-depends.
+            useExtraEnvOverrides = useExtraEnvOverrides
+          , forceExternalSetupMethod = isParallelBuild buildSettingNumJobs
+          , setupCacheLock = Just cacheLock
+          }
 
       setup :: CommandUI flags -> (Version -> flags) -> IO ()
       setup cmd flags = setup' cmd flags (const [])
@@ -1424,10 +1428,7 @@ buildAndInstallUnpackedPackage
             verbosity
             scriptOptions
               { useLoggingHandle = mLogFileHandle
-              , useExtraEnvOverrides =
-                  dataDirsEnvironmentForPlan
-                    distDirLayout
-                    plan
+              , useExtraEnvOverrides = useExtraEnvOverrides
               }
             (Just (elabPkgDescription pkg))
             cmd
@@ -1455,31 +1456,6 @@ buildAndInstallUnpackedPackage
           Nothing -> action Nothing
           Just logFile -> withFile logFile AppendMode (action . Just)
 
-hasValidHaddockTargets :: ElaboratedConfiguredPackage -> Bool
-hasValidHaddockTargets ElaboratedConfiguredPackage{..}
-  | not elabBuildHaddocks = False
-  | otherwise = any componentHasHaddocks components
-  where
-    components :: [ComponentTarget]
-    components =
-      elabBuildTargets
-        ++ elabTestTargets
-        ++ elabBenchTargets
-        ++ elabReplTarget
-        ++ elabHaddockTargets
-
-    componentHasHaddocks :: ComponentTarget -> Bool
-    componentHasHaddocks (ComponentTarget name _) =
-      case name of
-        CLibName LMainLibName -> hasHaddocks
-        CLibName (LSubLibName _) -> elabHaddockInternal && hasHaddocks
-        CFLibName _ -> elabHaddockForeignLibs && hasHaddocks
-        CExeName _ -> elabHaddockExecutables && hasHaddocks
-        CTestName _ -> elabHaddockTestSuites && hasHaddocks
-        CBenchName _ -> elabHaddockBenchmarks && hasHaddocks
-      where
-        hasHaddocks = not (null (elabPkgDescription ^. componentModules name))
-
 buildInplaceUnpackedPackage
   :: Verbosity
   -> DistDirLayout
@@ -1487,9 +1463,9 @@ buildInplaceUnpackedPackage
   -> BuildTimeSettings
   -> Lock
   -> Lock
-  -> ElaboratedSharedConfig
-  -> ElaboratedInstallPlan
-  -> ElaboratedReadyPackage
+  -> ConcreteSharedConfig
+  -> ConcreteInstallPlan
+  -> GenericReadyPackage ConcreteConfiguredPackage
   -> BuildStatusRebuild
   -> FilePath
   -> FilePath
@@ -1506,13 +1482,13 @@ buildInplaceUnpackedPackage
   BuildTimeSettings{buildSettingNumJobs, buildSettingHaddockOpen}
   registerLock
   cacheLock
-  pkgshared@ElaboratedSharedConfig
-    { pkgConfigCompiler = compiler
-    , pkgConfigCompilerProgs = progdb
-    , pkgConfigPlatform = platform
+  pkgshared@ConcreteSharedConfig
+    { cscCompiler = compiler
+    , cscCompilerProgs = progdb
+    , cscPlatform = platform
     }
   plan
-  rpkg@(ReadyPackage pkg)
+  (ReadyPackage pkg)
   buildStatus
   srcdir
   builddir = do
@@ -1595,7 +1571,7 @@ buildInplaceUnpackedPackage
     whenReRegister $ annotateFailureNoLog InstallFailed $ do
       -- Register locally
       mipkg <-
-        if elabRequiresRegistration pkg
+        if ccpRequiresRegistration pkg
           then do
             ipkg0 <- generateInstalledPackageInfo
             -- We register ourselves rather than via Setup.hs. We need to
@@ -1607,7 +1583,7 @@ buildInplaceUnpackedPackage
                 verbosity
                 compiler
                 progdb
-                (elabRegisterPackageDBStack pkg)
+                (ccpRegisterPackageDBStack pkg)
                 ipkg
                 Cabal.defaultRegisterOptions
             return (Just ipkg)
@@ -1624,7 +1600,6 @@ buildInplaceUnpackedPackage
         setup benchCommand benchFlags benchArgs
 
     -- Repl phase
-    --
     whenRepl $
       annotateFailureNoLog ReplFailed $
         setupInteractive replCommand replFlags replArgs
@@ -1633,10 +1608,11 @@ buildInplaceUnpackedPackage
     whenHaddock $
       annotateFailureNoLog HaddocksFailed $ do
         setup haddockCommand haddockFlags haddockArgs
-        let haddockTarget = elabHaddockForHackage pkg
+        let haddockTarget = ccpHaddockTarget pkg
+            name = ccpHaddockDirName pkg
+
         when (haddockTarget == Cabal.ForHackage) $ do
           let dest = distDirectory </> name <.> "tar.gz"
-              name = haddockDirName haddockTarget (elabPkgDescription pkg)
               docDir =
                 distBuildDirectory distDirLayout dparams
                   </> "doc"
@@ -1646,7 +1622,6 @@ buildInplaceUnpackedPackage
 
         when (buildSettingHaddockOpen && haddockTarget /= Cabal.ForHackage) $ do
           let dest = docDir </> "index.html"
-              name = haddockDirName haddockTarget (elabPkgDescription pkg)
               docDir = case distHaddockOutputDir of
                 Nothing -> distBuildDirectory distDirLayout dparams </> "doc" </> "html" </> name
                 Just dir -> dir
@@ -1663,7 +1638,7 @@ buildInplaceUnpackedPackage
         }
     where
       ipkgid = installedUnitId pkg
-      dparams = elabDistDirParams pkgshared pkg
+      dparams = mkDistParams pkg pkgshared
 
       comp_par_strat = case maybe_semaphore of
         Just sem_name -> Cabal.toFlag (getSemaphoreName sem_name)
@@ -1676,27 +1651,27 @@ buildInplaceUnpackedPackage
         _ -> return ()
 
       whenRebuild action
-        | null (elabBuildTargets pkg)
+        | null (ccpBuildTargets pkg)
         , -- NB: we have to build the test/bench suite!
-          null (elabTestTargets pkg)
-        , null (elabBenchTargets pkg) =
+          null (ccpTestTargets pkg)
+        , null (ccpBenchTargets pkg) =
             return ()
         | otherwise = action
 
       whenTest action
-        | null (elabTestTargets pkg) = return ()
+        | null (ccpTestTargets pkg) = return ()
         | otherwise = action
 
       whenBench action
-        | null (elabBenchTargets pkg) = return ()
+        | null (ccpBenchTargets pkg) = return ()
         | otherwise = action
 
       whenRepl action
-        | null (elabReplTarget pkg) = return ()
+        | null (ccpReplTarget pkg) = return ()
         | otherwise = action
 
       whenHaddock action
-        | hasValidHaddockTargets pkg = action
+        | ccpHasValidHaddockTargets pkg = action
         | otherwise = return ()
 
       whenReRegister action =
@@ -1706,123 +1681,127 @@ buildInplaceUnpackedPackage
             info verbosity "whenReRegister: previously registered"
           -- There is nothing to register
           _
-            | null (elabBuildTargets pkg) ->
+            | null (ccpBuildTargets pkg) ->
                 info verbosity "whenReRegister: nothing to register"
             | otherwise -> action
 
       configureCommand = Cabal.configureCommand defaultProgramDb
       configureFlags v =
         flip filterConfigureFlags v $
-          setupHsConfigureFlags
-            rpkg
-            pkgshared
-            verbosity
-            builddir
-      configureArgs _ = setupHsConfigureArgs pkg
+          (ccpConfigureFlags pkg)
+            { Cabal.configVerbosity = Cabal.toFlag verbosity
+            , Cabal.configDistPref = Cabal.toFlag builddir
+            }
+      configureArgs _ = ccpConfigureArgs pkg
 
       buildCommand = Cabal.buildCommand defaultProgramDb
-      buildFlags _ =
-        setupHsBuildFlags
-          comp_par_strat
-          pkg
-          pkgshared
-          verbosity
-          builddir
-      buildArgs _ = setupHsBuildArgs pkg
+      buildFlags v =
+        flip filterBuildFlags v $
+          (ccpBuildFlags pkg)
+            { Cabal.buildVerbosity = Cabal.toFlag verbosity
+            , Cabal.buildDistPref = Cabal.toFlag builddir
+            , Cabal.buildUseSemaphore = comp_par_strat
+            }
+      buildArgs _ = ccpBuildArgs pkg
 
       testCommand = Cabal.testCommand -- defaultProgramDb
       testFlags v =
         flip filterTestFlags v $
-          setupHsTestFlags
-            pkg
-            pkgshared
-            verbosity
-            builddir
-      testArgs _ = setupHsTestArgs pkg
+          (ccpTestFlags pkg)
+            { Cabal.testVerbosity = Cabal.toFlag verbosity
+            , Cabal.testDistPref = Cabal.toFlag builddir
+            }
+      testArgs _ = ccpTestArgs pkg
 
       benchCommand = Cabal.benchmarkCommand
       benchFlags _ =
-        setupHsBenchFlags
-          pkg
-          pkgshared
-          verbosity
-          builddir
-      benchArgs _ = setupHsBenchArgs pkg
+        (ccpBenchFlags pkg)
+          { Cabal.benchmarkVerbosity = Cabal.toFlag verbosity
+          , Cabal.benchmarkDistPref = Cabal.toFlag builddir
+          }
+      benchArgs _ = ccpBenchArgs pkg
 
       replCommand = Cabal.replCommand defaultProgramDb
       replFlags _ =
-        setupHsReplFlags
-          pkg
-          pkgshared
-          verbosity
-          builddir
-      replArgs _ = setupHsReplArgs pkg
+        (ccpReplFlags pkg)
+          { Cabal.replVerbosity = Cabal.toFlag verbosity
+          , Cabal.replDistPref = Cabal.toFlag builddir
+          }
+      replArgs _ = ccpReplArgs pkg
 
       haddockCommand = Cabal.haddockCommand
       haddockFlags v =
         flip filterHaddockFlags v $
-          setupHsHaddockFlags
-            pkg
-            pkgshared
-            verbosity
-            builddir
+          (ccpHaddockFlags pkg)
+            { Cabal.haddockVerbosity = Cabal.toFlag verbosity
+            , Cabal.haddockDistPref = Cabal.toFlag builddir
+            }
       haddockArgs v =
         flip filterHaddockArgs v $
-          setupHsHaddockArgs pkg
+          ccpHaddockArgs pkg
 
       scriptOptions =
-        setupHsScriptOptions
-          rpkg
-          plan
-          pkgshared
-          distDirLayout
-          srcdir
-          builddir
-          (isParallelBuild buildSettingNumJobs)
-          cacheLock
+        (ccpSetupScriptOptions pkg)
+          { useDistPref = builddir
+          , useWorkingDir = Just srcdir
+          , useExtraEnvOverrides = dataDirsEnvironmentForPlan distDirLayout plan
+          , forceExternalSetupMethod = isParallelBuild buildSettingNumJobs
+          , setupCacheLock = Just cacheLock
+          }
 
-      setupInteractive
-        :: CommandUI flags
-        -> (Version -> flags)
-        -> (Version -> [String])
-        -> IO ()
-      setupInteractive cmd flags args =
-        setupWrapper
-          verbosity
-          scriptOptions{isInteractive = True}
-          (Just (elabPkgDescription pkg))
-          cmd
-          flags
-          args
+      getSetup :: IO Setup
+      getSetup = do
+        let pkgId = ccpPackageId pkg
+            bt = csoBuildType (ccpSetupConfig pkg)
+        (version, method, options') <-
+          getSetupMethod verbosity scriptOptions pkgId bt
+        return $
+          Setup
+            { setupMethod = method
+            , setupScriptOptions = options'
+            , setupVersion = version
+            , setupBuildType = bt
+            }
+
+      -- FIXME:
+      -- setupInteractive
+      --   :: CommandUI flags
+      --   -> (Version -> flags)
+      --   -> (Version -> [String])
+      --   -> IO ()
+      -- setupInteractive cmd flags args =
+      --   setupWrapper
+      --     verbosity
+      --     scriptOptions{isInteractive = True}
+      --     (Just (elabPkgDescription pkg))
+      --     cmd
+      --     flags
+      --     args
 
       setup
         :: CommandUI flags
         -> (Version -> flags)
         -> (Version -> [String])
         -> IO ()
-      setup cmd flags args =
-        setupWrapper
+      setup cmd flags args = do
+        setup' <- getSetup
+        runSetupCommand
           verbosity
-          scriptOptions
-          (Just (elabPkgDescription pkg))
+          setup'
           cmd
-          flags
-          args
+          (flags $ setupVersion setup')
+          (args $ setupVersion setup')
 
       generateInstalledPackageInfo :: IO InstalledPackageInfo
       generateInstalledPackageInfo =
-        withTempInstalledPackageInfoFile
-          verbosity
-          distTempDirectory
-          $ \pkgConfDest -> do
-            let registerFlags _ =
-                  setupHsRegisterFlags
-                    pkg
-                    pkgshared
-                    verbosity
-                    builddir
-                    pkgConfDest
-            setup Cabal.registerCommand registerFlags (const [])
+        withTempInstalledPackageInfoFile verbosity distTempDirectory $ \pkgConfDest -> do
+          let registerFlags _ =
+                (ccpRegisterFlags pkg)
+                  { Cabal.regDistPref = Cabal.toFlag builddir
+                  , Cabal.regVerbosity = Cabal.toFlag verbosity
+                  , Cabal.regGenPkgConf = Cabal.toFlag (Just pkgConfDest)
+                  }
+          setup Cabal.registerCommand registerFlags (const [])
 
 withTempInstalledPackageInfoFile
   :: Verbosity
@@ -1855,6 +1834,33 @@ withTempInstalledPackageInfoFile verbosity tempdir action =
           unlines warns
 
       return ipkg
+
+-- | Construct the environment needed for the data files to work.
+-- This consists of a separate @*_datadir@ variable for each
+-- inplace package in the plan.
+dataDirsEnvironmentForPlan
+  :: DistDirLayout
+  -> ConcreteInstallPlan
+  -> [(String, Maybe FilePath)]
+dataDirsEnvironmentForPlan distDirLayout =
+  catMaybes
+    . fmap (InstallPlan.foldPlanPackage (const Nothing) dataDirEnvVar)
+    . InstallPlan.toList
+  where
+    -- FIXME: lol
+    dataDirEnvVar ccp = fmap (second (fmap (srcPath (ccpSourceLocation ccp) </>))) $ ccpDataDirEnvVar ccp
+      where
+        srcPath (LocalUnpackedPackage path) = path
+        srcPath (LocalTarballPackage _path) = unpackedPath
+        srcPath (RemoteTarballPackage _uri _localTar) = unpackedPath
+        srcPath (RepoTarballPackage _repo _packageId _localTar) = unpackedPath
+        srcPath (RemoteSourceRepoPackage _sourceRepo (Just localCheckout)) = localCheckout
+        -- TODO: see https://github.com/haskell/cabal/wiki/Potential-Refactors#unresolvedpkgloc
+        srcPath (RemoteSourceRepoPackage _sourceRepo Nothing) =
+          error
+            "calling dataDirEnvVarForPackage on a not-downloaded repo is an error"
+        unpackedPath =
+          distUnpackedSrcDirectory distDirLayout $ ccpPackageId ccp
 
 ------------------------------------------------------------------------------
 

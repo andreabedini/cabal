@@ -19,6 +19,7 @@ module Distribution.Client.ProjectPlanning.Types
   , elabDistDirParams
   , elabExeDependencyPaths
   , elabLibDependencies
+  , elabOrderDependencies
   , elabOrderLibDependencies
   , elabExeDependencies
   , elabOrderExeDependencies
@@ -26,7 +27,6 @@ module Distribution.Client.ProjectPlanning.Types
   , elabPkgConfigDependencies
   , elabInplaceDependencyBuildCacheFiles
   , elabRequiresRegistration
-  , dataDirsEnvironmentForPlan
   , elabPlanPackageName
   , elabConfiguredName
   , elabComponentName
@@ -85,7 +85,6 @@ import Distribution.InstalledPackageInfo (InstalledPackageInfo)
 import Distribution.ModuleName (ModuleName)
 import Distribution.Package
 import qualified Distribution.PackageDescription as Cabal
-import Distribution.Simple.Build.PathsModule (pkgPathEnvVar)
 import qualified Distribution.Simple.BuildTarget as Cabal
 import Distribution.Simple.Compiler
 import Distribution.Simple.InstallDirs (PathTemplate)
@@ -117,7 +116,6 @@ import Distribution.Solver.Types.OptionalStanza
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Map as Map
 import qualified Data.Monoid as Mon
-import System.FilePath ((</>))
 import Text.PrettyPrint (hsep, parens, text)
 
 -- | The combination of an elaborated install plan plus a
@@ -432,56 +430,6 @@ elabRequiresRegistration elab =
     is_lib_target _ = False
     is_lib (CLibName _) = True
     is_lib _ = False
-
--- | Construct the environment needed for the data files to work.
--- This consists of a separate @*_datadir@ variable for each
--- inplace package in the plan.
-dataDirsEnvironmentForPlan
-  :: DistDirLayout
-  -> ElaboratedInstallPlan
-  -> [(String, Maybe FilePath)]
-dataDirsEnvironmentForPlan distDirLayout =
-  catMaybes
-    . fmap
-      ( InstallPlan.foldPlanPackage
-          (const Nothing)
-          (dataDirEnvVarForPackage distDirLayout)
-      )
-    . InstallPlan.toList
-
--- | Construct an environment variable that points
--- the package's datadir to its correct location.
--- This might be:
--- * 'Just' the package's source directory plus the data subdirectory
---   for inplace packages.
--- * 'Nothing' for packages installed in the store (the path was
---   already included in the package at install/build time).
-dataDirEnvVarForPackage
-  :: DistDirLayout
-  -> ElaboratedConfiguredPackage
-  -> Maybe (String, Maybe FilePath)
-dataDirEnvVarForPackage distDirLayout pkg =
-  case elabBuildStyle pkg of
-    BuildAndInstall -> Nothing
-    BuildInplaceOnly{} ->
-      Just
-        ( pkgPathEnvVar (elabPkgDescription pkg) "datadir"
-        , Just $
-            srcPath (elabPkgSourceLocation pkg)
-              </> dataDir (elabPkgDescription pkg)
-        )
-  where
-    srcPath (LocalUnpackedPackage path) = path
-    srcPath (LocalTarballPackage _path) = unpackedPath
-    srcPath (RemoteTarballPackage _uri _localTar) = unpackedPath
-    srcPath (RepoTarballPackage _repo _packageId _localTar) = unpackedPath
-    srcPath (RemoteSourceRepoPackage _sourceRepo (Just localCheckout)) = localCheckout
-    -- TODO: see https://github.com/haskell/cabal/wiki/Potential-Refactors#unresolvedpkgloc
-    srcPath (RemoteSourceRepoPackage _sourceRepo Nothing) =
-      error
-        "calling dataDirEnvVarForPackage on a not-downloaded repo is an error"
-    unpackedPath =
-      distUnpackedSrcDirectory distDirLayout $ elabPkgSourceId pkg
 
 instance Package ElaboratedConfiguredPackage where
   packageId = elabPkgSourceId
