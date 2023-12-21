@@ -340,9 +340,7 @@ rebuildProjectConfig
   httpTransport
   distDirLayout@DistDirLayout
     { distProjectRootDirectory
-    , distDirectory
     , distProjectCacheFile
-    , distProjectCacheDirectory
     , distProjectFile
     }
   cliConfig = do
@@ -362,26 +360,12 @@ rebuildProjectConfig
         )
 
     (projectConfig, localPackages) <-
-      runRebuild distProjectRootDirectory
-        $ rerunIfChanged
-          verbosity
-          fileMonitorProjectConfig
-          fileMonitorProjectConfigKey -- todo check deps too?
-        $ do
-          liftIO $ info verbosity "Project settings changed, reconfiguring..."
-          projectConfigSkeleton <- phaseReadProjectConfig
-          let fetchCompiler = do
-                -- have to create the cache directory before configuring the compiler
-                liftIO $ createDirectoryIfMissingVerbose verbosity True distProjectCacheDirectory
-                (compiler, Platform arch os, _) <- configureCompiler verbosity distDirLayout (fst (PD.ignoreConditions projectConfigSkeleton) <> cliConfig)
-                pure (os, arch, compilerInfo compiler)
-
-          projectConfig <- instantiateProjectConfigSkeletonFetchingCompiler fetchCompiler mempty projectConfigSkeleton
-          when (projectConfigDistDir (projectConfigShared $ projectConfig) /= NoFlag) $
-            liftIO $
-              warn verbosity "The builddir option is not supported in project and config files. It will be ignored."
-          localPackages <- phaseReadLocalPackages (projectConfig <> cliConfig)
-          return (projectConfig, localPackages)
+      runRebuild distProjectRootDirectory $
+        rerunIfChanged verbosity fileMonitorProjectConfig fileMonitorProjectConfigKey $ -- todo check deps too?
+          do
+            projectConfig <- rebuildProjectConfig' verbosity httpTransport distDirLayout cliConfig
+            localPackages <- readLocalPackages verbosity distDirLayout (projectConfig <> cliConfig)
+            return (projectConfig, localPackages)
 
     info verbosity $
       unlines $
@@ -392,43 +376,104 @@ rebuildProjectConfig
 
     return (projectConfig <> cliConfig, localPackages)
     where
-      ProjectConfigShared{projectConfigHcFlavor, projectConfigHcPath, projectConfigHcPkg, projectConfigIgnoreProject, projectConfigConfigFile} =
+      ProjectConfigShared{projectConfigHcFlavor, projectConfigHcPath, projectConfigHcPkg, projectConfigConfigFile} =
         projectConfigShared cliConfig
 
       PackageConfig{packageConfigProgramPaths, packageConfigProgramPathExtra} =
         projectConfigLocalPackages cliConfig
 
-      -- Read the cabal.project (or implicit config) and combine it with
-      -- arguments from the command line
-      --
-      phaseReadProjectConfig :: Rebuild ProjectConfigSkeleton
-      phaseReadProjectConfig = do
-        readProjectConfig verbosity httpTransport projectConfigIgnoreProject projectConfigConfigFile distDirLayout
+-- Look for all the cabal packages in the project some of which may be local src dirs, tarballs etc
+readLocalPackages :: Verbosity -> DistDirLayout -> ProjectConfig -> Rebuild [PackageSpecifier (SourcePackage UnresolvedPkgLoc)]
+readLocalPackages
+  verbosity
+  distDirLayout@DistDirLayout{distDirectory, distProjectCacheDirectory}
+  projectConfig@ProjectConfig
+    { projectConfigShared
+    , projectConfigBuildOnly
+    } = do
+    pkgLocations <- findProjectPackages distDirLayout projectConfig
+    -- Create folder only if findProjectPackages did not throw a
+    -- BadPackageLocations exception.
+    liftIO $ do
+      createDirectoryIfMissingVerbose verbosity True distDirectory
+      createDirectoryIfMissingVerbose verbosity True distProjectCacheDirectory
 
-      -- Look for all the cabal packages in the project
-      -- some of which may be local src dirs, tarballs etc
-      --
-      phaseReadLocalPackages
-        :: ProjectConfig
-        -> Rebuild [PackageSpecifier UnresolvedSourcePackage]
-      phaseReadLocalPackages
-        projectConfig@ProjectConfig
-          { projectConfigShared
-          , projectConfigBuildOnly
-          } = do
-          pkgLocations <- findProjectPackages distDirLayout projectConfig
-          -- Create folder only if findProjectPackages did not throw a
-          -- BadPackageLocations exception.
-          liftIO $ do
-            createDirectoryIfMissingVerbose verbosity True distDirectory
-            createDirectoryIfMissingVerbose verbosity True distProjectCacheDirectory
+    fetchAndReadSourcePackages
+      verbosity
+      distDirLayout
+      projectConfigShared
+      projectConfigBuildOnly
+      pkgLocations
 
-          fetchAndReadSourcePackages
-            verbosity
-            distDirLayout
-            projectConfigShared
-            projectConfigBuildOnly
-            pkgLocations
+rebuildProjectConfig'
+  :: Verbosity
+  -> HttpTransport
+  -> DistDirLayout
+  -> ProjectConfig
+  -> Rebuild ProjectConfig
+rebuildProjectConfig'
+  verbosity
+  httpTransport
+  distDirLayout@DistDirLayout
+    { distProjectCacheFile
+    , distProjectCacheDirectory
+    , distProjectFile
+    }
+  cliConfig = do
+    progsearchpath <- liftIO $ getSystemSearchPath
+
+    let fileMonitorProjectConfig = newFileMonitor (distProjectCacheFile "config")
+
+    fileMonitorProjectConfigKey <- do
+      configPath <- liftIO $ getConfigFilePath projectConfigConfigFile
+      return
+        ( configPath
+        , distProjectFile ""
+        , (projectConfigHcFlavor, projectConfigHcPath, projectConfigHcPkg)
+        , progsearchpath
+        , packageConfigProgramPaths
+        , packageConfigProgramPathExtra
+        )
+
+    projectConfig <-
+      rerunIfChanged
+        verbosity
+        fileMonitorProjectConfig
+        fileMonitorProjectConfigKey -- todo check deps too?
+        $ do
+          liftIO $ info verbosity "Project settings changed, reconfiguring..."
+
+          -- Read the cabal.project (or implicit config) and combine it with arguments from the command line
+          projectConfigSkeleton <-
+            readProjectConfig verbosity httpTransport projectConfigIgnoreProject projectConfigConfigFile distDirLayout
+
+          let fetchCompiler = do
+                -- have to create the cache directory before configuring the compiler
+                liftIO $ createDirectoryIfMissingVerbose verbosity True distProjectCacheDirectory
+                (compiler, Platform arch os, _) <- configureCompiler verbosity distDirLayout (fst (PD.ignoreConditions projectConfigSkeleton) <> cliConfig)
+                pure (os, arch, compilerInfo compiler)
+
+          projectConfig <- instantiateProjectConfigSkeletonFetchingCompiler fetchCompiler mempty projectConfigSkeleton
+          when (projectConfigDistDir (projectConfigShared $ projectConfig) /= NoFlag) $
+            liftIO $
+              warn verbosity "The builddir option is not supported in project and config files. It will be ignored."
+          return projectConfig
+
+    liftIO $
+      info verbosity $
+        unlines $
+          ("this build was affected by the following (project) config files:" :) $
+            [ "- " ++ path
+            | Explicit path <- Set.toList $ projectConfigProvenance projectConfig
+            ]
+
+    return $ projectConfig <> cliConfig
+    where
+      ProjectConfigShared{projectConfigHcFlavor, projectConfigHcPath, projectConfigHcPkg, projectConfigIgnoreProject, projectConfigConfigFile} =
+        projectConfigShared cliConfig
+
+      PackageConfig{packageConfigProgramPaths, packageConfigProgramPathExtra} =
+        projectConfigLocalPackages cliConfig
 
 configureCompiler
   :: Verbosity
