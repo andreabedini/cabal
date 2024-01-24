@@ -385,7 +385,9 @@ newPackageFileMonitor
       { pkgFileMonitorConfig =
           FileMonitor
             { fileMonitorCacheFile = distPackageCacheFile dparams "config"
-            , fileMonitorKeyValid = (==) `on` normaliseConfiguredPackage shared
+            , -- , fileMonitorKeyValid = (==) `on` normaliseConfiguredPackage shared
+              -- FIXME: simplifying ...
+              fileMonitorKeyValid = (==)
             , fileMonitorCheckIfOnlyValueChanged = False
             }
       , pkgFileMonitorBuild =

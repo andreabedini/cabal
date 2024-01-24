@@ -34,7 +34,7 @@ import Distribution.Client.Compat.Prelude
 import Prelude ()
 
 import qualified Distribution.Backpack as Backpack
-import Distribution.CabalSpecVersion (cabalSpecMinimumLibraryVersion)
+import Distribution.CabalSpecVersion (cabalSpecMinimumLibraryVersion, CabalSpecVersion)
 import Distribution.Compiler
   ( CompilerFlavor (GHC, GHCJS)
   , buildCompilerId
@@ -358,50 +358,61 @@ type SetupRunner =
 getSetup
   :: Verbosity
   -> SetupScriptOptions
-  -> PackageDescription
+  -> PackageIdentifier
+  -> CabalSpecVersion
+  -> BuildType
   -> IO Setup
-getSetup verbosity options pkg = do
+getSetup verbosity options pkgId spv bt= do
+  -- NOTE: Why is this here!?
   let options' =
         options
           { useCabalVersion =
               intersectVersionRanges
                 (useCabalVersion options)
-                (orLaterVersion (mkVersion (cabalSpecMinimumLibraryVersion (specVersion pkg))))
+                (orLaterVersion (mkVersion (cabalSpecMinimumLibraryVersion spv)))
           }
 
-  (version, method, options'') <-
-    getSetupMethod verbosity options' (packageId pkg) (buildType pkg)
-
-  return
-    Setup
-      { setupMethod = method
-      , setupScriptOptions = options''
-      , setupVersion = version
-      , setupBuildType = buildType pkg
-      }
+  case getSetupMethod options' bt of
+    Just (version, method, options'') ->
+      return
+        Setup
+          { setupMethod = method
+          , setupScriptOptions = options''
+          , setupVersion = version
+          , setupBuildType = bt
+          }
+    Nothing -> do
+      (version, method, options'') <- getExternalSetupMethod verbosity options' pkgId bt
+      return Setup
+          { setupMethod = method
+          , setupScriptOptions = options''
+          , setupVersion = version
+          , setupBuildType = bt
+          }
 
 -- | Decide if we're going to be able to do a direct internal call to the
 -- entry point in the Cabal library or if we're going to have to compile
 -- and execute an external Setup.hs script.
+--
+-- NOTE: This decision should be in the concrete plan
 getSetupMethod
-  :: Verbosity
-  -> SetupScriptOptions
-  -> PackageIdentifier
+  :: SetupScriptOptions
   -> BuildType
-  -> IO (Version, SetupMethod, SetupScriptOptions)
-getSetupMethod verbosity options pkgId buildType'
+  -> Maybe (Version, SetupMethod, SetupScriptOptions)
+getSetupMethod options buildType'
   | buildType' == Custom
       || maybe False (cabalVersion /=) (useCabalSpecVersion options)
       || not (cabalVersion `withinRange` useCabalVersion options) =
-      getExternalSetupMethod verbosity options pkgId buildType'
+      Nothing
 
   | isJust (useLoggingHandle options)
       -- Forcing is done to use an external process e.g. due to parallel
       -- build concerns.
       || forceExternalSetupMethod options =
-      return (cabalVersion, SelfExecMethod, options)
+      Just (cabalVersion, SelfExecMethod, options)
 
-  | otherwise = return (cabalVersion, InternalMethod, options)
+  | otherwise =
+     Just (cabalVersion, InternalMethod, options)
 
 runSetupMethod :: WithCallStack (SetupMethod -> SetupRunner)
 runSetupMethod InternalMethod = internalSetupMethod
@@ -435,6 +446,9 @@ runSetup verbosity setup args0 = do
 -- flags (e.g., @-v'info +callstack'@) doesn't break horribly on
 -- old Setup.  We can't do it in 'filterConfigureFlags' because
 -- verbosity applies to ALL commands.
+--
+-- FIXME: This would not be a hack if done in the right place.
+-- Here the verbosity flag has already been turned into a string
 verbosityHack :: Version -> [String] -> [String]
 verbosityHack ver args0
   | ver >= mkVersion [2, 1] = args0
@@ -493,7 +507,7 @@ setupWrapper
   -> IO ()
 setupWrapper verbosity options mpkg cmd flags extraArgs = do
   pkg <- maybe getPkg return mpkg
-  setup <- getSetup verbosity options pkg
+  setup <- getSetup verbosity options (packageId pkg) (specVersion pkg)  (buildType pkg)
   runSetupCommand
     verbosity
     setup

@@ -13,7 +13,6 @@ module Distribution.Client.ProjectPlanning.Types
 
     -- * Elaborated install plan types
   , ElaboratedInstallPlan
-  , normaliseConfiguredPackage
   , ElaboratedConfiguredPackage (..)
   , showElaboratedInstallPlan
   , elabDistDirParams
@@ -102,7 +101,6 @@ import Distribution.Simple.Setup
   )
 import Distribution.System
 import Distribution.Types.ComponentRequestedSpec
-import Distribution.Types.PackageDescription (PackageDescription (..))
 import Distribution.Types.PkgconfigVersion
 import Distribution.Verbosity (normal)
 import Distribution.Version
@@ -114,7 +112,6 @@ import qualified Distribution.Solver.Types.ComponentDeps as CD
 import Distribution.Solver.Types.OptionalStanza
 
 import qualified Data.ByteString.Lazy as LBS
-import qualified Data.Map as Map
 import qualified Data.Monoid as Mon
 import Text.PrettyPrint (hsep, parens, text)
 
@@ -345,30 +342,6 @@ data ElaboratedConfiguredPackage = ElaboratedConfiguredPackage
   -- ^ Component/package specific information
   }
   deriving (Eq, Show, Generic, Typeable)
-
-normaliseConfiguredPackage
-  :: ElaboratedSharedConfig
-  -> ElaboratedConfiguredPackage
-  -> ElaboratedConfiguredPackage
-normaliseConfiguredPackage ElaboratedSharedConfig{pkgConfigCompilerProgs} pkg =
-  pkg{elabProgramArgs = Map.mapMaybeWithKey lookupFilter (elabProgramArgs pkg)}
-  where
-    knownProgramDb = addKnownPrograms builtinPrograms pkgConfigCompilerProgs
-
-    pkgDesc :: PackageDescription
-    pkgDesc = elabPkgDescription pkg
-
-    removeEmpty :: [String] -> Maybe [String]
-    removeEmpty [] = Nothing
-    removeEmpty xs = Just xs
-
-    lookupFilter :: String -> [String] -> Maybe [String]
-    lookupFilter n args = removeEmpty $ case lookupKnownProgram n knownProgramDb of
-      Just p -> programNormaliseArgs p (getVersion p) pkgDesc args
-      Nothing -> args
-
-    getVersion :: Program -> Maybe Version
-    getVersion p = lookupProgram p knownProgramDb >>= programVersion
 
 -- | The package/component contains/is a library and so must be registered
 elabRequiresRegistration :: ElaboratedConfiguredPackage -> Bool

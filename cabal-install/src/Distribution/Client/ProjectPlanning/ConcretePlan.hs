@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -10,8 +11,10 @@ module Distribution.Client.ProjectPlanning.ConcretePlan
   , ConcretePlanPackage
   , ConcreteSetupConfig (..)
   , hasValidHaddockTargets
+  , normaliseConfiguredPackage
   ) where
 
+import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Distribution.Client.InstallPlan (GenericInstallPlan (..), GenericPlanPackage (..))
@@ -29,7 +32,7 @@ import Distribution.Simple (Compiler, OptimisationLevel, PackageDB, PackageDBSta
 import Distribution.Simple.Build.PathsModule (pkgPathEnvVar)
 import Distribution.Simple.BuildPaths (haddockDirName)
 import qualified Distribution.Simple.InstallDirs as InstallDirs
-import Distribution.Simple.Program (ProgramDb)
+import Distribution.Simple.Program (ConfiguredProgram (..), Program (..), ProgramDb, addKnownPrograms, builtinPrograms, lookupKnownProgram, lookupProgram)
 import qualified Distribution.Simple.Setup as Cabal
 import Distribution.System (Platform)
 import Distribution.Types.BuildType (BuildType)
@@ -362,3 +365,30 @@ hasValidHaddockTargets ElaboratedConfiguredPackage{..}
         CBenchName _ -> elabHaddockBenchmarks && hasHaddocks
       where
         hasHaddocks = not (null (elabPkgDescription ^. componentModules name))
+
+-- NOTE: This is hard. Does GHC really need to know the package description to
+-- figure out whether flags change the behaviour or not? GHC has its own
+-- recompilation avoidance mechanism anyway.
+normaliseConfiguredPackage
+  :: ElaboratedSharedConfig
+  -> ElaboratedConfiguredPackage
+  -> ElaboratedConfiguredPackage
+normaliseConfiguredPackage ElaboratedSharedConfig{pkgConfigCompilerProgs} pkg =
+  pkg{elabProgramArgs = Map.mapMaybeWithKey lookupFilter (elabProgramArgs pkg)}
+  where
+    knownProgramDb = addKnownPrograms builtinPrograms pkgConfigCompilerProgs
+
+    pkgDesc :: PackageDescription
+    pkgDesc = elabPkgDescription pkg
+
+    removeEmpty :: [String] -> Maybe [String]
+    removeEmpty [] = Nothing
+    removeEmpty xs = Just xs
+
+    lookupFilter :: String -> [String] -> Maybe [String]
+    lookupFilter n args = removeEmpty $ case lookupKnownProgram n knownProgramDb of
+      Just p -> programNormaliseArgs p (getVersion p) pkgDesc args
+      Nothing -> args
+
+    getVersion :: Program -> Maybe Version
+    getVersion p = lookupProgram p knownProgramDb >>= programVersion
