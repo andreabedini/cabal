@@ -48,6 +48,7 @@ import Distribution.Client.Setup
   )
 import Distribution.Client.SetupWrapper
   ( SetupScriptOptions (..)
+  , V1
   , defaultSetupScriptOptions
   , setupWrapper
   )
@@ -229,7 +230,7 @@ configure
       setupScriptOptions
         :: InstalledPackageIndex
         -> Maybe ReadyPackage
-        -> SetupScriptOptions
+        -> SetupScriptOptions V1
       setupScriptOptions =
         configureSetupScript
           packageDBs
@@ -260,7 +261,7 @@ configureSetupScript
   -> Bool
   -> InstalledPackageIndex
   -> Maybe ReadyPackage
-  -> SetupScriptOptions
+  -> SetupScriptOptions V1
 configureSetupScript
   packageDBs
   comp
@@ -483,7 +484,7 @@ configurePackage
   :: Verbosity
   -> Platform
   -> CompilerInfo
-  -> SetupScriptOptions
+  -> SetupScriptOptions V1
   -> ConfigFlags
   -> ReadyPackage
   -> [String]

@@ -3713,7 +3713,7 @@ setupHsScriptOptions
   -> FilePath
   -> Bool
   -> Lock
-  -> SetupScriptOptions
+  -> SetupScriptOptions V2
 -- TODO: Fix this so custom is a separate component.  Custom can ALWAYS
 -- be a separate component!!!
 setupHsScriptOptions
@@ -3727,9 +3727,9 @@ setupHsScriptOptions
   cacheLock =
     SetupScriptOptions
       { useCabalVersion = thisVersion elabSetupScriptCliVersion
-      , useCabalSpecVersion = Just elabSetupScriptCliVersion
-      , useCompiler = Just pkgConfigCompiler
-      , usePlatform = Just pkgConfigPlatform
+      , useCabalSpecVersion = elabSetupScriptCliVersion
+      , useCompiler = pkgConfigCompiler
+      , usePlatform = pkgConfigPlatform
       , usePackageDB = elabSetupPackageDBStack
       , usePackageIndex = Nothing
       , useDependencies =
@@ -3737,12 +3737,12 @@ setupHsScriptOptions
           | (ConfiguredId srcid (Just (CLibName LMainLibName)) uid, _) <-
               elabSetupDependencies elab
           ]
-      , useDependenciesExclusive = True
+      , useDependenciesExclusive = ()
       , useVersionMacros = elabSetupScriptStyle == SetupCustomExplicitDeps
       , useProgramDb = pkgConfigCompilerProgs
       , useDistPref = builddir
       , useLoggingHandle = Nothing -- this gets set later
-      , useWorkingDir = Just srcdir
+      , useWorkingDir = srcdir
       , useExtraPathEnv = elabExeDependencyPaths elab ++ elabProgramPathExtra
       , -- note that the above adds the extra-prog-path directly following the elaborated
         -- dep paths, so that it overrides the normal path, but _not_ the elaborated extensions

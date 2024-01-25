@@ -116,6 +116,7 @@ import Distribution.Client.Setup
   )
 import Distribution.Client.SetupWrapper
   ( SetupScriptOptions (..)
+  , V1
   , defaultSetupScriptOptions
   , setupWrapper
   )
@@ -1750,7 +1751,7 @@ installLocalTarballPackage
             descFilePath =
               absUnpackedPath
                 </> prettyShow (packageName pkgid)
-                <.> "cabal"
+                  <.> "cabal"
         info verbosity $
           "Extracting "
             ++ tarballPath
@@ -1807,7 +1808,7 @@ installUnpackedPackage
   :: Verbosity
   -> Lock
   -> Int
-  -> SetupScriptOptions
+  -> SetupScriptOptions V1
   -> ConfigFlags
   -> InstallFlags
   -> HaddockFlags
@@ -1847,7 +1848,7 @@ installUnpackedPackage
         let descFilePath =
               fromMaybe "." workingDir
                 </> prettyShow (packageName pkgid)
-                <.> "cabal"
+                  <.> "cabal"
         info verbosity $
           "Updating "
             ++ prettyShow (packageName pkgid) <.> "cabal"
