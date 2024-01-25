@@ -351,7 +351,8 @@ buildAndRegisterUnpackedPackage
                     distDirLayout
                     plan
               }
-            (elabPkgDescription pkg)
+            (packageId pkg)
+            (PD.buildType $ elabPkgDescription pkg)
             cmd
             flags
             args
@@ -365,7 +366,8 @@ buildAndRegisterUnpackedPackage
         setupWrapperNew
           verbosity
           scriptOptions{isInteractive = True}
-          (elabPkgDescription pkg)
+          (packageId pkg)
+          (PD.buildType $ elabPkgDescription pkg)
           cmd
           flags
           args
