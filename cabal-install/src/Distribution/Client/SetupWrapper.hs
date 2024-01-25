@@ -205,7 +205,6 @@ data Setup = Setup
   , setupScriptOptions :: SetupScriptOptions
   , setupVersion :: Version
   , setupBuildType :: BuildType
-  , setupPackage :: PackageDescription
   }
 
 -- | @SetupMethod@ represents one of the methods used to run Cabal commands.
@@ -380,7 +379,6 @@ getSetup verbosity options mpkg = do
       , setupScriptOptions = options''
       , setupVersion = version
       , setupBuildType = buildType'
-      , setupPackage = pkg
       }
   where
     getPkg =
