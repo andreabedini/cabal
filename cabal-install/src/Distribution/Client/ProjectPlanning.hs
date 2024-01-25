@@ -3726,7 +3726,7 @@ setupHsScriptOptions
   isParallelBuild
   cacheLock =
     SetupScriptOptions
-      { useCabalVersion = thisVersion elabSetupScriptCliVersion
+      { useCabalVersion = elabSetupScriptCliVersion
       , useCabalSpecVersion = elabSetupScriptCliVersion
       , useCompiler = pkgConfigCompiler
       , usePlatform = pkgConfigPlatform
