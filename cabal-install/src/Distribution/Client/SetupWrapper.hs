@@ -26,6 +26,7 @@ module Distribution.Client.SetupWrapper
   , setupWrapper
   , SetupScriptOptions (..)
   , defaultSetupScriptOptions
+  , setupWrapperNew
   ) where
 
 import Distribution.Client.Compat.Prelude
@@ -497,6 +498,26 @@ setupWrapper
   -> (Version -> [String])
   -> IO ()
 setupWrapper verbosity options mpkg cmd flags extraArgs = do
+  setup <- getSetup verbosity options mpkg
+  runSetupCommand
+    verbosity
+    setup
+    cmd
+    (flags $ setupVersion setup)
+    (extraArgs $ setupVersion setup)
+
+-- | Configure a 'Setup' and run a command in one step. The command flags
+-- may depend on the Cabal library version in use.
+setupWrapperNew
+  :: Verbosity
+  -> SetupScriptOptions
+  -> Maybe PackageDescription
+  -> CommandUI flags
+  -> (Version -> flags)
+  -- ^ produce command flags given the Cabal library version
+  -> (Version -> [String])
+  -> IO ()
+setupWrapperNew verbosity options mpkg cmd flags extraArgs = do
   setup <- getSetup verbosity options mpkg
   runSetupCommand
     verbosity

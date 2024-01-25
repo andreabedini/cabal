@@ -47,7 +47,7 @@ import Distribution.Client.Setup
   , filterHaddockFlags
   , filterTestFlags
   )
-import Distribution.Client.SetupWrapper
+import Distribution.Client.SetupWrapper (SetupScriptOptions (..), setupWrapperNew)
 import Distribution.Client.SourceFiles
 import Distribution.Client.SrcDist (allPackageSourceFiles)
 import qualified Distribution.Client.Tar as Tar
@@ -342,7 +342,7 @@ buildAndRegisterUnpackedPackage
         -> IO ()
       setup cmd flags args =
         withLogging $ \mLogFileHandle ->
-          setupWrapper
+          setupWrapperNew
             verbosity
             scriptOptions
               { useLoggingHandle = mLogFileHandle
@@ -362,7 +362,7 @@ buildAndRegisterUnpackedPackage
         -> (Version -> [String])
         -> IO ()
       setupInteractive cmd flags args =
-        setupWrapper
+        setupWrapperNew
           verbosity
           scriptOptions{isInteractive = True}
           (Just (elabPkgDescription pkg))
