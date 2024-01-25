@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -354,11 +355,17 @@ defaultSetupScriptOptions =
     , isInteractive = False
     }
 
-workingDir :: SetupScriptOptions V1 -> FilePath
-workingDir options =
-  case fromMaybe "" (useWorkingDir options) of
-    [] -> "."
-    dir -> dir
+class WorkingDir v where
+  workingDir :: SetupScriptOptions v -> FilePath
+
+instance WorkingDir V1 where
+  workingDir options = 
+    case fromMaybe "" (useWorkingDir options) of
+      [] -> "."
+      dir -> dir
+
+instance WorkingDir V2 where
+  workingDir = useWorkingDir
 
 -- | A @SetupRunner@ implements a 'SetupMethod'.
 type SetupRunner f =
@@ -757,21 +764,6 @@ getExternalSetupMethod verbosity options pkg bt = do
 
     useCachedSetupExecutable = (bt == Simple || bt == Configure || bt == Make)
 
-    maybeGetInstalledPackages
-      :: SetupScriptOptions f
-      -> Compiler
-      -> ProgramDb
-      -> IO InstalledPackageIndex
-    maybeGetInstalledPackages options' comp progdb =
-      case usePackageIndex options' of
-        Just index -> return index
-        Nothing ->
-          getInstalledPackages
-            verbosity
-            comp
-            (usePackageDB options')
-            progdb
-
     -- Choose the version of Cabal to use if the setup script has a dependency on
     -- Cabal, and possibly update the setup script options. The version also
     -- determines how to filter the flags to Setup.
@@ -784,26 +776,26 @@ getExternalSetupMethod verbosity options pkg bt = do
     --
     -- The version chosen here must match the one used in 'compileSetupExecutable'
     -- (See issue #3433).
-    cabalLibVersionToUse :: IO ( Version , Maybe ComponentId , SetupScriptOptions V1)
+    cabalLibVersionToUse :: IO (Version , Maybe ComponentId , SetupScriptOptions V1)
     cabalLibVersionToUse =
       case find (isCabalPkgId . snd) (useDependencies options) of
         Just (unitId, pkgId) -> do
           let version = pkgVersion pkgId
-          updateSetupScript version bt
-          writeSetupVersionFile version
+          updateSetupScript verbosity options version bt
+          writeSetupVersionFile options version
           return (version, Just unitId, options)
         Nothing ->
           case useCabalSpecVersion options of
             Just version -> do
-              updateSetupScript version bt
-              writeSetupVersionFile version
+              updateSetupScript verbosity options version bt
+              writeSetupVersionFile options version
               return (version, Nothing, options)
             Nothing -> do
               savedVer <- savedVersion
               case savedVer of
                 Just version | version `withinRange` useCabalVersion options ->
                   do
-                    updateSetupScript version bt
+                    updateSetupScript verbosity options version bt
                     -- Does the previously compiled setup executable
                     -- still exist and is it up-to date?
                     useExisting <- canUseExistingSetup version
@@ -827,11 +819,7 @@ getExternalSetupMethod verbosity options pkg bt = do
                 <$> setupProgFile `existsAndIsMoreRecentThan` setupHs
                 <*> setupProgFile `existsAndIsMoreRecentThan` setupVersionFile
 
-        writeSetupVersionFile :: Version -> IO ()
-        writeSetupVersionFile version =
-          writeFile setupVersionFile (show version ++ "\n")
-
-        installedVersion :: IO ( Version , Maybe InstalledPackageId , SetupScriptOptions V1)
+        installedVersion :: IO (Version, Maybe InstalledPackageId , SetupScriptOptions V1)
         installedVersion = do
           (comp, progdb, options') <- configureCompiler options
           (version, mipkgid, options'') <-
@@ -839,8 +827,9 @@ getExternalSetupMethod verbosity options pkg bt = do
               options'
               comp
               progdb
-          updateSetupScript version bt
-          writeSetupVersionFile version
+          updateSetupScript verbosity options version bt
+          writeSetupVersionFile options version
+
           return (version, mipkgid, options'')
 
         savedVersion :: IO (Maybe Version)
@@ -849,34 +838,6 @@ getExternalSetupMethod verbosity options pkg bt = do
           case reads versionString of
             [(version, s)] | all isSpace s -> return (Just version)
             _ -> return Nothing
-
-    -- \| Update a Setup.hs script, creating it if necessary.
-    updateSetupScript :: Version -> BuildType -> IO ()
-    updateSetupScript _ Custom = do
-      useHs <- doesFileExist customSetupHs
-      useLhs <- doesFileExist customSetupLhs
-      unless (useHs || useLhs) $
-        dieWithException verbosity UpdateSetupScript
-      let src = (if useHs then customSetupHs else customSetupLhs)
-      srcNewer <- src `moreRecentFile` setupHs
-      when srcNewer $
-        if useHs
-          then copyFileVerbose verbosity src setupHs
-          else runSimplePreProcessor ppUnlit src setupHs verbosity
-      where
-        customSetupHs = workingDir options </> "Setup.hs"
-        customSetupLhs = workingDir options </> "Setup.lhs"
-    updateSetupScript cabalLibVersion _ =
-      rewriteFileLBS verbosity setupHs (buildTypeScript cabalLibVersion)
-
-    buildTypeScript :: Version -> BS.ByteString
-    buildTypeScript cabalLibVersion = case bt of
-      Simple -> "import Distribution.Simple; main = defaultMain\n"
-      Configure
-        | cabalLibVersion >= mkVersion [1, 3, 10] -> "import Distribution.Simple; main = defaultMainWithHooks autoconfUserHooks\n"
-        | otherwise -> "import Distribution.Simple; main = defaultMainWithHooks defaultUserHooks\n"
-      Make -> "import Distribution.Make; main = defaultMain\n"
-      Custom -> error "buildTypeScript Custom"
 
     installedCabalVersion
       :: SetupScriptOptions f
@@ -888,7 +849,7 @@ getExternalSetupMethod verbosity options pkg bt = do
           && bt == Custom =
           return (packageVersion pkg, Nothing, options')
     installedCabalVersion options' compiler progdb = do
-      index <- maybeGetInstalledPackages options' compiler progdb
+      index <- maybeGetInstalledPackages verbosity options' compiler progdb
       let cabalDepName = mkPackageName "Cabal"
           cabalDepVersion = useCabalVersion options'
           options'' = options'{usePackageIndex = Just index}
@@ -953,9 +914,10 @@ getExternalSetupMethod verbosity options pkg bt = do
               (useProgramDb options')
               verbosity
           return (comp, progdb)
+
       -- Whenever we need to call configureCompiler, we also need to access the
       -- package index, so let's cache it in SetupScriptOptions.
-      index <- maybeGetInstalledPackages options' comp progdb
+      index <- maybeGetInstalledPackages verbosity options' comp progdb
       return
         ( comp
         , progdb
@@ -1151,7 +1113,12 @@ getExternalSetupMethodNew
   -> IO (Version, SetupMethod, SetupScriptOptions V2)
 getExternalSetupMethodNew verbosity options pkg bt = do
   createDirectoryIfMissingVerbose verbosity True setupDir
-  cabalLibVersion <- cabalLibVersionToUse
+  let cabalLibVersion = case find (isCabalPkgId . snd) (useDependencies options) of
+        Just (_, pkgId) -> pkgVersion pkgId
+        Nothing -> useCabalSpecVersion options
+
+  updateSetupScript verbosity options cabalLibVersion bt
+  writeSetupVersionFile options cabalLibVersion
   path <-
     if useCachedSetupExecutable
       then
@@ -1188,75 +1155,6 @@ getExternalSetupMethodNew verbosity options pkg bt = do
 
     useCachedSetupExecutable = (bt == Simple || bt == Configure || bt == Make)
 
-    maybeGetInstalledPackages
-      :: SetupScriptOptions f
-      -> Compiler
-      -> ProgramDb
-      -> IO InstalledPackageIndex
-    maybeGetInstalledPackages options' comp progdb =
-      case usePackageIndex options' of
-        Just index -> return index
-        Nothing ->
-          getInstalledPackages
-            verbosity
-            comp
-            (usePackageDB options')
-            progdb
-
-    -- Choose the version of Cabal to use if the setup script has a dependency on
-    -- Cabal, and possibly update the setup script options. The version also
-    -- determines how to filter the flags to Setup.
-    --
-    -- We first check whether the dependency solver has specified a Cabal version.
-    -- If it has, we use the solver's version without looking at the installed
-    -- package index (See issue #3436). Otherwise, we pick the Cabal version by
-    -- checking 'useCabalSpecVersion', then the saved version, and finally the
-    -- versions available in the index.
-    --
-    -- The version chosen here must match the one used in 'compileSetupExecutable'
-    -- (See issue #3433).
-    cabalLibVersionToUse :: IO Version
-    cabalLibVersionToUse = do
-      let version = case find (isCabalPkgId . snd) (useDependencies options) of
-            Just (_, pkgId) -> pkgVersion pkgId
-            Nothing -> useCabalSpecVersion options
-
-      updateSetupScript version bt
-      writeSetupVersionFile version
-      return version
-
-    writeSetupVersionFile :: Version -> IO ()
-    writeSetupVersionFile version =
-      writeFile setupVersionFile (show version ++ "\n")
-
-    -- \| Update a Setup.hs script, creating it if necessary.
-    updateSetupScript :: Version -> BuildType -> IO ()
-    updateSetupScript _ Custom = do
-      useHs <- doesFileExist customSetupHs
-      useLhs <- doesFileExist customSetupLhs
-      unless (useHs || useLhs) $
-        dieWithException verbosity UpdateSetupScript
-      let src = (if useHs then customSetupHs else customSetupLhs)
-      srcNewer <- src `moreRecentFile` setupHs
-      when srcNewer $
-        if useHs
-          then copyFileVerbose verbosity src setupHs
-          else runSimplePreProcessor ppUnlit src setupHs verbosity
-      where
-        customSetupHs = useWorkingDir options </> "Setup.hs"
-        customSetupLhs = useWorkingDir options </> "Setup.lhs"
-    updateSetupScript cabalLibVersion _ =
-      rewriteFileLBS verbosity setupHs (buildTypeScript cabalLibVersion)
-
-    buildTypeScript :: Version -> BS.ByteString
-    buildTypeScript cabalLibVersion = case bt of
-      Simple -> "import Distribution.Simple; main = defaultMain\n"
-      Configure
-        | cabalLibVersion >= mkVersion [1, 3, 10] -> "import Distribution.Simple; main = defaultMainWithHooks autoconfUserHooks\n"
-        | otherwise -> "import Distribution.Simple; main = defaultMainWithHooks defaultUserHooks\n"
-      Make -> "import Distribution.Make; main = defaultMain\n"
-      Custom -> error "buildTypeScript Custom"
-
     configureCompiler
       :: SetupScriptOptions V2
       -> IO (Compiler, ProgramDb, SetupScriptOptions V2)
@@ -1265,7 +1163,7 @@ getExternalSetupMethodNew verbosity options pkg bt = do
           progdb = useProgramDb options'
       -- Whenever we need to call configureCompiler, we also need to access the
       -- package index, so let's cache it in SetupScriptOptions.
-      index <- maybeGetInstalledPackages options' comp progdb
+      index <- maybeGetInstalledPackages verbosity options' comp progdb
       return ( comp , progdb , options' { usePackageIndex = Just index })
 
     -- \| Path to the setup exe cache directory and path to the cached setup
@@ -1440,3 +1338,60 @@ instance InDir V1 where
     setCurrentDirectory d
     m `Exception.finally` setCurrentDirectory old
 
+
+maybeGetInstalledPackages
+  :: Verbosity
+  -> SetupScriptOptions f
+  -> Compiler
+  -> ProgramDb
+  -> IO InstalledPackageIndex
+maybeGetInstalledPackages verbosity options' comp progdb =
+  case usePackageIndex options' of
+    Just index -> return index
+    Nothing ->
+      getInstalledPackages
+        verbosity
+        comp
+        (usePackageDB options')
+        progdb
+
+buildTypeScript :: Version -> BuildType -> BS.ByteString
+buildTypeScript cabalLibVersion = \case
+  Simple -> "import Distribution.Simple; main = defaultMain\n"
+  Configure
+    | cabalLibVersion >= mkVersion [1, 3, 10] -> "import Distribution.Simple; main = defaultMainWithHooks autoconfUserHooks\n"
+    | otherwise -> "import Distribution.Simple; main = defaultMainWithHooks defaultUserHooks\n"
+  Make -> "import Distribution.Make; main = defaultMain\n"
+  Custom -> error "buildTypeScript Custom"
+
+
+-- \| Update a Setup.hs script, creating it if necessary.
+updateSetupScript :: forall v. WorkingDir v => Verbosity -> SetupScriptOptions v -> Version -> BuildType -> IO ()
+updateSetupScript verbosity options cabalLibVersion =
+  \case
+  Custom -> do
+    useHs <- doesFileExist customSetupHs
+    useLhs <- doesFileExist customSetupLhs
+    unless (useHs || useLhs) $
+      dieWithException verbosity UpdateSetupScript
+    let src = if useHs then customSetupHs else customSetupLhs
+    srcNewer <- src `moreRecentFile` setupHs
+    when srcNewer $
+      if useHs
+        then copyFileVerbose verbosity src setupHs
+        else runSimplePreProcessor ppUnlit src setupHs verbosity
+    where
+      customSetupHs = workingDir options </> "Setup.hs"
+      customSetupLhs = workingDir options </> "Setup.lhs"
+
+  bt -> rewriteFileLBS verbosity setupHs (buildTypeScript cabalLibVersion bt)
+  where
+    setupDir = workingDir options </> useDistPref options </> "setup"
+    setupHs = setupDir </> "setup" <.> "hs"
+
+writeSetupVersionFile :: WorkingDir v => SetupScriptOptions v -> Version -> IO ()
+writeSetupVersionFile options version =
+  writeFile setupVersionFile (show version ++ "\n")
+  where
+    setupDir = workingDir options </> useDistPref options </> "setup"
+    setupVersionFile = setupDir </> "setup" <.> "version"
