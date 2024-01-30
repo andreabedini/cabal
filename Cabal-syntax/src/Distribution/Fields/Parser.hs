@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -76,6 +77,10 @@ instance Stream LexState' Identity LToken where
   uncons (LexState' _ (tok, st')) =
     case tok of
       L _ EOF -> return Nothing
+      -- FIXME: DEBUG: uncomment these lines to skip new tokens and restore old lexer behaviour
+      -- L _ (Whitespace _) -> uncons st'
+      -- L _ (Comment _) -> uncons st'
+      -- FIXME: ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       _ -> return (Just (tok, st'))
 
 -- | Get lexer warnings accumulated so far
@@ -115,6 +120,8 @@ describeToken t = case t of
   OpenBrace -> "\"{\""
   CloseBrace -> "\"}\""
   --  SemiColon       -> "\";\""
+  Whitespace s -> "whitespace " ++ show s
+  Comment s -> "comment " ++ show s
   EOF -> "end of file"
   LexicalError is -> "character in input " ++ show (B8.head is)
 
@@ -133,6 +140,12 @@ tokColon = getToken $ \t -> case t of Colon -> Just (); _ -> Nothing
 tokOpenBrace = getTokenWithPos $ \t -> case t of L pos OpenBrace -> Just pos; _ -> Nothing
 tokCloseBrace = getToken $ \t -> case t of CloseBrace -> Just (); _ -> Nothing
 tokFieldLine = getTokenWithPos $ \t -> case t of L pos (TokFieldLine s) -> Just (FieldLine pos s); _ -> Nothing
+
+tokComment :: Parser B8.ByteString
+tokComment = getToken (\case Comment s -> Just s; _ -> Nothing) *> tokWhitespace
+
+tokWhitespace :: Parser B8.ByteString
+tokWhitespace = getToken (\case Whitespace s -> Just s; _ -> Nothing)
 
 colon, openBrace, closeBrace :: Parser ()
 sectionArg :: Parser (SectionArg Position)
@@ -160,6 +173,7 @@ incIndentLevel (IndentLevel i) = IndentLevel (succ i)
 
 indentOfAtLeast :: IndentLevel -> Parser IndentLevel
 indentOfAtLeast (IndentLevel i) = try $ do
+  skipMany (skipOptional tokWhitespace >> tokComment)
   j <- tokIndent
   guard (j >= i) <?> "indentation of at least " ++ show i
   return (IndentLevel j)
