@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DataKinds #-}
 
 -----------------------------------------------------------------------------
 
@@ -48,7 +49,7 @@ import Distribution.Client.Setup
   )
 import Distribution.Client.SetupWrapper
   ( SetupScriptOptions (..)
-  , V1
+  , V (..)
   , defaultSetupScriptOptions
   , setupWrapper
   )
