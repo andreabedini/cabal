@@ -3731,7 +3731,7 @@ setupHsScriptOptions
       , useCompiler = pkgConfigCompiler
       , usePlatform = pkgConfigPlatform
       , usePackageDB = elabSetupPackageDBStack
-      , usePackageIndex = Nothing
+      , usePackageIndex = ()
       , useDependencies =
           [ (uid, srcid)
           | (ConfiguredId srcid (Just (CLibName LMainLibName)) uid, _) <-
