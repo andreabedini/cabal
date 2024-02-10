@@ -254,13 +254,13 @@ type family SetupOptCabalVersion (v :: V) where
  SetupOptCabalVersion V1 = VersionRange
  SetupOptCabalVersion V2 = Version
 
-type family SetupOptV1Only a (v :: V) where
-  SetupOptV1Only a V1 = a
-  SetupOptV1Only a V2 = ()
+type family SetupOptV1Only (v :: V) a where
+  SetupOptV1Only V1 a = a
+  SetupOptV1Only V2 a = ()
 
-type family SetupOptV1Maybe a (v :: V) where
-  SetupOptV1Maybe a V1 = Maybe a
-  SetupOptV1Maybe a V2 = a
+type family SetupOptV1Maybe (v :: V) a where
+  SetupOptV1Maybe V1 a = Maybe a
+  SetupOptV1Maybe V2 a = a
 
 -- | @SetupScriptOptions@ are options used to configure and run 'Setup', as
 -- opposed to options given to the Cabal command at runtime.
@@ -284,12 +284,12 @@ data SetupScriptOptions v = SetupScriptOptions
   -- libary as an additional dependency, so add it to 'useDependencies'
   -- if needed.
   --
-  , useCompiler :: SetupOptV1Maybe Compiler v
-  , usePlatform :: SetupOptV1Maybe Platform v
+  , useCompiler :: SetupOptV1Maybe v Compiler
+  , usePlatform :: SetupOptV1Maybe v Platform
   , useProgramDb :: ProgramDb
 
   , usePackageDB :: PackageDBStack
-  , usePackageIndex :: SetupOptV1Only (Maybe InstalledPackageIndex) v
+  , usePackageIndex :: SetupOptV1Only v (Maybe InstalledPackageIndex)
   , useDistPref :: FilePath
   , useLoggingHandle :: Maybe Handle
   , useWorkingDir :: SetupOptWorkingDir v
@@ -303,7 +303,7 @@ data SetupScriptOptions v = SetupScriptOptions
   , forceExternalSetupMethod :: Bool
   , useDependencies :: [(ComponentId, PackageId)]
   -- ^ List of dependencies to use when building Setup.hs.
-  , useDependenciesExclusive :: SetupOptV1Only Bool v
+  , useDependenciesExclusive :: SetupOptV1Only v Bool
   -- ^ Is the list of setup dependencies exclusive?
   --
   -- When this is @False@, if we compile the Setup.hs script we do so with the
