@@ -139,7 +139,8 @@ data PackageBuildingPhase
 -- building style (notably, inplace vs install) to the delegate function that
 -- receives as an argument t'PackageBuildingPhase')
 buildAndRegisterUnpackedPackage
-  :: Verbosity
+  :: Monad m
+  => Verbosity
   -> DistDirLayout
   -> Maybe SemaphoreName
   -- ^ Whether to pass a semaphore to build process
@@ -155,8 +156,8 @@ buildAndRegisterUnpackedPackage
   -> FilePath
   -> Maybe (FilePath)
   -- ^ The path to an /initialized/ log file
-  -> (PackageBuildingPhase -> IO ())
-  -> IO ()
+  -> (PackageBuildingPhase -> m ())
+  -> m ()
 buildAndRegisterUnpackedPackage
   verbosity
   distDirLayout@DistDirLayout{distTempDirectory}
@@ -178,27 +179,27 @@ buildAndRegisterUnpackedPackage
     delegate $
       PBConfigurePhase $
         annotateFailure mlogFile ConfigureFailed $
-          setup configureCommand configureFlags configureArgs
+          setup SetupNonInteractive configureCommand configureFlags configureArgs
 
     -- Build phase
     delegate $
       PBBuildPhase $
         annotateFailure mlogFile BuildFailed $
-          setup buildCommand buildFlags buildArgs
+          setup SetupNonInteractive buildCommand buildFlags buildArgs
 
     -- Haddock phase
     whenHaddock $
       delegate $
         PBHaddockPhase $
           annotateFailure mlogFile HaddocksFailed $ do
-            setup haddockCommand haddockFlags haddockArgs
+            setup SetupNonInteractive haddockCommand haddockFlags haddockArgs
 
     -- Install phase
     delegate $
       PBInstallPhase
         { runCopy = \destdir ->
             annotateFailure mlogFile InstallFailed $
-              setup Cabal.copyCommand (copyFlags destdir) (const [])
+              setup SetupNonInteractive Cabal.copyCommand (copyFlags destdir) (const [])
         , runRegister = \pkgDBStack registerOpts ->
             annotateFailure mlogFile InstallFailed $ do
               -- We register ourselves rather than via Setup.hs. We need to
@@ -222,21 +223,21 @@ buildAndRegisterUnpackedPackage
       delegate $
         PBTestPhase $
           annotateFailure mlogFile TestsFailed $
-            setup testCommand testFlags testArgs
+            setup SetupNonInteractive testCommand testFlags testArgs
 
     -- Bench phase
     whenBench $
       delegate $
         PBBenchPhase $
           annotateFailure mlogFile BenchFailed $
-            setup benchCommand benchFlags benchArgs
+            setup SetupNonInteractive benchCommand benchFlags benchArgs
 
     -- Repl phase
     whenRepl $
       delegate $
         PBReplPhase $
           annotateFailure mlogFile ReplFailed $
-            setupInteractive replCommand replFlags replArgs
+            setup SetupInteractive replCommand replFlags replArgs
 
     return ()
     where
@@ -263,129 +264,61 @@ buildAndRegisterUnpackedPackage
         | otherwise = return ()
 
       configureCommand = Cabal.configureCommand defaultProgramDb
-      configureFlags v =
-        flip filterConfigureFlags v $
-          setupHsConfigureFlags
-            plan
-            rpkg
-            pkgshared
-            verbosity
-            builddir
+      configureFlags v = flip filterConfigureFlags v $ setupHsConfigureFlags plan rpkg pkgshared verbosity builddir
       configureArgs _ = setupHsConfigureArgs pkg
 
       buildCommand = Cabal.buildCommand defaultProgramDb
       buildFlags _ = setupHsBuildFlags comp_par_strat pkg pkgshared verbosity builddir
       buildArgs _ = setupHsBuildArgs pkg
 
-      copyFlags destdir _ =
-        setupHsCopyFlags
-          pkg
-          pkgshared
-          verbosity
-          builddir
-          destdir
+      copyFlags destdir _ = setupHsCopyFlags pkg pkgshared verbosity builddir destdir
 
       testCommand = Cabal.testCommand -- defaultProgramDb
-      testFlags v =
-        flip filterTestFlags v $
-          setupHsTestFlags
-            pkg
-            verbosity
-            builddir
+      testFlags v = flip filterTestFlags v $ setupHsTestFlags pkg verbosity builddir
       testArgs _ = setupHsTestArgs pkg
 
       benchCommand = Cabal.benchmarkCommand
-      benchFlags _ =
-        setupHsBenchFlags
-          pkg
-          pkgshared
-          verbosity
-          builddir
+      benchFlags _ = setupHsBenchFlags pkg pkgshared verbosity builddir
       benchArgs _ = setupHsBenchArgs pkg
 
       replCommand = Cabal.replCommand defaultProgramDb
-      replFlags _ =
-        setupHsReplFlags
-          pkg
-          pkgshared
-          verbosity
-          builddir
+      replFlags _ = setupHsReplFlags pkg pkgshared verbosity builddir
       replArgs _ = setupHsReplArgs pkg
 
       haddockCommand = Cabal.haddockCommand
-      haddockFlags v =
-        flip filterHaddockFlags v $
-          setupHsHaddockFlags
-            pkg
-            pkgshared
-            verbosity
-            builddir
-      haddockArgs v =
-        flip filterHaddockArgs v $
-          setupHsHaddockArgs pkg
+      haddockFlags v = flip filterHaddockFlags v $ setupHsHaddockFlags pkg pkgshared verbosity builddir
+      haddockArgs v = flip filterHaddockArgs v $ setupHsHaddockArgs pkg
 
-      scriptOptions =
-        setupHsScriptOptions
-          rpkg
-          plan
-          pkgshared
-          distDirLayout
-          srcdir
-          builddir
-          (isParallelBuild buildSettingNumJobs)
-          cacheLock
+      scriptOptions = setupHsScriptOptions rpkg plan pkgshared distDirLayout srcdir builddir (isParallelBuild buildSettingNumJobs) cacheLock
 
       setup
-        :: CommandUI flags
+        :: SetupInteractive
+        -> CommandUI flags
         -> (Version -> flags)
         -> (Version -> [String])
         -> IO ()
-      setup cmd flags args =
-        withLogging $ \mLogFileHandle ->
-          setupWrapperNew
-            verbosity
-            scriptOptions
-              { useLoggingHandle = mLogFileHandle
-              , useExtraEnvOverrides =
-                  dataDirsEnvironmentForPlan
-                    distDirLayout
-                    plan
-              }
-            (packageId pkg)
-            (PD.buildType $ elabPkgDescription pkg)
-            cmd
-            flags
-            args
-
-      setupInteractive
-        :: CommandUI flags
-        -> (Version -> flags)
-        -> (Version -> [String])
-        -> IO ()
-      setupInteractive cmd flags args =
-        setupWrapperNew
-          verbosity
-          scriptOptions{isInteractive = True}
-          (packageId pkg)
-          (PD.buildType $ elabPkgDescription pkg)
-          cmd
-          flags
-          args
+      setup interactive cmd flags args =
+        case interactive of
+          SetupInteractive ->
+            go
+              scriptOptions
+                { isInteractive = True
+                }
+          SetupNonInteractive ->
+            withLogging $ \mLogFileHandle ->
+              go
+                scriptOptions
+                  { useLoggingHandle = mLogFileHandle
+                  , useExtraEnvOverrides = dataDirsEnvironmentForPlan distDirLayout plan
+                  }
+        where
+          go opts = setupWrapperNew verbosity opts (packageId pkg) (PD.buildType $ elabPkgDescription pkg) cmd flags args
 
       generateInstalledPackageInfo :: IO InstalledPackageInfo
       generateInstalledPackageInfo =
-        withTempInstalledPackageInfoFile
-          verbosity
-          distTempDirectory
-          $ \pkgConfDest -> do
-            let registerFlags _ =
-                  setupHsRegisterFlags
-                    pkg
-                    pkgshared
-                    verbosity
-                    builddir
-                    pkgConfDest
-            setup Cabal.registerCommand registerFlags (const [])
+        withTempInstalledPackageInfoFile verbosity distTempDirectory $ \pkgConfDest -> do
+          let registerFlags _ = setupHsRegisterFlags pkg pkgshared verbosity builddir pkgConfDest
+          setup SetupNonInteractive Cabal.registerCommand registerFlags (const [])
 
       withLogging :: (Maybe Handle -> IO r) -> IO r
       withLogging action =
@@ -929,3 +862,4 @@ withTempInstalledPackageInfoFile verbosity tempdir action =
 
       return ipkg
 
+data SetupInteractive = SetupInteractive | SetupNonInteractive
