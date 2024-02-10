@@ -1,9 +1,14 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -37,7 +42,7 @@ module Distribution.Client.SetupWrapper
   , SetupScriptOptions (..)
   , defaultSetupScriptOptions
   , setupWrapperNew
-  , V1, V2
+  , V(..)
   ) where
 
 import Distribution.Client.Compat.Prelude
@@ -206,9 +211,9 @@ import System.Directory    ( doesDirectoryExist )
 import qualified System.Win32 as Win32
 #endif
 
-type family SetupMethod v
-type instance SetupMethod V1 = SetupMethodGeneric FilePath
-type instance SetupMethod V2 = SetupMethodGeneric (SetupScriptOptions V2, PackageId, BuildType)
+type family SetupMethod v where
+ SetupMethod V1 = SetupMethodGeneric FilePath
+ SetupMethod V2 = SetupMethodGeneric (SetupScriptOptions V2, PackageId, BuildType)
 
 -- | @Setup@ encapsulates the outcome of configuring a setup method to build a
 -- particular package.
@@ -239,32 +244,23 @@ data SetupMethodGeneric a
 --
 -- See also the discussion at https://github.com/haskell/cabal/pull/3094
 
-data V1
-data V2
+data V = V1 | V2
 
-type family SetupOptCabalSpecVersion v where
+type family SetupOptCabalSpecVersion (v :: V) where
   SetupOptCabalSpecVersion V1 = Maybe Version
   SetupOptCabalSpecVersion V2 = Version
 
-type family SetupOptCabalVersion v where
+type family SetupOptCabalVersion (v :: V) where
  SetupOptCabalVersion V1 = VersionRange
  SetupOptCabalVersion V2 = Version
 
-type family SetupOptCompiler v where
-  SetupOptCompiler V1 = Maybe Compiler
-  SetupOptCompiler V2 = Compiler
+type family SetupOptV1Only a (v :: V) where
+  SetupOptV1Only a V1 = a
+  SetupOptV1Only a V2 = ()
 
-type family SetupOptPlatform v where
-  SetupOptPlatform V1 = Maybe Platform
-  SetupOptPlatform V2 = Platform
-
-type family SetupOptWorkingDir v where
-  SetupOptWorkingDir V1 = Maybe FilePath
-  SetupOptWorkingDir V2 = FilePath
-
-type family SetupOptV1Only v a where
-  SetupOptV1Only V1 a = a
-  SetupOptV1Only _ a = ()
+type family SetupOptV1Maybe a (v :: V) where
+  SetupOptV1Maybe a V1 = Maybe a
+  SetupOptV1Maybe a V2 = a
 
 -- | @SetupScriptOptions@ are options used to configure and run 'Setup', as
 -- opposed to options given to the Cabal command at runtime.
@@ -287,11 +283,13 @@ data SetupScriptOptions v = SetupScriptOptions
   -- of the /spec/ we will use. Using this also avoid adding the Cabal
   -- libary as an additional dependency, so add it to 'useDependencies'
   -- if needed.
-  , useCompiler :: SetupOptCompiler v
-  , usePlatform :: SetupOptPlatform v
-  , usePackageDB :: PackageDBStack
-  , usePackageIndex :: SetupOptV1Only v (Maybe InstalledPackageIndex)
+  --
+  , useCompiler :: SetupOptV1Maybe Compiler v
+  , usePlatform :: SetupOptV1Maybe Platform v
   , useProgramDb :: ProgramDb
+
+  , usePackageDB :: PackageDBStack
+  , usePackageIndex :: SetupOptV1Only (Maybe InstalledPackageIndex) v
   , useDistPref :: FilePath
   , useLoggingHandle :: Maybe Handle
   , useWorkingDir :: SetupOptWorkingDir v
@@ -305,7 +303,7 @@ data SetupScriptOptions v = SetupScriptOptions
   , forceExternalSetupMethod :: Bool
   , useDependencies :: [(ComponentId, PackageId)]
   -- ^ List of dependencies to use when building Setup.hs.
-  , useDependenciesExclusive :: SetupOptV1Only v Bool
+  , useDependenciesExclusive :: SetupOptV1Only Bool v
   -- ^ Is the list of setup dependencies exclusive?
   --
   -- When this is @False@, if we compile the Setup.hs script we do so with the
@@ -473,7 +471,7 @@ getSetupNew _verbosity options pkg = do
           (cabalVersion, InternalMethod)
 
 -- I guess this is separate because of WithCallStack?
-runSetupMethod :: (WorkingDir (SetupOptWorkingDir v)) => WithCallStack (SetupMethod V1 -> SetupRunner v)
+runSetupMethod :: (( WorkingDir v)) => WithCallStack (SetupMethod V1 -> SetupRunner v)
 runSetupMethod InternalMethod = internalSetupMethod
 runSetupMethod (ExternalMethod path) = externalSetupMethod path
 runSetupMethod SelfExecMethod = selfExecSetupMethod
@@ -576,14 +574,14 @@ setupWrapper verbosity options mpkg cmd flags extraArgs = do
 
 -- ------------------------------------------------------------
 
-internalSetupMethod :: WorkingDir (SetupOptWorkingDir v) => SetupRunner v
+internalSetupMethod :: WorkingDir v => SetupRunner v
 internalSetupMethod verbosity options bt args = do
   info verbosity $
     "Using internal setup method with build-type "
       ++ show bt
       ++ " and args:\n  "
       ++ show args
-  inDir (useWorkingDir options) $ do
+  inWorkingDir options $ do
     withEnv "HASKELL_DIST_DIR" (useDistPref options) $
       withExtraPathEnv (useExtraPathEnv options) $
         withEnvOverrides (useExtraEnvOverrides options) $
@@ -597,7 +595,7 @@ buildTypeAction Configure =
 buildTypeAction Make = Make.defaultMainArgs
 buildTypeAction Custom = error "buildTypeAction Custom"
 
-invoke :: WorkingDir (SetupOptWorkingDir v) => Verbosity -> FilePath -> [String] -> SetupScriptOptions v -> IO ()
+invoke :: WorkingDir v => Verbosity -> FilePath -> [String] -> SetupScriptOptions v -> IO ()
 invoke verbosity path args options = do
   info verbosity $ unwords (path : args)
   case useLoggingHandle options of
@@ -621,7 +619,7 @@ invoke verbosity path args options = do
         Just hdl -> UseHandle hdl
       cp =
         (proc path args)
-          { Process.cwd = toWorkingDir $ useWorkingDir options
+          { Process.cwd = useWorkingDirProcessCwd options
           , Process.env = env
           , Process.std_out = loggingHandle
           , Process.std_err = loggingHandle
@@ -629,39 +627,45 @@ invoke verbosity path args options = do
           }
   maybeExit $ rawSystemProc verbosity cp
 
-class WorkingDir a where
-  workingDir :: a -> FilePath
-  toWorkingDir :: a -> Maybe FilePath
-  inDir :: a -> IO b -> IO b
+class WorkingDir (v :: V) where
+  type SetupOptWorkingDir v
+  useWorkingDir' :: SetupScriptOptions v -> FilePath
+  useWorkingDirProcessCwd :: SetupScriptOptions v -> Maybe FilePath
+  inWorkingDir :: SetupScriptOptions v -> IO b -> IO b
 
-instance WorkingDir FilePath where
+instance WorkingDir V2 where
+  type SetupOptWorkingDir V2 = FilePath
   -- \| Executes the action in the specified directory.
   --
   -- Warning: This operation is NOT thread-safe, because current
   -- working directory is a process-global concept.
-  inDir d m = do
+  inWorkingDir options m = do
+    let d = useWorkingDir options
     old <- getCurrentDirectory
     setCurrentDirectory d
     m `Exception.finally` setCurrentDirectory old
 
-  toWorkingDir = Just
+  useWorkingDirProcessCwd = Just . useWorkingDir
 
-  workingDir = id
+  useWorkingDir' = useWorkingDir
 
-instance WorkingDir (Maybe FilePath)  where
+instance WorkingDir V1  where
+  type SetupOptWorkingDir V1 = Maybe FilePath
   -- \| Executes the action in the specified directory.
   --
   -- Warning: This operation is NOT thread-safe, because current
   -- working directory is a process-global concept.
-  inDir Nothing m = m
-  inDir (Just d) m = do
-    old <- getCurrentDirectory
-    setCurrentDirectory d
-    m `Exception.finally` setCurrentDirectory old
+  inWorkingDir options m =
+    case useWorkingDir options of
+      Nothing -> m
+      Just d -> do
+        old <- getCurrentDirectory
+        setCurrentDirectory d
+        m `Exception.finally` setCurrentDirectory old
 
-  toWorkingDir = id
+  useWorkingDirProcessCwd = useWorkingDir
 
-  workingDir  = fromMaybe "."
+  useWorkingDir' = fromMaybe "." . useWorkingDir
 
 -- ------------------------------------------------------------
 
@@ -669,7 +673,7 @@ instance WorkingDir (Maybe FilePath)  where
 
 -- ------------------------------------------------------------
 
-selfExecSetupMethod :: WorkingDir (SetupOptWorkingDir v) => SetupRunner v
+selfExecSetupMethod ::  WorkingDir v => SetupRunner v
 selfExecSetupMethod verbosity options bt args0 = do
   let args =
         [ "act-as-setup"
@@ -691,7 +695,7 @@ selfExecSetupMethod verbosity options bt args0 = do
 
 -- ------------------------------------------------------------
 
-externalSetupMethod :: WorkingDir (SetupOptWorkingDir v) => WithCallStack (FilePath -> SetupRunner v)
+externalSetupMethod ::  WorkingDir v => WithCallStack (FilePath -> SetupRunner v)
 externalSetupMethod path verbosity options _ args =
 #ifndef mingw32_HOST_OS
   invoke
@@ -710,7 +714,7 @@ externalSetupMethod path verbosity options _ args =
     invokeWithWin32CleanHack origPath = do
       info verbosity $ "Using the Win32 clean hack."
       -- Recursively removes the temp dir on exit.
-      withTempDirectory verbosity (workingDir (useWorkingDir options)) "cabal-tmp" $ \tmpDir ->
+      withTempDirectory verbosity (useWorkingDir' options) "cabal-tmp" $ \tmpDir ->
         bracket
           (moveOutOfTheWay tmpDir origPath)
           (\tmpPath -> maybeRestore origPath tmpPath)
@@ -779,7 +783,7 @@ getExternalSetupMethod verbosity options pkg bt = do
 
   return (cabalLibVersion, ExternalMethod path', options'')
   where
-    setupDir = workingDir (useWorkingDir options) </> useDistPref options </> "setup"
+    setupDir = useWorkingDir' options </> useDistPref options </> "setup"
     setupVersionFile = setupDir </> "setup" <.> "version"
     setupHs = setupDir </> "setup" <.> "hs"
     setupProgFile = setupDir </> "setup" <.> exeExtension buildPlatform
@@ -1097,7 +1101,7 @@ getExternalSetupMethod verbosity options pkg bt = do
                   , ghcOptHiDir = Flag setupDir
                   , ghcOptSourcePathClear = Flag True
                   , ghcOptSourcePath = case bt of
-                      Custom -> toNubListR [workingDir (useWorkingDir options')]
+                      Custom -> toNubListR [useWorkingDir' options']
                       _ -> mempty
                   , ghcOptPackageDBs = usePackageDB options''
                   , ghcOptHideAllPackages = Flag (useDependenciesExclusive options')
@@ -1353,7 +1357,7 @@ buildTypeScript cabalLibVersion = \case
 
 
 -- \| Update a Setup.hs script, creating it if necessary.
-updateSetupScript :: WorkingDir (SetupOptWorkingDir v) => Verbosity -> SetupScriptOptions v -> Version -> BuildType -> IO ()
+updateSetupScript ::  WorkingDir v => Verbosity -> SetupScriptOptions v -> Version -> BuildType -> IO ()
 updateSetupScript verbosity options cabalLibVersion =
   \case
   Custom -> do
@@ -1368,19 +1372,19 @@ updateSetupScript verbosity options cabalLibVersion =
         then copyFileVerbose verbosity src setupHs
         else runSimplePreProcessor ppUnlit src setupHs verbosity
     where
-      customSetupHs = workingDir (useWorkingDir options) </> "Setup.hs"
-      customSetupLhs = workingDir (useWorkingDir options) </> "Setup.lhs"
+      customSetupHs = useWorkingDir' options </> "Setup.hs"
+      customSetupLhs = useWorkingDir' options </> "Setup.lhs"
 
   bt -> rewriteFileLBS verbosity setupHs (buildTypeScript cabalLibVersion bt)
   where
-    setupDir = workingDir (useWorkingDir options) </> useDistPref options </> "setup"
+    setupDir = useWorkingDir' options </> useDistPref options </> "setup"
     setupHs = setupDir </> "setup" <.> "hs"
 
-writeSetupVersionFile :: WorkingDir (SetupOptWorkingDir v) => SetupScriptOptions v -> Version -> IO ()
+writeSetupVersionFile ::  WorkingDir v => SetupScriptOptions v -> Version -> IO ()
 writeSetupVersionFile options version =
   writeFile setupVersionFile (show version ++ "\n")
   where
-    setupDir = workingDir (useWorkingDir options) </> useDistPref options </> "setup"
+    setupDir = useWorkingDir' options </> useDistPref options </> "setup"
     setupVersionFile = setupDir </> "setup" <.> "version"
 
 -- -- | Configure a 'Setup' and run a command in one step. The command flags
