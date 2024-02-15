@@ -1,7 +1,9 @@
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 
 -----------------------------------------------------------------------------
 
@@ -23,6 +25,7 @@ module Distribution.Fields.Parser
     -- $grammar
   , readFields
   , readFields'
+  , readFieldsT
 #ifdef CABAL_PARSEC_DEBUG
 
     -- * Internal
@@ -33,17 +36,19 @@ module Distribution.Fields.Parser
   ) where
 {- FOURMOLU_ENABLE -}
 
+import Control.Monad.Trans.Writer.CPS
 import qualified Data.ByteString.Char8 as B8
 import Data.Functor.Identity
 import Distribution.Compat.Prelude
 import Distribution.Fields.Field
 import Distribution.Fields.Lexer
 import Distribution.Fields.LexerMonad
-  ( LexResult (..)
+  ( Lex
   , LexState (..)
   , LexWarning (..)
   , LexWarningType (..)
-  , unLex
+  , StartCode
+  , runLexer
   )
 import Distribution.Parsec.Position (Position (..), positionCol)
 import Text.Parsec.Combinator hiding (eof, notFollowedBy)
@@ -61,44 +66,64 @@ import qualified Data.Text.Encoding.Error as T
 -- $setup
 -- >>> import Data.Either (isLeft)
 
--- | The 'LexState'' (with a prime) is an instance of parsec's 'Stream'
--- wrapped around lexer's 'LexState' (without a prime)
-data LexState' = LexState' !LexState (LToken, LexState')
+data LexStream = LexStream !LexState (LToken, LexStream)
 
-mkLexState' :: LexState -> LexState'
-mkLexState' st =
-  LexState'
-    st
-    (case unLex lexToken st of LexResult st' tok -> (tok, mkLexState' st'))
+unfoldStream :: Lex LToken -> LexState -> LexStream
+unfoldStream lexer s =
+  case runLexer lexer s of
+    (tok, s') -> LexStream s (tok, unfoldStream lexer s')
 
-type Parser a = ParsecT LexState' () Identity a
+mkLexStream :: LexState -> LexStream
+mkLexStream = unfoldStream lexToken
 
-instance Stream LexState' Identity LToken where
-  uncons (LexState' _ (tok, st')) =
+-- type Parser a = forall m. Monad m => ParsecT LexStream () m a
+-- type Parser a = ParsecT LexStream () Identity a
+
+instance Stream LexStream Identity LToken where
+  uncons (LexStream _ (tok, stream)) =
     case tok of
       L _ EOF -> return Nothing
       -- FIXME: DEBUG: uncomment these lines to skip new tokens and restore old lexer behaviour
       -- L _ (Whitespace _) -> uncons st'
       -- L _ (Comment _) -> uncons st'
       -- FIXME: ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-      _ -> return (Just (tok, st'))
+      _ -> return (Just (tok, stream))
+
+type Logger = Writer [(StartCode, LToken)]
+type Parser a = ParsecT LexStream () Logger a
+
+instance Stream LexStream Logger LToken where
+  uncons :: LexStream -> Logger (Maybe (LToken, LexStream))
+  uncons (LexStream s (tok, stream)) =
+    case tok of
+      L _ EOF -> return Nothing
+      -- FIXME: DEBUG: uncomment these lines to skip new tokens and restore old lexer behaviour
+      -- L _ (Whitespace _) -> uncons st'
+      -- L _ (Comment _) -> uncons st'
+      -- FIXME: ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+      _ -> do
+        tell [(curCode s, tok)]
+        return $ Just (tok, stream)
 
 -- | Get lexer warnings accumulated so far
 getLexerWarnings :: Parser [LexWarning]
 getLexerWarnings = do
-  LexState' (LexState{warnings = ws}) _ <- getInput
+  LexStream (LexState{warnings = ws}) _ <- getInput
   return ws
 
 addLexerWarning :: LexWarning -> Parser ()
 addLexerWarning w = do
-  LexState' ls@LexState{warnings = ws} _ <- getInput
-  setInput $! mkLexState' ls{warnings = w : ws}
+  LexStream ls@LexState{warnings = ws} _ <- getInput
+  setInput $! mkLexStream ls{warnings = w : ws}
+
+modifyInput :: Monad m => (a -> a) -> ParsecT a u m ()
+modifyInput f = getInput >>= setInput . f
 
 -- | Set Alex code i.e. the mode "state" lexer is in.
 setLexerMode :: Int -> Parser ()
 setLexerMode code = do
-  LexState' ls _ <- getInput
-  setInput $! mkLexState' ls{curCode = code}
+  modifyInput $ \(LexStream s _) ->
+    unfoldStream lexToken s{curCode = code}
 
 getToken :: (Token -> Maybe a) -> Parser a
 getToken getTok = getTokenWithPos (\(L _ t) -> getTok t)
@@ -106,7 +131,7 @@ getToken getTok = getTokenWithPos (\(L _ t) -> getTok t)
 getTokenWithPos :: (LToken -> Maybe a) -> Parser a
 getTokenWithPos getTok = tokenPrim (\(L _ t) -> describeToken t) updatePos getTok
   where
-    updatePos :: SourcePos -> LToken -> LexState' -> SourcePos
+    updatePos :: SourcePos -> LToken -> LexStream -> SourcePos
     updatePos pos (L (Position col line) _) _ = newPos (sourceName pos) col line
 
 describeToken :: Token -> String
@@ -119,9 +144,9 @@ describeToken t = case t of
   Colon -> "\":\""
   OpenBrace -> "\"{\""
   CloseBrace -> "\"}\""
-  --  SemiColon       -> "\";\""
-  Whitespace s -> "whitespace " ++ show s
-  Comment s -> "comment " ++ show s
+  -- SemiColon       -> "\";\""
+  -- Whitespace s -> "whitespace " ++ show s
+  -- Comment s -> "comment " ++ show s
   EOF -> "end of file"
   LexicalError is -> "character in input " ++ show (B8.head is)
 
@@ -141,11 +166,11 @@ tokOpenBrace = getTokenWithPos $ \t -> case t of L pos OpenBrace -> Just pos; _ 
 tokCloseBrace = getToken $ \t -> case t of CloseBrace -> Just (); _ -> Nothing
 tokFieldLine = getTokenWithPos $ \t -> case t of L pos (TokFieldLine s) -> Just (FieldLine pos s); _ -> Nothing
 
-tokComment :: Parser B8.ByteString
-tokComment = getToken (\case Comment s -> Just s; _ -> Nothing) *> tokWhitespace
-
-tokWhitespace :: Parser B8.ByteString
-tokWhitespace = getToken (\case Whitespace s -> Just s; _ -> Nothing)
+-- tokComment :: Parser B8.ByteString
+-- tokComment = getToken (\case Comment s -> Just s; _ -> Nothing) *> tokWhitespace
+--
+-- tokWhitespace :: Parser B8.ByteString
+-- tokWhitespace = getToken (\case Whitespace s -> Just s; _ -> Nothing)
 
 colon, openBrace, closeBrace :: Parser ()
 sectionArg :: Parser (SectionArg Position)
@@ -173,7 +198,6 @@ incIndentLevel (IndentLevel i) = IndentLevel (succ i)
 
 indentOfAtLeast :: IndentLevel -> Parser IndentLevel
 indentOfAtLeast (IndentLevel i) = try $ do
-  skipMany (skipOptional tokWhitespace >> tokComment)
   j <- tokIndent
   guard (j >= i) <?> "indentation of at least " ++ show i
   return (IndentLevel j)
@@ -383,17 +407,31 @@ fieldInlineOrBraces name =
 readFields :: B8.ByteString -> Either ParseError [Field Position]
 readFields s = fmap fst (readFields' s)
 
--- | Like 'readFields' but also return lexer warnings.
+-- -- | Like 'readFields' but also return lexer warnings.
 readFields' :: B8.ByteString -> Either ParseError ([Field Position], [LexWarning])
-readFields' s = do
-  parse parser "the input" lexSt
+readFields' s = fst (readFieldsT s)
+
+-- readFields' s = do
+--   parse parser "the input" lexSt
+--   where
+--     parser = do
+--       fields <- cabalStyleFile
+--       ws <- getLexerWarnings -- lexer accumulates warnings in reverse (consing them to the list)
+--       pure (fields, reverse ws ++ checkIndentation fields [])
+--
+--     lexSt = mkLexStream (mkLexState s)
+
+readFieldsT :: B8.ByteString -> (Either ParseError ([Field Position], [LexWarning]), [(StartCode, LToken)])
+readFieldsT s = do
+  runWriter $ runParserT parser () "the input" lexSt
   where
+    parser :: ParsecT LexStream () Logger ([Field Position], [LexWarning])
     parser = do
       fields <- cabalStyleFile
       ws <- getLexerWarnings -- lexer accumulates warnings in reverse (consing them to the list)
       pure (fields, reverse ws ++ checkIndentation fields [])
 
-    lexSt = mkLexState' (mkLexState s)
+    lexSt = mkLexStream (mkLexState s)
 
 -- | Check (recursively) that all fields inside a block are indented the same.
 --
@@ -421,14 +459,14 @@ checkIndentation'' a b
   | otherwise = (LexWarning LexInconsistentIndentation b :)
 
 #ifdef CABAL_PARSEC_DEBUG
-parseTest' :: Show a => Parsec LexState' () a -> SourceName -> B8.ByteString -> IO ()
+parseTest' :: Show a => Parsec LexStream () a -> SourceName -> B8.ByteString -> IO ()
 parseTest' p fname s =
     case parse p fname (lexSt s) of
       Left err -> putStrLn (formatError s err)
 
       Right x  -> print x
   where
-    lexSt = mkLexState' . mkLexState
+    lexSt = mkLexStream . mkLexState
 
 parseFile :: Show a => Parser a -> FilePath -> IO ()
 parseFile p f = B8.readFile f >>= \s -> parseTest' p f s
