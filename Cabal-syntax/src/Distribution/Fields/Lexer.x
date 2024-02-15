@@ -15,7 +15,7 @@
 #endif
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 module Distribution.Fields.Lexer
-  (ltest, lexString, lexByteString, lexToken, Token(..), LToken(..)
+  (ltest, lexToken, Token(..), LToken(..)
   ,bol_section, in_section, in_field_layout, in_field_braces
   ,mkLexState) where
 
@@ -84,9 +84,11 @@ tokens :-
 <bol_section, bol_field_layout, bol_field_braces> {
   @nbspspacetab* @nl         { \pos len inp -> checkWhitespace pos len inp >> adjustPos retPos >> lexToken }
   -- no @nl here to allow for comments on last line of the file with no trailing \n
-  -- TODO: check the lack of @nl works here including counting line numbers
-  $spacetab*      { toki Whitespace }
-  "--" $comment*  { toki Comment }
+  $spacetab* "--" $comment*  ;  -- TODO: check the lack of @nl works here
+                                -- including counting line numbers
+  --  -- TODO: check the lack of @nl works here including counting line numbers
+  --  $spacetab*      { toki Whitespace }
+  --  "--" $comment*  { toki Comment }
 }
 
 <bol_section> {
@@ -108,9 +110,13 @@ tokens :-
 }
 
 <in_section> {
-  --TODO: don't allow tab as leading space
-  $spacetab+     { toki Whitespace }
-  "--" $comment* { toki Comment }
+  $spacetab+   ; --TODO: don't allow tab as leading space
+
+  "--" $comment* ;
+
+  -- --TODO: don't allow tab as leading space
+  -- $spacetab+     { toki Whitespace }
+  -- "--" $comment* { toki Comment }
 
   @name        { toki TokSym }
   @string      { \pos len inp -> return $! L pos (TokStr (B.take (len - 2) (B.tail inp))) }
@@ -136,7 +142,8 @@ tokens :-
 }
 
 <in_field_layout> {
-  $spacetab+                     { toki Whitespace }
+  $spacetab+;
+  -- $spacetab+                     { toki Whitespace }
   $field_layout' $field_layout*  { toki TokFieldLine }
   @nl             { \_ _ _ -> adjustPos retPos >> setStartCode bol_field_layout >> lexToken }
 }
@@ -146,7 +153,8 @@ tokens :-
 }
 
 <in_field_braces> {
-  $spacetab+                       { toki Whitespace }
+  $spacetab+;
+  -- $spacetab+                       { toki Whitespace }
   $field_braces' $field_braces*    { toki TokFieldLine }
   \{                { tok  OpenBrace  }
   \}                { tok  CloseBrace }
@@ -164,8 +172,8 @@ data Token = TokSym   !ByteString       -- ^ Haskell-like identifier, number or 
            | Colon
            | OpenBrace
            | CloseBrace
-           | Whitespace   !ByteString
-           | Comment      !ByteString
+  --         | Whitespace   !ByteString
+  --         | Comment      !ByteString
            | EOF
            | LexicalError InputStream --TODO: add separate string lexical error
   deriving Show
@@ -235,6 +243,7 @@ lexToken = do
         setInput inp'
         let !len_bytes = B.length inp - B.length inp'
         t <- action pos len_bytes inp
+        --traceShow t $ return tok
         return t
 
 
