@@ -47,7 +47,6 @@ import Distribution.Fields.LexerMonad
   , LexState (..)
   , LexWarning (..)
   , LexWarningType (..)
-  , StartCode
   , runLexer
   )
 import Distribution.Parsec.Position (Position (..), positionCol)
@@ -82,28 +81,41 @@ mkLexStream = unfoldStream lexToken
 instance Stream LexStream Identity LToken where
   uncons (LexStream _ (tok, stream)) =
     case tok of
-      L _ EOF -> return Nothing
+      L _ _ EOF -> return Nothing
       -- FIXME: DEBUG: uncomment these lines to skip new tokens and restore old lexer behaviour
-      -- L _ (Whitespace _) -> uncons st'
-      -- L _ (Comment _) -> uncons st'
+      -- L _ (Whitespace _) -> uncons stream
+      -- L _ (Comment _) -> uncons stream
+      -- L _ (TokSkip _) -> uncons stream
       -- FIXME: ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       _ -> return (Just (tok, stream))
 
-type Logger = Writer [(StartCode, LToken)]
+data AToken = AToken Int String Position Token deriving (Show)
+type Logger = Writer [AToken]
 type Parser a = ParsecT LexStream () Logger a
+
+tellTok :: Monad m => LToken -> WriterT [AToken] m ()
+tellTok (L c p t) = tell [AToken c (code2text c) p t]
+
+code2text :: IsString a => Int -> a
+code2text 0 = "start"
+code2text st | st == bol_section = "bol_section"
+code2text st | st == bol_field_braces = "bol_field_braces"
+code2text st | st == bol_field_layout = "bol_field_layout"
+code2text st | st == in_section = "in_section"
+code2text st | st == in_field_braces = "in_field_braces"
+code2text st | st == in_field_layout = "in_field_layout"
+code2text n = error $ "code unknown: " ++ show n
 
 instance Stream LexStream Logger LToken where
   uncons :: LexStream -> Logger (Maybe (LToken, LexStream))
-  uncons (LexStream s (tok, stream)) =
+  uncons (LexStream _ (tok, stream)) = do
+    tellTok tok
     case tok of
-      L _ EOF -> return Nothing
-      -- FIXME: DEBUG: uncomment these lines to skip new tokens and restore old lexer behaviour
-      -- L _ (Whitespace _) -> uncons st'
-      -- L _ (Comment _) -> uncons st'
-      -- FIXME: ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-      _ -> do
-        tell [(curCode s, tok)]
-        return $ Just (tok, stream)
+      L _ _ EOF -> return Nothing
+      L _ _ (Comment _) -> uncons stream
+      L _ _ TokBom -> uncons stream
+      L _ _ (TokSkip _) -> uncons stream
+      L _ _ _ -> return $ Just (tok, stream)
 
 -- | Get lexer warnings accumulated so far
 getLexerWarnings :: Parser [LexWarning]
@@ -126,13 +138,13 @@ setLexerMode code = do
     unfoldStream lexToken s{curCode = code}
 
 getToken :: (Token -> Maybe a) -> Parser a
-getToken getTok = getTokenWithPos (\(L _ t) -> getTok t)
+getToken getTok = getTokenWithPos (\(L _ _ t) -> getTok t)
 
 getTokenWithPos :: (LToken -> Maybe a) -> Parser a
-getTokenWithPos getTok = tokenPrim (\(L _ t) -> describeToken t) updatePos getTok
+getTokenWithPos getTok = tokenPrim (\(L _ _ t) -> describeToken t) updatePos getTok
   where
     updatePos :: SourcePos -> LToken -> LexStream -> SourcePos
-    updatePos pos (L (Position col line) _) _ = newPos (sourceName pos) col line
+    updatePos pos (L _ (Position col line) _) _ = newPos (sourceName pos) col line
 
 describeToken :: Token -> String
 describeToken t = case t of
@@ -145,10 +157,12 @@ describeToken t = case t of
   OpenBrace -> "\"{\""
   CloseBrace -> "\"}\""
   -- SemiColon       -> "\";\""
-  -- Whitespace s -> "whitespace " ++ show s
-  -- Comment s -> "comment " ++ show s
+  Whitespace s -> "whitespace " ++ show s
+  Comment s -> "comment " ++ show s
   EOF -> "end of file"
   LexicalError is -> "character in input " ++ show (B8.head is)
+  TokSkip n -> "skip " ++ show n ++ " characters"
+  TokBom -> "BOM"
 
 tokSym :: Parser (Name Position)
 tokSym', tokStr, tokOther :: Parser (SectionArg Position)
@@ -156,15 +170,15 @@ tokIndent :: Parser Int
 tokColon, tokCloseBrace :: Parser ()
 tokOpenBrace :: Parser Position
 tokFieldLine :: Parser (FieldLine Position)
-tokSym = getTokenWithPos $ \t -> case t of L pos (TokSym x) -> Just (mkName pos x); _ -> Nothing
-tokSym' = getTokenWithPos $ \t -> case t of L pos (TokSym x) -> Just (SecArgName pos x); _ -> Nothing
-tokStr = getTokenWithPos $ \t -> case t of L pos (TokStr x) -> Just (SecArgStr pos x); _ -> Nothing
-tokOther = getTokenWithPos $ \t -> case t of L pos (TokOther x) -> Just (SecArgOther pos x); _ -> Nothing
+tokSym = getTokenWithPos $ \t -> case t of L _ pos (TokSym x) -> Just (mkName pos x); _ -> Nothing
+tokSym' = getTokenWithPos $ \t -> case t of L _ pos (TokSym x) -> Just (SecArgName pos x); _ -> Nothing
+tokStr = getTokenWithPos $ \t -> case t of L _ pos (TokStr x) -> Just (SecArgStr pos x); _ -> Nothing
+tokOther = getTokenWithPos $ \t -> case t of L _ pos (TokOther x) -> Just (SecArgOther pos x); _ -> Nothing
 tokIndent = getToken $ \t -> case t of Indent x -> Just x; _ -> Nothing
 tokColon = getToken $ \t -> case t of Colon -> Just (); _ -> Nothing
-tokOpenBrace = getTokenWithPos $ \t -> case t of L pos OpenBrace -> Just pos; _ -> Nothing
+tokOpenBrace = getTokenWithPos $ \t -> case t of L _ pos OpenBrace -> Just pos; _ -> Nothing
 tokCloseBrace = getToken $ \t -> case t of CloseBrace -> Just (); _ -> Nothing
-tokFieldLine = getTokenWithPos $ \t -> case t of L pos (TokFieldLine s) -> Just (FieldLine pos s); _ -> Nothing
+tokFieldLine = getTokenWithPos $ \t -> case t of L _ pos (TokFieldLine s) -> Just (FieldLine pos s); _ -> Nothing
 
 -- tokComment :: Parser B8.ByteString
 -- tokComment = getToken (\case Comment s -> Just s; _ -> Nothing) *> tokWhitespace
@@ -421,7 +435,7 @@ readFields' s = fst (readFieldsT s)
 --
 --     lexSt = mkLexStream (mkLexState s)
 
-readFieldsT :: B8.ByteString -> (Either ParseError ([Field Position], [LexWarning]), [(StartCode, LToken)])
+readFieldsT :: B8.ByteString -> (Either ParseError ([Field Position], [LexWarning]), [AToken])
 readFieldsT s = do
   runWriter $ runParserT parser () "the input" lexSt
   where
@@ -510,6 +524,6 @@ eof = notFollowedBy anyToken <?> "end of file"
     notFollowedBy :: Parser LToken -> Parser ()
     notFollowedBy p =
       try
-        ( (do L _ t <- try p; unexpected (describeToken t))
+        ( (do L _ _ t <- try p; unexpected (describeToken t))
             <|> return ()
         )
