@@ -230,3 +230,7 @@ library
     TypeOperators
     TypeSynonymInstances
     UndecidableInstances
+
+executable read-fields
+  main-is: ReadFields.hs
+  build-depends: base, Cabal-syntax, bytestring, pretty
