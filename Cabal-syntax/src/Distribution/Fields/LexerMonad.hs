@@ -49,21 +49,9 @@ import qualified Data.Vector        as V
 #endif
 
 -- simple state monad
--- newtype Lex a = Lex {unLex :: LexState -> LexResult a}
 newtype Lex a = Lex {unLex :: State LexState a}
   deriving (Functor, Applicative, Monad) via (State LexState)
 
--- instance Functor Lex where
---   fmap = liftM
-
--- instance Applicative Lex where
---   pure = returnLex
---   (<*>) = ap
---
--- instance Monad Lex where
---   return = pure
---   (>>=) = thenLex
---
 data LexResult a = LexResult {-# UNPACK #-} !LexState a
 
 data LexWarningType
@@ -104,7 +92,6 @@ toPWarnings =
     toWarning LexBraces _ =
       Nothing
 
-{- FOURMOLU_DISABLE -}
 data LexState = LexState
   { curPos :: {-# UNPACK #-} !Position
   -- ^ position at current input location
@@ -113,12 +100,7 @@ data LexState = LexState
   , curCode :: {-# UNPACK #-} !StartCode
   -- ^ lexer code
   , warnings :: [LexWarning]
-#ifdef CABAL_PARSEC_DEBUG
-  ,  dbgText :: V.Vector T.Text
-  -- ^ input lines, to print pretty debug info
-#endif
   }
-{- FOURMOLU_ENABLE -}
 
 -- TODO: check if we should cache the first token
 -- since it looks like parsec's uncons can be called many times on the same input
@@ -133,9 +115,8 @@ runLexer :: Lex a -> LexState -> (a, LexState)
 runLexer (Lex lexer) st = runState lexer st
 
 -- | Execute the given lexer on the supplied input stream.
-{- FOURMOLU_DISABLE -}
 execLexer :: Lex a -> InputStream -> ([LexWarning], a)
-execLexer (Lex lexer) input = 
+execLexer (Lex lexer) input =
   case runState lexer initialState of
     (result, LexState{warnings = ws}) -> (ws, result)
   where
@@ -146,19 +127,7 @@ execLexer (Lex lexer) input =
         , curInput = input
         , curCode = 0
         , warnings = []
-#ifdef CABAL_PARSEC_DEBUG
-        ,  dbgText = V.fromList . T.lines . T.decodeUtf8 $ input
-#endif
         }
-{- FOURMOLU_ENABLE -}
-
--- {-# INLINE returnLex #-}
--- returnLex :: a -> Lex a
--- returnLex a = Lex $ \s -> LexResult s a
-
--- {-# INLINE thenLex #-}
--- thenLex :: Lex a -> (a -> Lex b) -> Lex b
--- (Lex m) `thenLex` k = Lex $ \s -> case m s of LexResult s' a -> (unLex (k a)) s'
 
 setPos :: Position -> Lex ()
 setPos pos = Lex $ modify' $ \s -> s{curPos = pos}
