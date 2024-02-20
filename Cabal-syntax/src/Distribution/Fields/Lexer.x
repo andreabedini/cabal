@@ -10,9 +10,6 @@
 -- Lexer for the cabal files.
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE BangPatterns #-}
-#ifdef CABAL_PARSEC_DEBUG
-{-# LANGUAGE PatternGuards #-}
-#endif
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 module Distribution.Fields.Lexer
   ( ltest, lexToken, Token(..), LToken(..)
@@ -31,16 +28,8 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B.Char8
 import qualified Data.Word as Word
-
-#ifdef CABAL_PARSEC_DEBUG
-import Debug.Trace
-import qualified Data.Vector as V
-import qualified Data.Text   as T
-import qualified Data.Text.Encoding as T
-import qualified Data.Text.Encoding.Error as T
-#endif
-
 }
+
 -- Various character classes
 
 %encoding "latin1"
@@ -92,7 +81,7 @@ tokens :-
   @nbspspacetab* @nl         { \st pos len inp -> do
                                  _ <- checkWhitespace pos len inp
                                  adjustPos retPos
-                                 tokSkip st pos len inp
+                                 toki TokSkip st pos len inp
                              }
 
   -- no @nl here to allow for comments on last line of the file with no trailing \n
@@ -101,29 +90,33 @@ tokens :-
 }
 
 <bol_section> {
-  @nbspspacetab*   { \st pos len inp -> checkLeadingWhitespace pos len inp >>= \len' ->
-                                        -- len' is character whitespace length (counting nbsp as one)
-                                        if B.length inp == len
-                                          then return (L st pos EOF)
-                                          else do
-                                            -- Small hack: if char and byte length mismatch
-                                            -- subtract the difference, so lexToken will count position correctly.
-                                            -- Proper (and slower) fix is to count utf8 length in lexToken
-                                            when (len' /= len) $ adjustPos (incPos (len' - len))
-                                            setStartCode in_section
-                                            return (L st pos (Indent len')) }
+  @nbspspacetab*   { \st pos len inp -> do
+                       len' <- checkLeadingWhitespace pos len inp
+                       -- len' is character whitespace length (counting nbsp as one)
+                       if B.length inp == len
+                         then return (L st pos EOF)
+                         else do
+                           -- Small hack: if char and byte length mismatch
+                           -- subtract the difference, so lexToken will count position correctly.
+                           -- Proper (and slower) fix is to count utf8 length in lexToken
+                           when (len' /= len) $ adjustPos (incPos (len' - len))
+                           setStartCode in_section
+                           return (L st pos (Indent len'))
+                   }
 
   -- FIXME: this whitespace needs to be captured
-  $spacetab* \{    { tok  OpenBrace }
-  $spacetab* \}    { tok  CloseBrace }
+  -- NOTE: Commenting this out kinda still works but it adds an indent token before the brace.
+  $spacetab* \{   { tok OpenBrace }
+  $spacetab* \}   { tok CloseBrace }
 }
 
 <in_section> {
-  $spacetab+   ; --TODO: don't allow tab as leading space
+  $spacetab+     ; --TODO: don't allow tab as leading space
 
   "--" $comment* { toki Comment }
 
   @name          { toki TokSym }
+                 -- NOTE: this is to remove the quotes surrounding the string
   @string        { \st pos len inp -> return $! L st pos (TokStr (B.take (len - 2) (B.tail inp))) }
   @oplike        { toki TokOther }
   $paren         { toki TokOther }
@@ -153,7 +146,7 @@ tokens :-
 }
 
 <in_field_layout> {
-  $spacetab+;
+  $spacetab+                     ;
   $field_layout' $field_layout*  { toki TokFieldLine }
   @nl                            { \_ _ _ _ -> do
                                      adjustPos retPos
@@ -170,15 +163,15 @@ tokens :-
 }
 
 <in_field_braces> {
-  $spacetab+;
-  $field_braces' $field_braces*    { toki TokFieldLine }
-  \{                               { tok OpenBrace  }
-  \}                               { tok CloseBrace }
-  @nl                              { \_ _ _ _ -> do
-                                       adjustPos retPos
-                                       setStartCode bol_field_braces
-                                       lexToken
-                                   }
+  $spacetab+                     ;
+  $field_braces' $field_braces*  { toki TokFieldLine }
+  \{                             { tok OpenBrace  }
+  \}                             { tok CloseBrace }
+  @nl                            { \_ _ _ _ -> do
+                                     adjustPos retPos
+                                     setStartCode bol_field_braces
+                                     lexToken
+                                 }
 }
 
 {
@@ -194,7 +187,6 @@ data Token = TokSym       !ByteString   -- ^ Haskell-like identifier, number or 
            | Colon
            | OpenBrace
            | CloseBrace
-           | Whitespace   !ByteString
            | Comment      !ByteString
            | EOF
            | LexicalError InputStream --TODO: add separate string lexical error
@@ -208,9 +200,6 @@ toki t st pos len input = return $! L st pos (t (B.take len input))
 
 tok :: Token -> StartCode -> Position -> Int -> ByteString -> Lex LToken
 tok t st pos _len _input = return $! L st pos t
-
-tokSkip :: StartCode -> Position -> Int -> ByteString -> Lex LToken
-tokSkip st pos len input = return $! L st pos (TokSkip (B.take len input))
 
 checkLeadingWhitespace :: Position -> Int -> ByteString -> Lex Int
 checkLeadingWhitespace pos len bs
@@ -237,7 +226,7 @@ type AlexInput = InputStream
 alexInputPrevChar :: AlexInput -> Char
 alexInputPrevChar _ = error "alexInputPrevChar not used"
 
-alexGetByte :: AlexInput -> Maybe (Word.Word8,AlexInput)
+alexGetByte :: AlexInput -> Maybe (Word.Word8, AlexInput)
 alexGetByte = B.uncons
 
 lexicalError :: StartCode -> Position -> InputStream -> Lex LToken
@@ -255,41 +244,20 @@ lexToken = do
         return (L st pos EOF)
     AlexError inp' ->
         let !len_bytes = B.length inp - B.length inp' in
-            --FIXME: we want len_chars here really
+            -- FIXME: we want len_chars here really
             -- need to decode utf8 up to this point
         lexicalError st (incPos len_bytes pos) inp'
     AlexSkip inp' len_chars -> do
-        checkPosition pos inp inp' len_chars
         adjustPos (incPos len_chars)
         setInput inp'
         let !len_bytes = B.length inp - B.length inp'
-        tokSkip st pos len_bytes inp
+        toki TokSkip st pos len_bytes inp
     AlexToken inp' len_chars action -> do
-        checkPosition pos inp inp' len_chars
         adjustPos (incPos len_chars)
         setInput inp'
         let !len_bytes = B.length inp - B.length inp'
         t <- action st pos len_bytes inp
-        --traceShow t $ return tok
         return t
-
-
-checkPosition :: Position -> ByteString -> ByteString -> Int -> Lex ()
-#ifdef CABAL_PARSEC_DEBUG
-checkPosition pos@(Position lineno colno) inp inp' len_chars = do
-    text_lines <- getDbgText
-    let len_bytes = B.length inp - B.length inp'
-        pos_txt   | lineno-1 < V.length text_lines = T.take len_chars (T.drop (colno-1) (text_lines V.! (lineno-1)))
-                  | otherwise = T.empty
-        real_txt  = B.take len_bytes inp
-    when (pos_txt /= T.decodeUtf8 real_txt) $
-      traceShow (pos, pos_txt, T.decodeUtf8 real_txt) $
-      traceShow (take 3 (V.toList text_lines)) $ return ()
-  where
-    getDbgText = Lex $ \s@LexState{ dbgText = txt } -> LexResult s txt
-#else
-checkPosition _ _ _ _ = return ()
-#endif
 
 lexAll :: Lex [LToken]
 lexAll = do
@@ -311,22 +279,6 @@ mkLexState input = LexState
   , curInput = input
   , curCode  = 0
   , warnings = []
-#ifdef CABAL_PARSEC_DEBUG
-  , dbgText  = V.fromList . lines' . T.decodeUtf8With T.lenientDecode $ input
-#endif
   }
 
-#ifdef CABAL_PARSEC_DEBUG
-lines' :: T.Text -> [T.Text]
-lines' s1
-  | T.null s1 = []
-  | otherwise = case T.break (\c -> c == '\r' || c == '\n') s1 of
-                  (l, s2) | Just (c,s3) <- T.uncons s2
-                         -> case T.uncons s3 of
-                              Just ('\n', s4) | c == '\r' -> l `T.snoc` '\r' `T.snoc` '\n' : lines' s4
-                              _                           -> l `T.snoc` c : lines' s3
-
-                          | otherwise
-                         -> [l]
-#endif
 }
