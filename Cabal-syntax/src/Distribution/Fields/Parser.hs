@@ -157,7 +157,6 @@ describeToken t = case t of
   OpenBrace -> "\"{\""
   CloseBrace -> "\"}\""
   -- SemiColon       -> "\";\""
-  Whitespace s -> "whitespace " ++ show s
   Comment s -> "comment " ++ show s
   EOF -> "end of file"
   LexicalError is -> "character in input " ++ show (B8.head is)
@@ -182,9 +181,6 @@ tokFieldLine = getTokenWithPos $ \t -> case t of L _ pos (TokFieldLine s) -> Jus
 
 -- tokComment :: Parser B8.ByteString
 -- tokComment = getToken (\case Comment s -> Just s; _ -> Nothing) *> tokWhitespace
---
--- tokWhitespace :: Parser B8.ByteString
--- tokWhitespace = getToken (\case Whitespace s -> Just s; _ -> Nothing)
 
 colon, openBrace, closeBrace :: Parser ()
 sectionArg :: Parser (SectionArg Position)
