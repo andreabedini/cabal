@@ -673,6 +673,7 @@ getExternalSetupMethod verbosity options pkgId bt = do
   -- See 'Note: win32 clean hack' above.
 #ifdef mingw32_HOST_OS
   -- setupProgFile may not exist if we're using a cached program
+  let setupProgFile = setupDir </> "setup" <.> exeExtension buildPlatform
   setupProgFile' <- canonicalizePathNoThrow setupProgFile
   let win32CleanHackNeeded =
         (useWin32CleanHack options)
@@ -686,7 +687,6 @@ getExternalSetupMethod verbosity options pkgId bt = do
   return (cabalLibVersion, ExternalMethod path', options'')
   where
     setupDir = workingDir options </> useDistPref options </> "setup"
-    setupProgFile = setupDir </> "setup" <.> exeExtension buildPlatform
 
 useCachedSetupExecutable :: BuildType -> Bool
 useCachedSetupExecutable bt = (bt == Simple || bt == Configure || bt == Make)
