@@ -445,6 +445,7 @@ getSetup
   -> IO ASetup
 getSetup verbosity options mpkg allowInLibrary = do
   pkg <- maybe getPkg return mpkg
+
   let options' =
         options
           { useCabalVersion =
@@ -453,6 +454,7 @@ getSetup verbosity options mpkg allowInLibrary = do
                 (orLaterVersion (mkVersion (cabalSpecMinimumLibraryVersion (specVersion pkg))))
           }
       buildType' = buildType pkg
+
   withSetupMethod verbosity options' pkg buildType' allowInLibrary $
     \ (version, method, options'') ->
         ASetup $ Setup
@@ -462,6 +464,7 @@ getSetup verbosity options mpkg allowInLibrary = do
           , setupBuildType = buildType'
           , setupPackage = pkg
           }
+
   where
     mbWorkDir = useWorkingDir options
     getPkg =
@@ -621,27 +624,13 @@ setupWrapper verbosity options mpkg cmd getCommonFlags getFlags getExtraArgs wra
   let allowInLibrary = case wrapperArgs of
         NotInLibrary -> Don'tAllowInLibrary
         InLibraryArgs {} -> AllowInLibrary
+
   ASetup (setup :: Setup kind) <- getSetup verbosity options mpkg allowInLibrary
+
   let version = setupVersion setup
       flags = getFlags version
       extraArgs = getExtraArgs version
-      notInLibraryMethod :: kind ~ GeneralSetup => IO (SetupRunnerRes setupSpec)
-      notInLibraryMethod =
-        do runSetupCommand verbosity setup cmd getCommonFlags flags extraArgs NotInLibrary
-           return $ case wrapperArgs of
-            NotInLibrary -> ()
-            InLibraryArgs libArgs ->
-              case libArgs of
-                InLibraryConfigureArgs {} -> NotInLibraryNoLBI
-                InLibraryPostConfigureArgs sPhase _ ->
-                  case sPhase of
-                    SBuildPhase    -> []
-                    SHaddockPhase  -> []
-                    SReplPhase     -> ()
-                    SCopyPhase     -> ()
-                    SRegisterPhase -> ()
-                    STestPhase     -> ()
-                    SBenchPhase    -> ()
+
   case setupMethod setup of
     LibraryMethod ->
       case wrapperArgs of
@@ -670,20 +659,21 @@ setupWrapper verbosity options mpkg cmd getCommonFlags getFlags getExtraArgs wra
                 InLibrary.configure
                   (InLibrary.libraryConfigureInputsFromElabPackage setupProgDb elabSharedConfig elabReadyPkg extraArgs)
                   flags
+
               let progs0 = LBI.withPrograms lbi0
               progs1 <- updatePathProgDb verbosity progs0
+
               let
-                  lbi =
-                    lbi0
-                      { LBI.withPrograms = progs1
-                      }
+                  lbi = lbi0 { LBI.withPrograms = progs1 }
                   mbWorkDir = useWorkingDir options
                   distPref = useDistPref options
+
               -- Write the LocalBuildInfo to disk. This is needed, for instance, if we
               -- skip re-configuring; we retrieve the LocalBuildInfo stored on disk from
               -- the previous invocation of 'configure' and pass it to 'build'.
               writePersistBuildConfig mbWorkDir distPref lbi
               return $ InLibraryLBI lbi
+
             InLibraryPostConfigureArgs sPhase mbLBI ->
               case mbLBI of
                 NotInLibraryNoLBI ->
@@ -703,8 +693,37 @@ setupWrapper verbosity options mpkg cmd getCommonFlags getFlags getExtraArgs wra
                     SRegisterPhase -> InLibrary.register flags lbi extraArgs
         NotInLibrary ->
           error "internal error: NotInLibrary argument but getSetup chose InLibrary"
-    ExternalMethod {} -> notInLibraryMethod
-    SelfExecMethod -> notInLibraryMethod
+    ExternalMethod {} ->
+      notInLibraryMethod verbosity setup cmd getCommonFlags flags extraArgs wrapperArgs
+    SelfExecMethod ->
+      notInLibraryMethod verbosity setup cmd getCommonFlags flags extraArgs wrapperArgs
+
+notInLibraryMethod
+  :: Verbosity
+  -> Setup GeneralSetup
+  -> CommandUI flags
+  -> (flags -> CommonSetupFlags)
+  -> flags
+  -> [String]
+  -> SetupRunnerArgs spec
+  -> IO (SetupRunnerRes spec)
+notInLibraryMethod verbosity setup cmd getCommonFlags flags extraArgs wrapperArgs = do
+  runSetupCommand verbosity setup cmd getCommonFlags flags extraArgs NotInLibrary
+  return $ case wrapperArgs of
+    NotInLibrary -> ()
+    InLibraryArgs libArgs ->
+      case libArgs of
+        InLibraryConfigureArgs{} ->
+          NotInLibraryNoLBI
+        InLibraryPostConfigureArgs sPhase _ ->
+          case sPhase of
+            SBuildPhase -> []
+            SHaddockPhase -> []
+            SReplPhase -> ()
+            SCopyPhase -> ()
+            SRegisterPhase -> ()
+            STestPhase -> ()
+            SBenchPhase -> ()
 
 -- ------------------------------------------------------------
 
