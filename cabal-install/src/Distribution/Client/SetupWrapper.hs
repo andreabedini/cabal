@@ -34,6 +34,7 @@ module Distribution.Client.SetupWrapper
   , SPostConfigurePhase(..)
   , InLibraryArgs(..)
   , SetupRunnerRes
+  , SetupWrapperSpec(..)
   , InLibraryLBI(..)
   , RightFlagsForPhase
   , setupWrapper
