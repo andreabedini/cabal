@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
@@ -47,8 +48,7 @@ import Distribution.Client.DistDirLayout
 import Distribution.Client.FileMonitor
 import Distribution.Client.JobControl
 import Distribution.Client.Setup
-  ( CommonSetupFlags
-  , filterCommonFlags
+  ( filterCommonFlags
   , filterConfigureFlags
   , filterHaddockArgs
   , filterHaddockFlags
@@ -115,7 +115,11 @@ import System.FilePath (dropDrive, normalise, takeDirectory, (<.>), (</>))
 import System.IO (Handle, IOMode (AppendMode), withFile)
 import System.Semaphore (SemaphoreName (..))
 
-import GHC.Stack
+import qualified Distribution.Client.InLibrary as InLibrary
+import Distribution.Simple.Configure (writePersistBuildConfig)
+import Distribution.Simple.Program.Db (prependProgramSearchPath, updatePathProgDb)
+import qualified Distribution.Types.LocalBuildInfo as LBI
+
 import Web.Browser (openBrowser)
 
 -- | Each unpacked package is processed in the following phases:
@@ -209,10 +213,8 @@ buildAndRegisterUnpackedPackage
         $ \mLogFileHandle ->
           setupConfigure
             verbosity
-            (scriptOptions{useLoggingHandle = mLogFileHandle, useExtraEnvOverrides = dataDirsEnvironmentForPlan distDirLayout plan})
+            scriptOptions{useLoggingHandle = mLogFileHandle, useExtraEnvOverrides = dataDirsEnvironmentForPlan distDirLayout plan}
             pkg
-            configureCommand
-            Cabal.configCommonFlags
             configureFlags
             configureArgs
             (InLibraryArgs $ InLibraryConfigureArgs pkgshared rpkg)
@@ -225,10 +227,8 @@ buildAndRegisterUnpackedPackage
       $ \mLogFileHandle ->
         setupBuild
           verbosity
-          (scriptOptions{useLoggingHandle = mLogFileHandle, useExtraEnvOverrides = dataDirsEnvironmentForPlan distDirLayout plan})
+          scriptOptions{useLoggingHandle = mLogFileHandle, useExtraEnvOverrides = dataDirsEnvironmentForPlan distDirLayout plan}
           pkg
-          buildCommand
-          Cabal.buildCommonFlags
           buildFlags
           buildArgs
           (InLibraryArgs $ InLibraryPostConfigureArgs SBuildPhase mbLBI)
@@ -242,10 +242,8 @@ buildAndRegisterUnpackedPackage
       $ \mLogFileHandle ->
         setupHaddock
           verbosity
-          (scriptOptions{useLoggingHandle = mLogFileHandle, useExtraEnvOverrides = dataDirsEnvironmentForPlan distDirLayout plan})
+          scriptOptions{useLoggingHandle = mLogFileHandle, useExtraEnvOverrides = dataDirsEnvironmentForPlan distDirLayout plan}
           pkg
-          haddockCommand
-          Cabal.haddockCommonFlags
           haddockFlags
           haddockArgs
           (InLibraryArgs $ InLibraryPostConfigureArgs SHaddockPhase mbLBI)
@@ -259,10 +257,8 @@ buildAndRegisterUnpackedPackage
               $ \mLogFileHandle ->
                 setupCopy
                   verbosity
-                  (scriptOptions{useLoggingHandle = mLogFileHandle, useExtraEnvOverrides = dataDirsEnvironmentForPlan distDirLayout plan})
+                  scriptOptions{useLoggingHandle = mLogFileHandle, useExtraEnvOverrides = dataDirsEnvironmentForPlan distDirLayout plan}
                   pkg
-                  Cabal.copyCommand
-                  Cabal.copyCommonFlags
                   (copyFlags destdir)
                   copyArgs
                   (InLibraryArgs $ InLibraryPostConfigureArgs SCopyPhase mbLBI)
@@ -294,10 +290,8 @@ buildAndRegisterUnpackedPackage
       $ \mLogFileHandle ->
         setupTest
           verbosity
-          (scriptOptions{useLoggingHandle = mLogFileHandle, useExtraEnvOverrides = dataDirsEnvironmentForPlan distDirLayout plan})
+          scriptOptions{useLoggingHandle = mLogFileHandle, useExtraEnvOverrides = dataDirsEnvironmentForPlan distDirLayout plan}
           pkg
-          testCommand
-          Cabal.testCommonFlags
           testFlags
           testArgs
           (InLibraryArgs $ InLibraryPostConfigureArgs STestPhase mbLBI)
@@ -311,10 +305,8 @@ buildAndRegisterUnpackedPackage
       $ \mLogFileHandle ->
         setupBench
           verbosity
-          (scriptOptions{useLoggingHandle = mLogFileHandle, useExtraEnvOverrides = dataDirsEnvironmentForPlan distDirLayout plan})
+          scriptOptions{useLoggingHandle = mLogFileHandle, useExtraEnvOverrides = dataDirsEnvironmentForPlan distDirLayout plan}
           pkg
-          benchCommand
-          Cabal.benchmarkCommonFlags
           benchFlags
           benchArgs
           (InLibraryArgs $ InLibraryPostConfigureArgs SBenchPhase mbLBI)
@@ -324,12 +316,10 @@ buildAndRegisterUnpackedPackage
       $ delegate
       $ PBReplPhase
       $ annotateFailure mlogFile ReplFailed
-      $ setupWrapper
+      $ setupRepl
         verbosity
         scriptOptions{isInteractive = True}
-        (Just (elabPkgDescription pkg))
-        replCommand
-        Cabal.replCommonFlags
+        pkg
         replFlags
         replArgs
         (InLibraryArgs $ InLibraryPostConfigureArgs SReplPhase mbLBI)
@@ -363,7 +353,6 @@ buildAndRegisterUnpackedPackage
         flip filterCommonFlags v
           $ setupHsCommonFlags verbosity mbWorkDir builddir
 
-      configureCommand = Cabal.configureCommand defaultProgramDb
       configureFlags v =
         flip filterConfigureFlags v
           $ setupHsConfigureFlags
@@ -373,7 +362,6 @@ buildAndRegisterUnpackedPackage
             (commonFlags v)
       configureArgs _ = setupHsConfigureArgs pkg
 
-      buildCommand = Cabal.buildCommand defaultProgramDb
       buildFlags v = setupHsBuildFlags comp_par_strat pkg pkgshared $ commonFlags v
       buildArgs _ = setupHsBuildArgs pkg
 
@@ -387,7 +375,6 @@ buildAndRegisterUnpackedPackage
       -- built, but instead, we simply copy the targets that were built.
       copyArgs = buildArgs
 
-      testCommand = Cabal.testCommand -- defaultProgramDb
       testFlags v =
         flip filterTestFlags v
           $ setupHsTestFlags
@@ -395,7 +382,6 @@ buildAndRegisterUnpackedPackage
             (commonFlags v)
       testArgs _ = setupHsTestArgs pkg
 
-      benchCommand = Cabal.benchmarkCommand
       benchFlags v =
         setupHsBenchFlags
           pkg
@@ -403,7 +389,6 @@ buildAndRegisterUnpackedPackage
           (commonFlags v)
       benchArgs _ = setupHsBenchArgs pkg
 
-      replCommand = Cabal.replCommand defaultProgramDb
       replFlags v =
         setupHsReplFlags
           pkg
@@ -411,7 +396,6 @@ buildAndRegisterUnpackedPackage
           (commonFlags v)
       replArgs _ = setupHsReplArgs pkg
 
-      haddockCommand = Cabal.haddockCommand
       haddockFlags v =
         flip filterHaddockFlags v
           $ setupHsHaddockFlags
@@ -433,31 +417,31 @@ buildAndRegisterUnpackedPackage
           builddir
           cacheLock
 
-      setup
-        :: (HasCallStack, RightFlagsForPhase flags setupSpec)
-        => CommandUI flags
-        -> (flags -> CommonSetupFlags)
-        -> (Version -> flags)
-        -> (Version -> [String])
-        -> SetupRunnerArgs setupSpec
-        -> IO (SetupRunnerRes setupSpec)
-      setup cmd getCommonFlags flags args wrapperArgs =
-        withLogging $ \mLogFileHandle ->
-          setupWrapper
-            verbosity
-            scriptOptions
-              { useLoggingHandle = mLogFileHandle
-              , useExtraEnvOverrides =
-                  dataDirsEnvironmentForPlan
-                    distDirLayout
-                    plan
-              }
-            (Just (elabPkgDescription pkg))
-            cmd
-            getCommonFlags
-            flags
-            args
-            wrapperArgs
+      -- setup
+      --   :: (HasCallStack, RightFlagsForPhase flags setupSpec)
+      --   => CommandUI flags
+      --   -> (flags -> CommonSetupFlags)
+      --   -> (Version -> flags)
+      --   -> (Version -> [String])
+      --   -> SetupRunnerArgs setupSpec
+      --   -> IO (SetupRunnerRes setupSpec)
+      -- setup cmd getCommonFlags flags args wrapperArgs =
+      --   withLogging $ \mLogFileHandle ->
+      --     setupWrapper
+      --       verbosity
+      --       scriptOptions
+      --         { useLoggingHandle = mLogFileHandle
+      --         , useExtraEnvOverrides =
+      --             dataDirsEnvironmentForPlan
+      --               distDirLayout
+      --               plan
+      --         }
+      --       (Just (elabPkgDescription pkg))
+      --       cmd
+      --       getCommonFlags
+      --       flags
+      --       args
+      --       wrapperArgs
 
       generateInstalledPackageInfo :: InLibraryLBI -> IO InstalledPackageInfo
       generateInstalledPackageInfo mbLBI =
@@ -475,8 +459,6 @@ buildAndRegisterUnpackedPackage
               verbosity
               scriptOptions{isInteractive = True}
               pkg
-              (Cabal.registerCommand)
-              Cabal.registerCommonFlags
               registerFlags
               (const [])
               (InLibraryArgs $ InLibraryPostConfigureArgs SRegisterPhase mbLBI)
@@ -487,117 +469,346 @@ buildAndRegisterUnpackedPackage
           Nothing -> action Nothing
           Just logFile -> withFile logFile AppendMode (action . Just)
 
+configureCommand :: CommandUI Cabal.ConfigFlags
+configureCommand = Cabal.configureCommand defaultProgramDb
+
+buildCommand :: CommandUI Cabal.BuildFlags
+buildCommand = Cabal.buildCommand defaultProgramDb
+
+benchCommand :: CommandUI Cabal.BenchmarkFlags
+benchCommand = Cabal.benchmarkCommand
+
+replCommand :: CommandUI Cabal.ReplFlags
+replCommand = Cabal.replCommand defaultProgramDb
+
 setupConfigure
   :: Verbosity
   -> SetupScriptOptions
   -> ElaboratedConfiguredPackage
-  -> CommandUI Cabal.ConfigFlags
-  -> (Cabal.ConfigFlags -> CommonSetupFlags)
   -> (Version -> Cabal.ConfigFlags)
   -> (Version -> [String])
   -> SetupRunnerArgs (TryInLibrary Cabal.ConfigFlags)
   -> IO InLibraryLBI
 setupConfigure verbosity scriptOptions pkg =
-  setupWrapper
-    verbosity
-    scriptOptions
-    (Just (elabPkgDescription pkg))
+  \getFlags getExtraArgs wrapperArgs -> do
+    ASetup (setup :: Setup kind) <- getSetup verbosity scriptOptions (Just (elabPkgDescription pkg)) AllowInLibrary
+
+    let version = setupVersion setup
+        flags = getFlags version
+        extraArgs = getExtraArgs version
+
+    case setupMethod setup of
+      LibraryMethod ->
+        case wrapperArgs of
+          InLibraryArgs libArgs ->
+            case libArgs of
+              InLibraryConfigureArgs elabSharedConfig elabReadyPkg -> do
+                -- Construct the appropriate program database for the package.
+                --
+                -- This is quite tricky, as we need to account for:
+                --
+                --  - user-specified PATH and environment variable overrides,
+                --  - paths and environment variables for any build-tool-depends
+                --    of the package (both internal to the package and external),
+                --  - the fact that the program database might have been obtained
+                --    by deserialising (due to caching), in which case we might
+                --    be missing unconfigured built-in programs.
+                setupProgDb <-
+                  prependProgramSearchPath
+                    verbosity
+                    (useExtraPathEnv scriptOptions)
+                    (useExtraEnvOverrides scriptOptions)
+                    =<< Cabal.mkProgramDb
+                      flags
+                      ( restoreProgramDb builtinPrograms
+                          $ useProgramDb scriptOptions
+                      )
+
+                lbi0 <-
+                  InLibrary.configure
+                    (InLibrary.libraryConfigureInputsFromElabPackage setupProgDb elabSharedConfig elabReadyPkg extraArgs)
+                    flags
+
+                let progs0 = LBI.withPrograms lbi0
+                progs1 <- updatePathProgDb verbosity progs0
+
+                let
+                  lbi = lbi0{LBI.withPrograms = progs1}
+                  mbWorkDir = useWorkingDir scriptOptions
+                  distPref = useDistPref scriptOptions
+
+                -- Write the LocalBuildInfo to disk. This is needed, for instance, if we
+                -- skip re-configuring; we retrieve the LocalBuildInfo stored on disk from
+                -- the previous invocation of 'configure' and pass it to 'build'.
+                writePersistBuildConfig mbWorkDir distPref lbi
+                return $ InLibraryLBI lbi
+              InLibraryPostConfigureArgs sPhase mbLBI ->
+                case mbLBI of
+                  NotInLibraryNoLBI ->
+                    error "internal error: in-library post-conf but no LBI"
+                  -- To avoid running into the above error, we must ensure that
+                  -- when we skip re-configuring, we retrieve the cached
+                  -- LocalBuildInfo (see "whenReconfigure"
+                  --   in Distribution.Client.ProjectBuilding.UnpackedPackage).
+                  InLibraryLBI _lbi ->
+                    -- this means do nothing
+                    case sPhase of {}
+      ExternalMethod{} ->
+        notInLibraryMethod verbosity setup configureCommand Cabal.configCommonFlags flags extraArgs wrapperArgs
+      SelfExecMethod ->
+        notInLibraryMethod verbosity setup configureCommand Cabal.configCommonFlags flags extraArgs wrapperArgs
 
 setupBuild
   :: Verbosity
   -> SetupScriptOptions
   -> ElaboratedConfiguredPackage
-  -> CommandUI Cabal.BuildFlags
-  -> (Cabal.BuildFlags -> CommonSetupFlags)
   -> (Version -> Cabal.BuildFlags)
   -> (Version -> [String])
   -> SetupRunnerArgs (TryInLibrary Cabal.BuildFlags)
   -> IO [MonitorFilePath]
 setupBuild verbosity scriptOptions pkg =
-  setupWrapper
-    verbosity
-    scriptOptions
-    (Just (elabPkgDescription pkg))
+  \getFlags getExtraArgs wrapperArgs -> do
+    ASetup (setup :: Setup kind) <- getSetup verbosity scriptOptions (Just (elabPkgDescription pkg)) AllowInLibrary
+
+    let version = setupVersion setup
+        flags = getFlags version
+        extraArgs = getExtraArgs version
+
+    case setupMethod setup of
+      LibraryMethod ->
+        case wrapperArgs of
+          InLibraryArgs libArgs ->
+            case libArgs of
+              InLibraryPostConfigureArgs _sPhase mbLBI ->
+                case mbLBI of
+                  NotInLibraryNoLBI ->
+                    error "internal error: in-library post-conf but no LBI"
+                  -- To avoid running into the above error, we must ensure that
+                  -- when we skip re-configuring, we retrieve the cached
+                  -- LocalBuildInfo (see "whenReconfigure"
+                  --   in Distribution.Client.ProjectBuilding.UnpackedPackage).
+                  InLibraryLBI lbi ->
+                    InLibrary.build flags lbi extraArgs
+      ExternalMethod{} ->
+        notInLibraryMethod verbosity setup buildCommand Cabal.buildCommonFlags flags extraArgs wrapperArgs
+      SelfExecMethod ->
+        notInLibraryMethod verbosity setup buildCommand Cabal.buildCommonFlags flags extraArgs wrapperArgs
 
 setupHaddock
   :: Verbosity
   -> SetupScriptOptions
   -> ElaboratedConfiguredPackage
-  -> CommandUI Cabal.HaddockFlags
-  -> (Cabal.HaddockFlags -> CommonSetupFlags)
   -> (Version -> Cabal.HaddockFlags)
   -> (Version -> [String])
   -> SetupRunnerArgs (TryInLibrary Cabal.HaddockFlags)
   -> IO [MonitorFilePath]
 setupHaddock verbosity scriptOptions pkg =
-  setupWrapper
-    verbosity
-    scriptOptions
-    (Just (elabPkgDescription pkg))
+  \getFlags getExtraArgs wrapperArgs -> do
+    ASetup (setup :: Setup kind) <- getSetup verbosity scriptOptions (Just (elabPkgDescription pkg)) AllowInLibrary
+
+    let version = setupVersion setup
+        flags = getFlags version
+        extraArgs = getExtraArgs version
+
+    case setupMethod setup of
+      LibraryMethod ->
+        case wrapperArgs of
+          InLibraryArgs libArgs ->
+            case libArgs of
+              InLibraryPostConfigureArgs _sPhase mbLBI ->
+                case mbLBI of
+                  NotInLibraryNoLBI ->
+                    error "internal error: in-library post-conf but no LBI"
+                  -- To avoid running into the above error, we must ensure that
+                  -- when we skip re-configuring, we retrieve the cached
+                  -- LocalBuildInfo (see "whenReconfigure"
+                  --   in Distribution.Client.ProjectBuilding.UnpackedPackage).
+                  InLibraryLBI lbi ->
+                    InLibrary.haddock flags lbi extraArgs
+      ExternalMethod{} ->
+        notInLibraryMethod verbosity setup Cabal.haddockCommand Cabal.haddockCommonFlags flags extraArgs wrapperArgs
+      SelfExecMethod ->
+        notInLibraryMethod verbosity setup Cabal.haddockCommand Cabal.haddockCommonFlags flags extraArgs wrapperArgs
 
 setupBench
   :: Verbosity
   -> SetupScriptOptions
   -> ElaboratedConfiguredPackage
-  -> CommandUI Cabal.BenchmarkFlags
-  -> (Cabal.BenchmarkFlags -> CommonSetupFlags)
   -> (Version -> Cabal.BenchmarkFlags)
   -> (Version -> [String])
   -> SetupRunnerArgs (TryInLibrary Cabal.BenchmarkFlags)
   -> IO ()
 setupBench verbosity scriptOptions pkg =
-  setupWrapper
-    verbosity
-    scriptOptions
-    (Just (elabPkgDescription pkg))
+  \getFlags getExtraArgs wrapperArgs -> do
+    ASetup (setup :: Setup kind) <- getSetup verbosity scriptOptions (Just (elabPkgDescription pkg)) AllowInLibrary
+
+    let version = setupVersion setup
+        flags = getFlags version
+        extraArgs = getExtraArgs version
+
+    case setupMethod setup of
+      LibraryMethod ->
+        case wrapperArgs of
+          InLibraryArgs libArgs ->
+            case libArgs of
+              InLibraryPostConfigureArgs _sPhase mbLBI ->
+                case mbLBI of
+                  NotInLibraryNoLBI ->
+                    error "internal error: in-library post-conf but no LBI"
+                  -- To avoid running into the above error, we must ensure that
+                  -- when we skip re-configuring, we retrieve the cached
+                  -- LocalBuildInfo (see "whenReconfigure"
+                  --   in Distribution.Client.ProjectBuilding.UnpackedPackage).
+                  InLibraryLBI lbi ->
+                    InLibrary.bench flags lbi extraArgs
+      ExternalMethod{} ->
+        notInLibraryMethod verbosity setup benchCommand Cabal.benchmarkCommonFlags flags extraArgs wrapperArgs
+      SelfExecMethod ->
+        notInLibraryMethod verbosity setup benchCommand Cabal.benchmarkCommonFlags flags extraArgs wrapperArgs
 
 setupTest
   :: Verbosity
   -> SetupScriptOptions
   -> ElaboratedConfiguredPackage
-  -> CommandUI Cabal.TestFlags
-  -> (Cabal.TestFlags -> CommonSetupFlags)
   -> (Version -> Cabal.TestFlags)
   -> (Version -> [String])
   -> SetupRunnerArgs (TryInLibrary Cabal.TestFlags)
   -> IO ()
 setupTest verbosity scriptOptions pkg =
-  setupWrapper
-    verbosity
-    scriptOptions
-    (Just (elabPkgDescription pkg))
+  \getFlags getExtraArgs wrapperArgs -> do
+    ASetup (setup :: Setup kind) <- getSetup verbosity scriptOptions (Just (elabPkgDescription pkg)) AllowInLibrary
+
+    let version = setupVersion setup
+        flags = getFlags version
+        extraArgs = getExtraArgs version
+
+    case setupMethod setup of
+      LibraryMethod ->
+        case wrapperArgs of
+          InLibraryArgs libArgs ->
+            case libArgs of
+              InLibraryPostConfigureArgs _sPhase mbLBI ->
+                case mbLBI of
+                  NotInLibraryNoLBI ->
+                    error "internal error: in-library post-conf but no LBI"
+                  -- To avoid running into the above error, we must ensure that
+                  -- when we skip re-configuring, we retrieve the cached
+                  -- LocalBuildInfo (see "whenReconfigure"
+                  --   in Distribution.Client.ProjectBuilding.UnpackedPackage).
+                  InLibraryLBI lbi ->
+                    InLibrary.test flags lbi extraArgs
+      ExternalMethod{} ->
+        notInLibraryMethod verbosity setup Cabal.testCommand Cabal.testCommonFlags flags extraArgs wrapperArgs
+      SelfExecMethod ->
+        notInLibraryMethod verbosity setup Cabal.testCommand Cabal.testCommonFlags flags extraArgs wrapperArgs
 
 setupCopy
   :: Verbosity
   -> SetupScriptOptions
   -> ElaboratedConfiguredPackage
-  -> CommandUI Cabal.CopyFlags
-  -> (Cabal.CopyFlags -> CommonSetupFlags)
   -> (Version -> Cabal.CopyFlags)
   -> (Version -> [String])
   -> SetupRunnerArgs (TryInLibrary Cabal.CopyFlags)
   -> IO ()
 setupCopy verbosity scriptOptions pkg =
-  setupWrapper
-    verbosity
-    scriptOptions
-    (Just (elabPkgDescription pkg))
+  \getFlags getExtraArgs wrapperArgs -> do
+    ASetup (setup :: Setup kind) <- getSetup verbosity scriptOptions (Just (elabPkgDescription pkg)) AllowInLibrary
+
+    let version = setupVersion setup
+        flags = getFlags version
+        extraArgs = getExtraArgs version
+
+    case setupMethod setup of
+      LibraryMethod ->
+        case wrapperArgs of
+          InLibraryArgs libArgs ->
+            case libArgs of
+              InLibraryPostConfigureArgs _sPhase mbLBI ->
+                case mbLBI of
+                  NotInLibraryNoLBI ->
+                    error "internal error: in-library post-conf but no LBI"
+                  -- To avoid running into the above error, we must ensure that
+                  -- when we skip re-configuring, we retrieve the cached
+                  -- LocalBuildInfo (see "whenReconfigure"
+                  --   in Distribution.Client.ProjectBuilding.UnpackedPackage).
+                  InLibraryLBI lbi ->
+                    InLibrary.copy flags lbi extraArgs
+      ExternalMethod{} ->
+        notInLibraryMethod verbosity setup Cabal.copyCommand Cabal.copyCommonFlags flags extraArgs wrapperArgs
+      SelfExecMethod ->
+        notInLibraryMethod verbosity setup Cabal.copyCommand Cabal.copyCommonFlags flags extraArgs wrapperArgs
 
 setupRegister
   :: Verbosity
   -> SetupScriptOptions
   -> ElaboratedConfiguredPackage
-  -> CommandUI Cabal.RegisterFlags
-  -> (Cabal.RegisterFlags -> CommonSetupFlags)
   -> (Version -> Cabal.RegisterFlags)
   -> (Version -> [String])
   -> SetupRunnerArgs (TryInLibrary Cabal.RegisterFlags)
   -> IO ()
 setupRegister verbosity scriptOptions pkg =
-  setupWrapper
-    verbosity
-    scriptOptions
-    (Just (elabPkgDescription pkg))
+  \getFlags getExtraArgs wrapperArgs -> do
+    ASetup (setup :: Setup kind) <- getSetup verbosity scriptOptions (Just (elabPkgDescription pkg)) AllowInLibrary
+
+    let version = setupVersion setup
+        flags = getFlags version
+        extraArgs = getExtraArgs version
+
+    case setupMethod setup of
+      LibraryMethod ->
+        case wrapperArgs of
+          InLibraryArgs libArgs ->
+            case libArgs of
+              InLibraryPostConfigureArgs _sPhase mbLBI ->
+                case mbLBI of
+                  NotInLibraryNoLBI ->
+                    error "internal error: in-library post-conf but no LBI"
+                  -- To avoid running into the above error, we must ensure that
+                  -- when we skip re-configuring, we retrieve the cached
+                  -- LocalBuildInfo (see "whenReconfigure"
+                  --   in Distribution.Client.ProjectBuilding.UnpackedPackage).
+                  InLibraryLBI lbi ->
+                    InLibrary.register flags lbi extraArgs
+      ExternalMethod{} ->
+        notInLibraryMethod verbosity setup Cabal.registerCommand Cabal.registerCommonFlags flags extraArgs wrapperArgs
+      SelfExecMethod ->
+        notInLibraryMethod verbosity setup Cabal.registerCommand Cabal.registerCommonFlags flags extraArgs wrapperArgs
+
+setupRepl
+  :: Verbosity
+  -> SetupScriptOptions
+  -> ElaboratedConfiguredPackage
+  -> (Version -> Cabal.ReplFlags)
+  -> (Version -> [String])
+  -> SetupRunnerArgs (TryInLibrary Cabal.ReplFlags)
+  -> IO ()
+setupRepl verbosity scriptOptions pkg =
+  \getFlags getExtraArgs wrapperArgs -> do
+    ASetup (setup :: Setup kind) <- getSetup verbosity scriptOptions{isInteractive = True} (Just (elabPkgDescription pkg)) AllowInLibrary
+
+    let version = setupVersion setup
+        flags = getFlags version
+        extraArgs = getExtraArgs version
+
+    case setupMethod setup of
+      LibraryMethod ->
+        case wrapperArgs of
+          InLibraryArgs libArgs ->
+            case libArgs of
+              InLibraryPostConfigureArgs _sPhase mbLBI ->
+                case mbLBI of
+                  NotInLibraryNoLBI ->
+                    error "internal error: in-library post-conf but no LBI"
+                  -- To avoid running into the above error, we must ensure that
+                  -- when we skip re-configuring, we retrieve the cached
+                  -- LocalBuildInfo (see "whenReconfigure"
+                  --   in Distribution.Client.ProjectBuilding.UnpackedPackage).
+                  InLibraryLBI lbi ->
+                    InLibrary.repl flags lbi extraArgs
+      ExternalMethod{} ->
+        notInLibraryMethod verbosity setup replCommand Cabal.replCommonFlags flags extraArgs wrapperArgs
+      SelfExecMethod ->
+        notInLibraryMethod verbosity setup replCommand Cabal.replCommonFlags flags extraArgs wrapperArgs
 
 --------------------------------------------------------------------------------
 

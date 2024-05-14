@@ -36,6 +36,11 @@ module Distribution.Client.SetupWrapper
   , SetupRunnerRes
   , SetupWrapperSpec(..)
   , InLibraryLBI(..)
+  , AllowInLibrary(..)
+  , Setup(..)
+  , ASetup(..)
+  , SetupMethod(..)
+  , notInLibraryMethod
   , RightFlagsForPhase
   , setupWrapper
   , SetupScriptOptions (..)
