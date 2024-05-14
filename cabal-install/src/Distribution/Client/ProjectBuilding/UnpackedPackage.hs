@@ -203,128 +203,134 @@ buildAndRegisterUnpackedPackage
   srcdir
   builddir
   mlogFile
-  delegate = do
-    -- Configure phase
-    mbLBI <-
-      delegate
-        $ PBConfigurePhase
-        $ annotateFailure mlogFile ConfigureFailed
-        $ withLogging
-        $ \mLogFileHandle ->
-          setupConfigure
-            verbosity
+  delegate =
+    -- FIXME: this is likely wrong but let's try
+    withLogging $ \mLogFileHandle -> do
+      let scriptOptions' =
             scriptOptions{useLoggingHandle = mLogFileHandle, useExtraEnvOverrides = dataDirsEnvironmentForPlan distDirLayout plan}
-            pkg
+
+      ASetup setup <- getSetup verbosity scriptOptions' (Just (elabPkgDescription pkg)) AllowInLibrary
+      ASetup setupInteractive <- getSetup verbosity scriptOptions'{isInteractive = True} (Just (elabPkgDescription pkg)) AllowInLibrary
+
+      -- Configure phase
+      mbLBI <-
+        delegate
+          $ PBConfigurePhase
+          $ annotateFailure mlogFile ConfigureFailed
+          $ setupConfigure
+            verbosity
+            setup
+            scriptOptions'
             configureFlags
             configureArgs
             (InLibraryArgs $ InLibraryConfigureArgs pkgshared rpkg)
 
-    -- Build phase
-    delegate
-      $ PBBuildPhase
-      $ annotateFailure mlogFile BuildFailed
-      $ withLogging
-      $ \mLogFileHandle ->
-        setupBuild
+      -- Build phase
+      delegate
+        $ PBBuildPhase
+        $ annotateFailure mlogFile BuildFailed
+        $ setupBuild
           verbosity
-          scriptOptions{useLoggingHandle = mLogFileHandle, useExtraEnvOverrides = dataDirsEnvironmentForPlan distDirLayout plan}
-          pkg
+          setup
           buildFlags
           buildArgs
           (InLibraryArgs $ InLibraryPostConfigureArgs SBuildPhase mbLBI)
 
-    -- Haddock phase
-    whenHaddock
-      $ delegate
-      $ PBHaddockPhase
-      $ annotateFailure mlogFile HaddocksFailed
-      $ withLogging
-      $ \mLogFileHandle ->
-        setupHaddock
+      -- Haddock phase
+      whenHaddock
+        $ delegate
+        $ PBHaddockPhase
+        $ annotateFailure mlogFile HaddocksFailed
+        $ setupHaddock
           verbosity
-          scriptOptions{useLoggingHandle = mLogFileHandle, useExtraEnvOverrides = dataDirsEnvironmentForPlan distDirLayout plan}
-          pkg
+          setup
           haddockFlags
           haddockArgs
           (InLibraryArgs $ InLibraryPostConfigureArgs SHaddockPhase mbLBI)
 
-    -- Install phase
-    delegate
-      $ PBInstallPhase
-        { runCopy = \destdir ->
-            annotateFailure mlogFile InstallFailed
-              $ withLogging
-              $ \mLogFileHandle ->
-                setupCopy
+      -- Install phase
+      delegate
+        $ PBInstallPhase
+          { runCopy = \destdir ->
+              annotateFailure mlogFile InstallFailed
+                $ setupCopy
                   verbosity
-                  scriptOptions{useLoggingHandle = mLogFileHandle, useExtraEnvOverrides = dataDirsEnvironmentForPlan distDirLayout plan}
-                  pkg
+                  setup
                   (copyFlags destdir)
                   copyArgs
                   (InLibraryArgs $ InLibraryPostConfigureArgs SCopyPhase mbLBI)
-        , runRegister = \pkgDBStack registerOpts ->
-            annotateFailure mlogFile InstallFailed $ do
-              -- We register ourselves rather than via Setup.hs. We need to
-              -- grab and modify the InstalledPackageInfo. We decide what
-              -- the installed package id is, not the build system.
-              ipkg0 <- generateInstalledPackageInfo mbLBI
-              let ipkg = ipkg0{Installed.installedUnitId = uid}
-              criticalSection registerLock
-                $ Cabal.registerPackage
-                  verbosity
-                  compiler
-                  progdb
-                  Nothing
-                  pkgDBStack
-                  ipkg
-                  registerOpts
-              return ipkg
-        }
+          , runRegister = \pkgDBStack registerOpts ->
+              annotateFailure mlogFile InstallFailed $ do
+                -- We register ourselves rather than via Setup.hs. We need to
+                -- grab and modify the InstalledPackageInfo. We decide what
+                -- the installed package id is, not the build system.
+                ipkg0 <-
+                  withTempInstalledPackageInfoFile
+                    verbosity
+                    distTempDirectory
+                    $ \pkgConfDest -> do
+                      let registerFlags v =
+                            setupHsRegisterFlags
+                              pkg
+                              pkgshared
+                              (commonFlags v)
+                              pkgConfDest
+                      setupRegister
+                        verbosity
+                        setupInteractive
+                        registerFlags
+                        (const [])
+                        (InLibraryArgs $ InLibraryPostConfigureArgs SRegisterPhase mbLBI)
+                let ipkg = ipkg0{Installed.installedUnitId = uid}
+                criticalSection registerLock
+                  $ Cabal.registerPackage
+                    verbosity
+                    compiler
+                    progdb
+                    Nothing
+                    pkgDBStack
+                    ipkg
+                    registerOpts
+                return ipkg
+          }
 
-    -- Test phase
-    whenTest
-      $ delegate
-      $ PBTestPhase
-      $ annotateFailure mlogFile TestsFailed
-      $ withLogging
-      $ \mLogFileHandle ->
-        setupTest
+      -- Test phase
+      whenTest
+        $ delegate
+        $ PBTestPhase
+        $ annotateFailure mlogFile TestsFailed
+        $ setupTest
           verbosity
-          scriptOptions{useLoggingHandle = mLogFileHandle, useExtraEnvOverrides = dataDirsEnvironmentForPlan distDirLayout plan}
-          pkg
+          setup
           testFlags
           testArgs
           (InLibraryArgs $ InLibraryPostConfigureArgs STestPhase mbLBI)
 
-    -- Bench phase
-    whenBench
-      $ delegate
-      $ PBBenchPhase
-      $ annotateFailure mlogFile BenchFailed
-      $ withLogging
-      $ \mLogFileHandle ->
-        setupBench
+      -- Bench phase
+      whenBench
+        $ delegate
+        $ PBBenchPhase
+        $ annotateFailure mlogFile BenchFailed
+        $ setupBench
           verbosity
-          scriptOptions{useLoggingHandle = mLogFileHandle, useExtraEnvOverrides = dataDirsEnvironmentForPlan distDirLayout plan}
-          pkg
+          setup
           benchFlags
           benchArgs
           (InLibraryArgs $ InLibraryPostConfigureArgs SBenchPhase mbLBI)
 
-    -- Repl phase
-    whenRepl
-      $ delegate
-      $ PBReplPhase
-      $ annotateFailure mlogFile ReplFailed
-      $ setupRepl
-        verbosity
-        scriptOptions{isInteractive = True}
-        pkg
-        replFlags
-        replArgs
-        (InLibraryArgs $ InLibraryPostConfigureArgs SReplPhase mbLBI)
+      -- Repl phase
+      whenRepl
+        $ delegate
+        $ PBReplPhase
+        $ annotateFailure mlogFile ReplFailed
+        $ setupRepl
+          verbosity
+          setupInteractive
+          replFlags
+          replArgs
+          (InLibraryArgs $ InLibraryPostConfigureArgs SReplPhase mbLBI)
 
-    return ()
+      return ()
     where
       uid = installedUnitId rpkg
 
@@ -443,26 +449,6 @@ buildAndRegisterUnpackedPackage
       --       args
       --       wrapperArgs
 
-      generateInstalledPackageInfo :: InLibraryLBI -> IO InstalledPackageInfo
-      generateInstalledPackageInfo mbLBI =
-        withTempInstalledPackageInfoFile
-          verbosity
-          distTempDirectory
-          $ \pkgConfDest -> do
-            let registerFlags v =
-                  setupHsRegisterFlags
-                    pkg
-                    pkgshared
-                    (commonFlags v)
-                    pkgConfDest
-            setupRegister
-              verbosity
-              scriptOptions{isInteractive = True}
-              pkg
-              registerFlags
-              (const [])
-              (InLibraryArgs $ InLibraryPostConfigureArgs SRegisterPhase mbLBI)
-
       withLogging :: (Maybe Handle -> IO r) -> IO r
       withLogging action =
         case mlogFile of
@@ -483,16 +469,14 @@ replCommand = Cabal.replCommand defaultProgramDb
 
 setupConfigure
   :: Verbosity
+  -> Setup kind
   -> SetupScriptOptions
-  -> ElaboratedConfiguredPackage
   -> (Version -> Cabal.ConfigFlags)
   -> (Version -> [String])
   -> SetupRunnerArgs (TryInLibrary Cabal.ConfigFlags)
   -> IO InLibraryLBI
-setupConfigure verbosity scriptOptions pkg =
+setupConfigure verbosity setup scriptOptions =
   \getFlags getExtraArgs wrapperArgs -> do
-    ASetup (setup :: Setup kind) <- getSetup verbosity scriptOptions (Just (elabPkgDescription pkg)) AllowInLibrary
-
     let version = setupVersion setup
         flags = getFlags version
         extraArgs = getExtraArgs version
@@ -560,16 +544,13 @@ setupConfigure verbosity scriptOptions pkg =
 
 setupBuild
   :: Verbosity
-  -> SetupScriptOptions
-  -> ElaboratedConfiguredPackage
+  -> Setup kind
   -> (Version -> Cabal.BuildFlags)
   -> (Version -> [String])
   -> SetupRunnerArgs (TryInLibrary Cabal.BuildFlags)
   -> IO [MonitorFilePath]
-setupBuild verbosity scriptOptions pkg =
+setupBuild verbosity setup =
   \getFlags getExtraArgs wrapperArgs -> do
-    ASetup (setup :: Setup kind) <- getSetup verbosity scriptOptions (Just (elabPkgDescription pkg)) AllowInLibrary
-
     let version = setupVersion setup
         flags = getFlags version
         extraArgs = getExtraArgs version
@@ -596,16 +577,13 @@ setupBuild verbosity scriptOptions pkg =
 
 setupHaddock
   :: Verbosity
-  -> SetupScriptOptions
-  -> ElaboratedConfiguredPackage
+  -> Setup kind
   -> (Version -> Cabal.HaddockFlags)
   -> (Version -> [String])
   -> SetupRunnerArgs (TryInLibrary Cabal.HaddockFlags)
   -> IO [MonitorFilePath]
-setupHaddock verbosity scriptOptions pkg =
+setupHaddock verbosity setup =
   \getFlags getExtraArgs wrapperArgs -> do
-    ASetup (setup :: Setup kind) <- getSetup verbosity scriptOptions (Just (elabPkgDescription pkg)) AllowInLibrary
-
     let version = setupVersion setup
         flags = getFlags version
         extraArgs = getExtraArgs version
@@ -632,16 +610,13 @@ setupHaddock verbosity scriptOptions pkg =
 
 setupBench
   :: Verbosity
-  -> SetupScriptOptions
-  -> ElaboratedConfiguredPackage
+  -> Setup kind
   -> (Version -> Cabal.BenchmarkFlags)
   -> (Version -> [String])
   -> SetupRunnerArgs (TryInLibrary Cabal.BenchmarkFlags)
   -> IO ()
-setupBench verbosity scriptOptions pkg =
+setupBench verbosity setup =
   \getFlags getExtraArgs wrapperArgs -> do
-    ASetup (setup :: Setup kind) <- getSetup verbosity scriptOptions (Just (elabPkgDescription pkg)) AllowInLibrary
-
     let version = setupVersion setup
         flags = getFlags version
         extraArgs = getExtraArgs version
@@ -668,16 +643,13 @@ setupBench verbosity scriptOptions pkg =
 
 setupTest
   :: Verbosity
-  -> SetupScriptOptions
-  -> ElaboratedConfiguredPackage
+  -> Setup kind
   -> (Version -> Cabal.TestFlags)
   -> (Version -> [String])
   -> SetupRunnerArgs (TryInLibrary Cabal.TestFlags)
   -> IO ()
-setupTest verbosity scriptOptions pkg =
+setupTest verbosity setup =
   \getFlags getExtraArgs wrapperArgs -> do
-    ASetup (setup :: Setup kind) <- getSetup verbosity scriptOptions (Just (elabPkgDescription pkg)) AllowInLibrary
-
     let version = setupVersion setup
         flags = getFlags version
         extraArgs = getExtraArgs version
@@ -704,16 +676,13 @@ setupTest verbosity scriptOptions pkg =
 
 setupCopy
   :: Verbosity
-  -> SetupScriptOptions
-  -> ElaboratedConfiguredPackage
+  -> Setup kind
   -> (Version -> Cabal.CopyFlags)
   -> (Version -> [String])
   -> SetupRunnerArgs (TryInLibrary Cabal.CopyFlags)
   -> IO ()
-setupCopy verbosity scriptOptions pkg =
+setupCopy verbosity setup =
   \getFlags getExtraArgs wrapperArgs -> do
-    ASetup (setup :: Setup kind) <- getSetup verbosity scriptOptions (Just (elabPkgDescription pkg)) AllowInLibrary
-
     let version = setupVersion setup
         flags = getFlags version
         extraArgs = getExtraArgs version
@@ -740,16 +709,13 @@ setupCopy verbosity scriptOptions pkg =
 
 setupRegister
   :: Verbosity
-  -> SetupScriptOptions
-  -> ElaboratedConfiguredPackage
+  -> Setup kind
   -> (Version -> Cabal.RegisterFlags)
   -> (Version -> [String])
   -> SetupRunnerArgs (TryInLibrary Cabal.RegisterFlags)
   -> IO ()
-setupRegister verbosity scriptOptions pkg =
+setupRegister verbosity setup =
   \getFlags getExtraArgs wrapperArgs -> do
-    ASetup (setup :: Setup kind) <- getSetup verbosity scriptOptions (Just (elabPkgDescription pkg)) AllowInLibrary
-
     let version = setupVersion setup
         flags = getFlags version
         extraArgs = getExtraArgs version
@@ -776,16 +742,13 @@ setupRegister verbosity scriptOptions pkg =
 
 setupRepl
   :: Verbosity
-  -> SetupScriptOptions
-  -> ElaboratedConfiguredPackage
+  -> Setup kind
   -> (Version -> Cabal.ReplFlags)
   -> (Version -> [String])
   -> SetupRunnerArgs (TryInLibrary Cabal.ReplFlags)
   -> IO ()
-setupRepl verbosity scriptOptions pkg =
+setupRepl verbosity setup =
   \getFlags getExtraArgs wrapperArgs -> do
-    ASetup (setup :: Setup kind) <- getSetup verbosity scriptOptions{isInteractive = True} (Just (elabPkgDescription pkg)) AllowInLibrary
-
     let version = setupVersion setup
         flags = getFlags version
         extraArgs = getExtraArgs version
