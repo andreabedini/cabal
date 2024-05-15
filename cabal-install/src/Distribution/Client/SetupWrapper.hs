@@ -64,6 +64,7 @@ import Distribution.Package
   , mkPackageName
   , newSimpleUnitId
   , packageName
+  , packageId
   , packageVersion
   , unsafeMkDefUnitId
   )
@@ -129,7 +130,6 @@ import Distribution.Client.JobControl
   ( Lock
   , criticalSection
   )
-import Distribution.Client.Types
 import Distribution.Client.Utils
   ( existsAndIsMoreRecentThan
   , moreRecentFile
@@ -844,9 +844,8 @@ compileExternalSetupMethod
   -> IO (Version, SetupMethod GeneralSetup, SetupScriptOptions)
 compileExternalSetupMethod verbosity options pkg bt = do
   createDirectoryIfMissingVerbose verbosity True $ i (setupDir options)
-  (cabalLibVersion, mCabalLibInstalledPkgId, options') <- cabalLibVersionToUse
-  let cabalPkgid = PackageIdentifier (mkPackageName "Cabal") cabalLibVersion
-      cabalDep = maybe [] (\ipkgid -> [(ipkgid, cabalPkgid)]) mCabalLibInstalledPkgId
+  (cabalLibVersion, mCabalDep, options') <- cabalLibVersionToUse
+  let cabalDep = maybeToList mCabalDep
   debug verbosity $ "Using Cabal library version " ++ prettyShow cabalLibVersion
   path <-
     if useCachedSetupExecutable
@@ -914,16 +913,16 @@ compileExternalSetupMethod verbosity options pkg bt = do
     cabalLibVersionToUse
       :: IO
           ( Version
-          , Maybe ComponentId
+          , Maybe (ComponentId, PackageIdentifier)
           , SetupScriptOptions
           )
     cabalLibVersionToUse =
       case find (isCabalPkgId . snd) (useDependencies options) of
-        Just (unitId, pkgId) -> do
-          let version = pkgVersion pkgId
+        Just (unitId, cabalPkgId) -> do
+          let version = pkgVersion cabalPkgId
           updateSetupScript version bt
           writeSetupVersionFile version
-          return (version, Just unitId, options)
+          return (version, Just (unitId, cabalPkgId), options)
         Nothing ->
           case useCabalSpecVersion options of
             Just version -> do
@@ -966,7 +965,7 @@ compileExternalSetupMethod verbosity options pkg bt = do
         installedVersion
           :: IO
               ( Version
-              , Maybe InstalledPackageId
+              , Maybe (ComponentId, PackageIdentifier)
               , SetupScriptOptions
               )
         installedVersion = do
@@ -1052,28 +1051,29 @@ installedCabalVersion
   -> ProgramDb
   -> IO
       ( Version
-      , Maybe InstalledPackageId
+      , Maybe (ComponentId, PackageIdentifier)
       , SetupScriptOptions
       )
-installedCabalVersion _verbosity pkg bt options' _ _
+installedCabalVersion _verbosity pkg bt options _ _
   | packageName pkg == mkPackageName "Cabal"
       && bt == Custom =
-      return (packageVersion pkg, Nothing, options')
-installedCabalVersion verbosity pkg _bt options' compiler progdb = do
-  index <- maybeGetInstalledPackages verbosity options' compiler progdb
+      return (packageVersion pkg, Nothing, options)
+installedCabalVersion verbosity pkg _bt options compiler progdb = do
+  index <- maybeGetInstalledPackages verbosity options compiler progdb
   let cabalDepName = mkPackageName "Cabal"
-      cabalDepVersion = useCabalVersion options'
-      options'' = options'{usePackageIndex = Just index}
-  case PackageIndex.lookupDependency index cabalDepName cabalDepVersion of
+      cabalDepVersionRange = useCabalVersion options
+  case PackageIndex.lookupDependency index cabalDepName cabalDepVersionRange of
     [] ->
-      dieWithException verbosity $ InstalledCabalVersion (packageName pkg) (useCabalVersion options')
+      dieWithException verbosity $ InstalledCabalVersion (packageName pkg) (useCabalVersion options)
     pkgs ->
       let ipkginfo = fromMaybe err $ safeHead . snd . bestVersion fst $ pkgs
           err = error "Distribution.Client.installedCabalVersion: empty version list"
+          cabalPkgId = packageId ipkginfo
+          unitId = IPI.installedComponentId $ ipkginfo
        in return
             ( packageVersion ipkginfo
-            , Just . IPI.installedComponentId $ ipkginfo
-            , options''
+            , Just (unitId, cabalPkgId)
+            , options{usePackageIndex = Just index}
             )
 
 bestVersion :: (a -> Version) -> [a] -> a
