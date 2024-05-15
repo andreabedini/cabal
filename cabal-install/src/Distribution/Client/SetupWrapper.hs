@@ -487,45 +487,64 @@ withSetupMethod
   -> PackageDescription
   -> BuildType
   -> AllowInLibrary
-  -> ( forall kind. (Version, SetupMethod kind, SetupScriptOptions ) -> r )
+  -> (forall kind. (Version, SetupMethod kind, SetupScriptOptions) -> r)
   -> IO r
 withSetupMethod verbosity options pkg buildType' allowInLibrary with
-  | buildType' == Custom
-      || (buildType' == Hooks && isJust (useLoggingHandle options))
-      || maybe False (cabalVersion /=) (useCabalSpecVersion options)
-      || not (cabalVersion `withinRange` useCabalVersion options)
-      || allowInLibrary == Don'tAllowInLibrary =
-      withExternalSetupMethod
+  --
+  -- Build-type specific cases (higher priority)
+  --
+  -- Build-type 'Custom'
+  | buildType' == Custom =
+      withExternalSetupMethod verbosity options pkg Custom with
+  -- Build-type 'Hooks'
+  -- NOTE: The Hooks build-type can deal with a logging handle
+  | buildType' == Hooks, isJust (useLoggingHandle options) =
+      withExternalSetupMethod verbosity options pkg Hooks with
+  | buildType' == Hooks = do
+      -- NB: compileExternalSetupMethod compiles the hooks executable.
+      _ <- compileExternalSetupMethod verbosity options pkg Hooks
+      externalHooksABI <- externalSetupHooksABI $ hooksProgFilePath (useWorkingDir options) (useDistPref options)
+      let internalHooksABI = hooksVersion
+      let abiOk = externalHooksABI == internalHooksABI
+      if abiOk
+        then do
+          -- NOTE: ?? We have already compiled an external setup, is it worth using the library method?
+          debug verbosity $ "Using in-library setup method with build-type " ++ show Hooks
+          return $ with (cabalVersion, LibraryMethod, options)
+        else do
+          debug verbosity $ "Hooks ABI mismatch; falling back to external setup method."
+          withExternalSetupMethod verbosity options pkg Hooks with
+  --
+  -- General cases
+  --
+  | maybe False (cabalVersion /=) (useCabalSpecVersion options) =
+      withExternalSetupMethod verbosity options pkg buildType' with
+  | not (cabalVersion `withinRange` useCabalVersion options) =
+      withExternalSetupMethod verbosity options pkg buildType' with
+  | allowInLibrary == Don'tAllowInLibrary =
+      withExternalSetupMethod verbosity options pkg buildType' with
   | -- TODO: once we refactor the Cabal library to be able to take a logging
     -- handle as an argument, we will be able to get rid of the self-exec method.
     -- Tracking ticket: #9987.
     isJust (useLoggingHandle options) =
       return $ with (cabalVersion, SelfExecMethod, options)
-  | otherwise
-  = do
-    abiOK <-
-      if buildType' == Hooks
-      then do
-        -- NB: compileExternalSetupMethod compiles the hooks executable.
-        _ <- compileExternalSetupMethod verbosity options pkg Hooks
-        externalHooksABI <- externalSetupHooksABI $ hooksProgFilePath (useWorkingDir options) (useDistPref options)
-        let internalHooksABI = hooksVersion
-        return $ externalHooksABI == internalHooksABI
-      else return True
-    if abiOK
-    then do
+  | otherwise = do
       debug verbosity $ "Using in-library setup method with build-type " ++ show buildType'
       return $ with (cabalVersion, LibraryMethod, options)
-    else do
-      debug verbosity $ "Hooks ABI mismatch; falling back to external setup method."
-      withExternalSetupMethod
-  where
-    withExternalSetupMethod = do
-      debug verbosity $ "Using external setup method with build-type " ++ show buildType'
-      debug verbosity $
-        "Using explicit dependencies: "
-          ++ show (useDependenciesExclusive options)
-      with <$> compileExternalSetupMethod verbosity options pkg buildType'
+
+withExternalSetupMethod
+  :: Verbosity
+  -> SetupScriptOptions
+  -> PackageDescription
+  -> BuildType
+  -> ((Version, SetupMethod GeneralSetup, SetupScriptOptions) -> a)
+  -> IO a
+withExternalSetupMethod verbosity options pkg buildType' with = do
+  debug verbosity $ "Using external setup method with build-type " ++ show buildType'
+  debug verbosity
+    $ "Using explicit dependencies: "
+    ++ show (useDependenciesExclusive options)
+  with <$> compileExternalSetupMethod verbosity options pkg buildType'
 
 runSetupMethod :: WithCallStack (SetupMethod GeneralSetup -> SetupRunner UseGeneralSetup)
 runSetupMethod (ExternalMethod path) = externalSetupMethod path
