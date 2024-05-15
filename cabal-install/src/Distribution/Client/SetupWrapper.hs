@@ -1217,12 +1217,12 @@ getCachedSetupExecutable
   platform
   pkgId
   bt
-  options'
+  options
   cabalLibVersion
   cabalDep
   = do
     (setupCacheDir, cachedSetupProgFile) <-
-      cachedSetupDirAndProg platform bt options' cabalLibVersion
+      cachedSetupDirAndProg platform bt options cabalLibVersion
     cachedSetupExists <- doesFileExist cachedSetupProgFile
     if cachedSetupExists
       then
@@ -1243,20 +1243,20 @@ getCachedSetupExecutable
                 platform
                 pkgId
                 bt
-                options'
+                options
                 cabalDep
                 True
             createDirectoryIfMissingVerbose verbosity True setupCacheDir
             installExecutableFile verbosity src cachedSetupProgFile
             -- Do not strip if we're using GHCJS, since the result may be a script
-            when (maybe True ((/= GHCJS) . compilerFlavor) $ useCompiler options') $ do
+            when (maybe True ((/= GHCJS) . compilerFlavor) $ useCompiler options) $ do
               -- Add the relevant PATH overrides for the package to the
               -- program database.
               setupProgDb
                 <- prependProgramSearchPath verbosity
-                      (useExtraPathEnv options')
-                      (useExtraEnvOverrides options')
-                      (useProgramDb options')
+                      (useExtraPathEnv options)
+                      (useExtraEnvOverrides options)
+                      (useProgramDb options)
                      >>= configureAllKnownPrograms verbosity
               Strip.stripExe
                 verbosity
@@ -1265,7 +1265,7 @@ getCachedSetupExecutable
                 cachedSetupProgFile
     return cachedSetupProgFile
     where
-      criticalSection' = maybe id criticalSection $ setupCacheLock options'
+      criticalSection' = maybe id criticalSection $ setupCacheLock options
 
 -- | If the Setup.hs is out of date wrt the executable then recompile it.
 -- Currently this is GHC/GHCJS only. It should really be generalised.
