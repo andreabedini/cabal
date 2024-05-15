@@ -885,8 +885,10 @@ compileExternalSetupMethod verbosity options pkg bt = do
           (package pkg)
           bt
           options'
-          cabalDep
           False
+          (mkSelectedDeps bt options cabalDep)
+          (mkSourcePath bt)
+          (mkExtensions bt cabalDep)
 
   -- Since useWorkingDir can change the relative path, the path argument must
   -- be turned into an absolute path. On some systems, runProcess' will take
@@ -1264,8 +1266,10 @@ getCachedSetupExecutable
                 pkgId
                 bt
                 options
-                cabalDep
                 True
+                (mkSelectedDeps bt options cabalDep)
+                (mkSourcePath bt)
+                (mkExtensions bt cabalDep)
             createDirectoryIfMissingVerbose verbosity True setupCacheDir
             installExecutableFile verbosity src cachedSetupProgFile
             -- Do not strip if we're using GHCJS, since the result may be a script
@@ -1295,40 +1299,45 @@ compileSetup
   -> PackageIdentifier
   -> BuildType
   -> SetupScriptOptions
-  -> [(ComponentId, PackageId)]
   -> Bool
+  -> [(ComponentId, PackageId)]
+  -> [SymbolicPath Pkg (Dir Source)]
+  -> [Simple.Extension]
   -> IO FilePath
-compileSetup verbosity platform pkgId bt opts cabalDep forceCompile = do
+compileSetup verbosity platform pkgId bt opts forceCompile selectedDeps sourcePath extensions = do
   when (bt == Hooks) $
-    void $ compileHooksScript verbosity platform pkgId opts cabalDep forceCompile
-  compileSetupScript verbosity platform pkgId bt opts cabalDep forceCompile
+    void $ compileHooksScript verbosity platform pkgId opts forceCompile selectedDeps sourcePath extensions
+  compileSetupScript verbosity platform pkgId opts forceCompile selectedDeps sourcePath extensions
 
 compileSetupScript
   :: Verbosity
   -> Platform
   -> PackageIdentifier
-  -> BuildType
   -> SetupScriptOptions
-  -> [(ComponentId, PackageId)]
   -> Bool
+  -> [(ComponentId, PackageId)]
+  -> [SymbolicPath Pkg (Dir Source)]
+  -> [Simple.Extension]
   -> IO FilePath
-compileSetupScript verbosity platform pkgId bt opts cabalDep forceCompile =
+compileSetupScript verbosity platform pkgId opts forceCompile selectedDeps sourcePath extensions =
   compileSetupX "Setup"
     [setupHs opts] (setupProgFile opts)
-    verbosity platform pkgId bt opts cabalDep forceCompile
+    verbosity platform pkgId opts forceCompile selectedDeps sourcePath extensions
 
 compileHooksScript
   :: Verbosity
   -> Platform
   -> PackageIdentifier
   -> SetupScriptOptions
-  -> [(ComponentId, PackageId)]
   -> Bool
+  -> [(ComponentId, PackageId)]
+  -> [SymbolicPath Pkg (Dir Source)]
+  -> [Simple.Extension]
   -> IO FilePath
-compileHooksScript verbosity platform pkgId opts cabalDep forceCompile =
+compileHooksScript verbosity platform pkgId opts forceCompile selectedDeps sourcePath extensions =
   compileSetupX "SetupHooks"
     [setupHooks opts, hooksHs opts] (hooksProgFile opts)
-    verbosity platform pkgId Hooks opts cabalDep forceCompile
+    verbosity platform pkgId opts forceCompile selectedDeps sourcePath extensions
 
 setupDir :: SetupScriptOptions -> SymbolicPath Pkg (Dir setup)
 setupDir opts = useDistPref opts Cabal.Path.</> makeRelativePathEx "setup"
@@ -1341,6 +1350,37 @@ setupHooks opts = setupDir opts Cabal.Path.</> makeRelativePathEx ( "SetupHooks"
 setupProgFile opts = setupDir opts Cabal.Path.</> makeRelativePathEx ( "setup" <.> exeExtension buildPlatform )
 hooksProgFile opts = setupDir opts Cabal.Path.</> makeRelativePathEx ( "hooks" <.> exeExtension buildPlatform )
 
+-- With 'useDependenciesExclusive' and Custom build type,
+-- we enforce the deps specified, so only the given ones can be used.
+-- Otherwise we add on a dep on the Cabal library
+-- (unless 'useDependencies' already contains one).
+mkSelectedDeps :: BuildType -> SetupScriptOptions -> [(ComponentId, PackageId)] -> [(ComponentId, PackageId)]
+mkSelectedDeps bt options cabalDep
+  | any (isCabalPkgId . snd) (useDependencies options) =
+      useDependencies options
+  -- NOTE: to compile build-type: Hooks packages, we need Cabal
+  -- in order to compile @main = defaultMainWithSetupHooks setupHooks@.
+  | bt == Hooks = 
+      useDependencies options ++ cabalDep
+  | useDependenciesExclusive options =
+      useDependencies options
+  | otherwise =
+      useDependencies options ++ cabalDep
+
+mkExtensions :: BuildType -> [(ComponentId, PackageId)] -> [Simple.Extension]
+mkExtensions bt selectedDeps =
+  if bt == Custom || any (isBasePkgId . snd) selectedDeps
+  then []
+  else [ Simple.DisableExtension Simple.ImplicitPrelude ]
+    -- Pass -WNoImplicitPrelude to avoid depending on base
+    -- when compiling a Simple Setup.hs file.
+
+mkSourcePath :: BuildType -> [SymbolicPathX allowAbsolute from (Dir to)]
+mkSourcePath bt = case bt of
+  Custom -> [sameDirectory]
+  Hooks -> [sameDirectory]
+  _ -> mempty
+
 compileSetupX
   :: String
   -> [SymbolicPath Pkg File] -- input files
@@ -1348,11 +1388,13 @@ compileSetupX
   -> Verbosity
   -> Platform
   -> PackageIdentifier
-  -> BuildType
   -> SetupScriptOptions
-  -> [(ComponentId, PackageId)]
   -- ^ cabal dependency
   -> Bool
+  -> [(ComponentId, PackageId)]
+  -- ^ selected dependencies
+  -> [SymbolicPath Pkg (Dir Source)]
+  -> [Simple.Extension]
   -> IO FilePath
 compileSetupX
   what
@@ -1360,10 +1402,8 @@ compileSetupX
   verbosity
   platform
   pkgId
-  bt
   options
-  cabalDep
-  forceCompile = do
+  forceCompile selectedDeps sourcePath extensions = do
     setupXHsNewer <- fmap or $ sequenceA $ fmap ( \ inPath -> i inPath `moreRecentFile` i outPath ) inPaths
     cabalVersionNewer <- i (setupVersionFile options) `moreRecentFile` i (setupProgFile options)
     let outOfDate = setupXHsNewer || cabalVersionNewer
@@ -1375,21 +1415,6 @@ compileSetupX
               GHCJS -> (ghcjsProgram, ["-build-runner"])
               _ -> (ghcProgram, ["-threaded"])
 
-          -- With 'useDependenciesExclusive' and Custom build type,
-          -- we enforce the deps specified, so only the given ones can be used.
-          -- Otherwise we add on a dep on the Cabal library
-          -- (unless 'useDependencies' already contains one).
-          selectedDeps
-            | any (isCabalPkgId . snd) (useDependencies options) =
-                useDependencies options
-            -- NOTE: to compile build-type: Hooks packages, we need Cabal
-            -- in order to compile @main = defaultMainWithSetupHooks setupHooks@.
-            | bt == Hooks = 
-                useDependencies options ++ cabalDep
-            | useDependenciesExclusive options =
-                useDependencies options
-            | otherwise =
-                useDependencies options ++ cabalDep
 
           addRenaming (ipid, _) =
             -- Assert 'DefUnitId' invariant
@@ -1409,10 +1434,7 @@ compileSetupX
               , ghcOptObjDir = Flag (setupDir options)
               , ghcOptHiDir = Flag (setupDir options)
               , ghcOptSourcePathClear = Flag True
-              , ghcOptSourcePath = case bt of
-                  Custom -> toNubListR [sameDirectory]
-                  Hooks -> toNubListR [sameDirectory]
-                  _ -> mempty
+              , ghcOptSourcePath = toNubListR sourcePath
               , ghcOptPackageDBs = usePackageDB options''
               , ghcOptHideAllPackages = Flag (useDependenciesExclusive options)
               , ghcOptCabal = Flag (useDependenciesExclusive options)
@@ -1424,12 +1446,7 @@ compileSetupX
                     | useVersionMacros options
                     ]
               , ghcOptExtra = extraOpts
-              , ghcOptExtensions = toNubListR $
-                  if bt == Custom || any (isBasePkgId . snd) selectedDeps
-                  then []
-                  else [ Simple.DisableExtension Simple.ImplicitPrelude ]
-                    -- Pass -WNoImplicitPrelude to avoid depending on base
-                    -- when compiling a Simple Setup.hs file.
+              , ghcOptExtensions = toNubListR extensions
               , ghcOptExtensionMap = Map.fromList . Simple.compilerExtensions $ compiler
               }
       let ghcCmdLine = renderGhcOptions compiler platform ghcOptions
