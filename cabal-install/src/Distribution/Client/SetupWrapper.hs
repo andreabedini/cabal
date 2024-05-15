@@ -987,52 +987,74 @@ compileExternalSetupMethod verbosity options pkg bt = do
 
     -- \| Update a Setup.hs script, creating it if necessary.
     updateSetupScript :: Version -> BuildType -> IO ()
-    updateSetupScript _ Custom = do
-      useHs <- doesFileExist customSetupHs
-      useLhs <- doesFileExist customSetupLhs
-      unless (useHs || useLhs) $
-        dieWithException verbosity UpdateSetupScript
-      let src = (if useHs then customSetupHs else customSetupLhs)
-      srcNewer <- src `moreRecentFile` i (setupHs options)
-      when srcNewer $
-        if useHs
-          then copyFileVerbose verbosity src (i (setupHs options))
-          else runSimplePreProcessor ppUnlit src (i (setupHs options)) verbosity
-      where
-        customSetupHs = workingDir options </> "Setup.hs"
-        customSetupLhs = workingDir options </> "Setup.lhs"
+    updateSetupScript _cabalLibVersion Custom = do
+      updateSetupScriptCustom verbosity i options
     updateSetupScript cabalLibVersion Hooks = do
+      updateSetupScriptHooks verbosity i options cabalLibVersion
+    updateSetupScript _cabalLibVersion Simple =
+      updateSetupScriptSimple verbosity i options
+    updateSetupScript cabalLibVersion Configure = do
+      updateSetupScriptConfigure verbosity i options cabalLibVersion
+    updateSetupScript _cabalLibVersion Make = do
+      updateSetupScriptMake verbosity i options
 
-      let customSetupHooks = workingDir options </> "SetupHooks.hs"
-      useHs <- doesFileExist customSetupHooks
-      unless (useHs) $
-        die'
-          verbosity
-          "Using 'build-type: Hooks' but there is no SetupHooks.hs file."
-      copyFileVerbose verbosity customSetupHooks (i (setupHooks options))
-      rewriteFileLBS verbosity (i (setupHs options)) (buildTypeScript Hooks cabalLibVersion)
-      rewriteFileLBS verbosity (i (hooksHs options)) hooksExeScript
-    updateSetupScript cabalLibVersion bt' =
-      rewriteFileLBS verbosity (i (setupHs options)) (buildTypeScript bt' cabalLibVersion)
+updateSetupScriptSimple :: Verbosity -> (SymbolicPath Pkg File -> FilePath) -> SetupScriptOptions -> IO ()
+updateSetupScriptSimple verbosity i options =
+  rewriteFileLBS verbosity (i (setupHs options)) script
+  where
+    script = "import Distribution.Simple; main = defaultMain\n"
 
--- | The source code for a non-Custom 'Setup' executable.
-buildTypeScript :: BuildType -> Version -> BS.ByteString
-buildTypeScript bt cabalLibVersion = "{-# LANGUAGE NoImplicitPrelude #-}\n" <> case bt of
-  Simple -> "import Distribution.Simple; main = defaultMain\n"
-  Configure
-    | cabalLibVersion >= mkVersion [3, 13, 0]
-    -> "import Distribution.Simple; main = defaultMainWithSetupHooks autoconfSetupHooks\n"
-    | cabalLibVersion >= mkVersion [1, 3, 10]
-    -> "import Distribution.Simple; main = defaultMainWithHooks autoconfUserHooks\n"
-    | otherwise
-    -> "import Distribution.Simple; main = defaultMainWithHooks defaultUserHooks\n"
-  Make -> "import Distribution.Make; main = defaultMain\n"
-  Hooks
-    | cabalLibVersion >= mkVersion [3, 13, 0]
-    -> "import Distribution.Simple; import SetupHooks; main = defaultMainWithSetupHooks setupHooks\n"
-    | otherwise
-    -> error "buildTypeScript Hooks with Cabal < 3.13"
-  Custom -> error "buildTypeScript Custom"
+updateSetupScriptMake :: Verbosity -> (SymbolicPath Pkg File -> FilePath) -> SetupScriptOptions -> IO ()
+updateSetupScriptMake verbosity i options =
+  rewriteFileLBS verbosity (i (setupHs options)) script
+  where
+    script = "import Distribution.Make; main = defaultMain\n"
+
+updateSetupScriptConfigure :: Verbosity -> (SymbolicPath Pkg File -> FilePath) -> SetupScriptOptions -> Version -> IO ()
+updateSetupScriptConfigure verbosity i options cabalLibVersion =
+  rewriteFileLBS verbosity (i (setupHs options)) script
+  where
+    script
+      | cabalLibVersion >= mkVersion [3, 13, 0] =
+          "import Distribution.Simple; main = defaultMainWithSetupHooks autoconfSetupHooks\n"
+      | cabalLibVersion >= mkVersion [1, 3, 10] =
+          "import Distribution.Simple; main = defaultMainWithHooks autoconfUserHooks\n"
+      | otherwise =
+          "import Distribution.Simple; main = defaultMainWithHooks defaultUserHooks\n"
+
+updateSetupScriptCustom :: Verbosity -> (SymbolicPath Pkg File -> FilePath) -> SetupScriptOptions -> IO ()
+updateSetupScriptCustom verbosity i options = do
+  useHs <- doesFileExist customSetupHs
+  useLhs <- doesFileExist customSetupLhs
+  unless (useHs || useLhs)
+    $ dieWithException verbosity UpdateSetupScript
+  let src = (if useHs then customSetupHs else customSetupLhs)
+  srcNewer <- src `moreRecentFile` i (setupHs options)
+  when srcNewer
+    $ if useHs
+      then copyFileVerbose verbosity src (i (setupHs options))
+      else runSimplePreProcessor ppUnlit src (i (setupHs options)) verbosity
+  where
+    customSetupHs = workingDir options </> "Setup.hs"
+    customSetupLhs = workingDir options </> "Setup.lhs"
+
+updateSetupScriptHooks :: Verbosity -> (SymbolicPath Pkg File -> FilePath) -> SetupScriptOptions -> Version -> IO ()
+updateSetupScriptHooks verbosity i options cabalLibVersion = do
+  let customSetupHooks = workingDir options </> "SetupHooks.hs"
+  useHs <- doesFileExist customSetupHooks
+  unless (useHs)
+    $ die'
+      verbosity
+      "Using 'build-type: Hooks' but there is no SetupHooks.hs file."
+  copyFileVerbose verbosity customSetupHooks (i (setupHooks options))
+  rewriteFileLBS verbosity (i (setupHs options)) script
+  rewriteFileLBS verbosity (i (hooksHs options)) hooksExeScript
+  where
+    script
+      | cabalLibVersion >= mkVersion [3, 13, 0] =
+          "import Distribution.Simple; import SetupHooks; main = defaultMainWithSetupHooks setupHooks\n"
+      | otherwise =
+          error "buildTypeScript Hooks with Cabal < 3.13"
 
 -- | The source code for an external hooks executable, using the 'hooks-exe' library.
 hooksExeScript :: BS.ByteString
