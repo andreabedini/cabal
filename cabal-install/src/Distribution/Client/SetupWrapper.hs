@@ -1281,7 +1281,7 @@ compileSetupScript
   -> Bool
   -> IO FilePath
 compileSetupScript verbosity platform pkgId bt opts ver mbCompId forceCompile =
-  compileSetupX "Setup"
+  compileSetupX' "Setup"
     [setupHs opts] (setupProgFile opts)
     verbosity platform pkgId bt opts ver mbCompId forceCompile
 
@@ -1295,7 +1295,7 @@ compileHooksScript
   -> Bool
   -> IO FilePath
 compileHooksScript verbosity platform pkgId opts ver mbCompId forceCompile =
-  compileSetupX "SetupHooks"
+  compileSetupX' "SetupHooks"
     [setupHooks opts, hooksHs opts] (hooksProgFile opts)
     verbosity platform pkgId Hooks opts ver mbCompId forceCompile
 
@@ -1310,10 +1310,11 @@ setupHooks opts = setupDir opts Cabal.Path.</> makeRelativePathEx ( "SetupHooks"
 setupProgFile opts = setupDir opts Cabal.Path.</> makeRelativePathEx ( "setup" <.> exeExtension buildPlatform )
 hooksProgFile opts = setupDir opts Cabal.Path.</> makeRelativePathEx ( "hooks" <.> exeExtension buildPlatform )
 
-compileSetupX
+
+compileSetupX'
   :: String
-  -> [SymbolicPath Pkg File] -- input files
-  -> SymbolicPath Pkg File   -- output file
+  -> [SymbolicPath Pkg File]
+  -> SymbolicPath Pkg File
   -> Verbosity
   -> Platform
   -> PackageIdentifier
@@ -1323,6 +1324,29 @@ compileSetupX
   -> Maybe ComponentId
   -> Bool
   -> IO FilePath
+compileSetupX' what inPaths outPath verbosity platform pkgId bt options' cabalLibVersion maybeCabalLibInstalledPkgId forceCompile =
+  compileSetupX what inPaths outPath verbosity platform pkgId bt options' cabalLibInstalledPkgId forceCompile
+  where
+    cabalPkgid = PackageIdentifier (mkPackageName "Cabal") cabalLibVersion
+    cabalLibInstalledPkgId =
+      maybe
+        []
+        (\ipkgid -> [(ipkgid, cabalPkgid)])
+        maybeCabalLibInstalledPkgId
+
+compileSetupX
+  :: String
+  -> [SymbolicPath Pkg File] -- input files
+  -> SymbolicPath Pkg File   -- output file
+  -> Verbosity
+  -> Platform
+  -> PackageIdentifier
+  -> BuildType
+  -> SetupScriptOptions
+  -> [(ComponentId, PackageId)]
+  -- ^ cabal dependency
+  -> Bool
+  -> IO FilePath
 compileSetupX
   what
   inPaths outPath
@@ -1330,45 +1354,38 @@ compileSetupX
   platform
   pkgId
   bt
-  options'
-  cabalLibVersion
-  maybeCabalLibInstalledPkgId
+  options
+  cabalDep
   forceCompile = do
     setupXHsNewer <- fmap or $ sequenceA $ fmap ( \ inPath -> i inPath `moreRecentFile` i outPath ) inPaths
-    cabalVersionNewer <- i (setupVersionFile options') `moreRecentFile` i (setupProgFile options')
+    cabalVersionNewer <- i (setupVersionFile options) `moreRecentFile` i (setupProgFile options)
     let outOfDate = setupXHsNewer || cabalVersionNewer
     when (outOfDate || forceCompile) $ do
       debug verbosity $ what ++ " executable needs to be updated, compiling..."
-      (compiler, progdb, options'') <- configureCompiler verbosity options'
-      let cabalPkgid = PackageIdentifier (mkPackageName "Cabal") cabalLibVersion
-          (program, extraOpts) =
+      (compiler, progdb, options'') <- configureCompiler verbosity options
+      let (program, extraOpts) =
             case compilerFlavor compiler of
               GHCJS -> (ghcjsProgram, ["-build-runner"])
               _ -> (ghcProgram, ["-threaded"])
-          cabalDep =
-            maybe
-              []
-              (\ipkgid -> [(ipkgid, cabalPkgid)])
-              maybeCabalLibInstalledPkgId
 
           -- With 'useDependenciesExclusive' and Custom build type,
           -- we enforce the deps specified, so only the given ones can be used.
           -- Otherwise we add on a dep on the Cabal library
           -- (unless 'useDependencies' already contains one).
           selectedDeps
-            |  (useDependenciesExclusive options' && (bt /= Hooks))
+            |  (useDependenciesExclusive options && (bt /= Hooks))
             -- NB: to compile build-type: Hooks packages, we need Cabal
             -- in order to compile @main = defaultMainWithSetupHooks setupHooks@.
-            || any (isCabalPkgId . snd) (useDependencies options')
-            = useDependencies options'
+            || any (isCabalPkgId . snd) (useDependencies options)
+            = useDependencies options
             | otherwise =
-                useDependencies options' ++ cabalDep
+                useDependencies options ++ cabalDep
           addRenaming (ipid, _) =
             -- Assert 'DefUnitId' invariant
             ( Backpack.DefiniteUnitId (unsafeMkDefUnitId (newSimpleUnitId ipid))
             , defaultRenaming
             )
-          cppMacrosFile = setupDir options' Cabal.Path.</> makeRelativePathEx "setup_macros.h"
+          cppMacrosFile = setupDir options Cabal.Path.</> makeRelativePathEx "setup_macros.h"
           ghcOptions =
             mempty
               { -- Respect -v0, but don't crank up verbosity on GHC if
@@ -1378,22 +1395,22 @@ compileSetupX
               , ghcOptMode = Flag GhcModeMake
               , ghcOptInputFiles = toNubListR inPaths
               , ghcOptOutputFile = Flag outPath
-              , ghcOptObjDir = Flag (setupDir options')
-              , ghcOptHiDir = Flag (setupDir options')
+              , ghcOptObjDir = Flag (setupDir options)
+              , ghcOptHiDir = Flag (setupDir options)
               , ghcOptSourcePathClear = Flag True
               , ghcOptSourcePath = case bt of
                   Custom -> toNubListR [sameDirectory]
                   Hooks -> toNubListR [sameDirectory]
                   _ -> mempty
               , ghcOptPackageDBs = usePackageDB options''
-              , ghcOptHideAllPackages = Flag (useDependenciesExclusive options')
-              , ghcOptCabal = Flag (useDependenciesExclusive options')
+              , ghcOptHideAllPackages = Flag (useDependenciesExclusive options)
+              , ghcOptCabal = Flag (useDependenciesExclusive options)
               , ghcOptPackages = toNubListR $ map addRenaming selectedDeps
               -- With 'useVersionMacros', use a version CPP macros .h file.
               , ghcOptCppIncludes =
                   toNubListR
                     [ cppMacrosFile
-                    | useVersionMacros options'
+                    | useVersionMacros options
                     ]
               , ghcOptExtra = extraOpts
               , ghcOptExtensions = toNubListR $
@@ -1405,10 +1422,10 @@ compileSetupX
               , ghcOptExtensionMap = Map.fromList . Simple.compilerExtensions $ compiler
               }
       let ghcCmdLine = renderGhcOptions compiler platform ghcOptions
-      when (useVersionMacros options') $
+      when (useVersionMacros options) $
         rewriteFileEx verbosity (i cppMacrosFile) $
           generatePackageVersionMacros (pkgVersion pkgId) (map snd selectedDeps)
-      case useLoggingHandle options' of
+      case useLoggingHandle options of
         Nothing -> runDbProgramCwd verbosity mbWorkDir program progdb ghcCmdLine
         -- If build logging is enabled, redirect compiler output to
         -- the log file.
@@ -1423,7 +1440,7 @@ compileSetupX
           hPutStr logHandle output
     return $ i outPath
   where
-    mbWorkDir = useWorkingDir options'
+    mbWorkDir = useWorkingDir options
     -- See Note [Symbolic paths] in Distribution.Utils.Path
     i :: SymbolicPathX allowAbs Pkg to -> FilePath
     i = interpretSymbolicPath mbWorkDir
