@@ -845,6 +845,8 @@ compileExternalSetupMethod
 compileExternalSetupMethod verbosity options pkg bt = do
   createDirectoryIfMissingVerbose verbosity True $ i (setupDir options)
   (cabalLibVersion, mCabalLibInstalledPkgId, options') <- cabalLibVersionToUse
+  let cabalPkgid = PackageIdentifier (mkPackageName "Cabal") cabalLibVersion
+      cabalDep = maybe [] (\ipkgid -> [(ipkgid, cabalPkgid)]) mCabalLibInstalledPkgId
   debug verbosity $ "Using Cabal library version " ++ prettyShow cabalLibVersion
   path <-
     if useCachedSetupExecutable
@@ -856,7 +858,7 @@ compileExternalSetupMethod verbosity options pkg bt = do
           bt
           options'
           cabalLibVersion
-          mCabalLibInstalledPkgId
+          cabalDep
       else
         compileSetup
           verbosity
@@ -864,8 +866,7 @@ compileExternalSetupMethod verbosity options pkg bt = do
           (package pkg)
           bt
           options'
-          cabalLibVersion
-          mCabalLibInstalledPkgId
+          cabalDep
           False
 
   -- Since useWorkingDir can change the relative path, the path argument must
@@ -1196,7 +1197,7 @@ getCachedSetupExecutable
   -> BuildType
   -> SetupScriptOptions
   -> Version
-  -> Maybe InstalledPackageId
+  -> [(ComponentId, PackageId)]
   -> IO FilePath
 getCachedSetupExecutable
   verbosity
@@ -1205,7 +1206,8 @@ getCachedSetupExecutable
   bt
   options'
   cabalLibVersion
-  maybeCabalLibInstalledPkgId = do
+  cabalDep
+  = do
     (setupCacheDir, cachedSetupProgFile) <-
       cachedSetupDirAndProg platform bt options' cabalLibVersion
     cachedSetupExists <- doesFileExist cachedSetupProgFile
@@ -1229,8 +1231,7 @@ getCachedSetupExecutable
                 pkgId
                 bt
                 options'
-                cabalLibVersion
-                maybeCabalLibInstalledPkgId
+                cabalDep
                 True
             createDirectoryIfMissingVerbose verbosity True setupCacheDir
             installExecutableFile verbosity src cachedSetupProgFile
@@ -1261,14 +1262,13 @@ compileSetup
   -> PackageIdentifier
   -> BuildType
   -> SetupScriptOptions
-  -> Version
-  -> Maybe ComponentId
+  -> [(ComponentId, PackageId)]
   -> Bool
   -> IO FilePath
-compileSetup verbosity platform pkgId bt opts ver mbCompId forceCompile = do
+compileSetup verbosity platform pkgId bt opts cabalDep forceCompile = do
   when (bt == Hooks) $
-    void $ compileHooksScript verbosity platform pkgId opts (f ver mbCompId) forceCompile
-  compileSetupScript verbosity platform pkgId bt opts (f ver mbCompId) forceCompile
+    void $ compileHooksScript verbosity platform pkgId opts cabalDep forceCompile
+  compileSetupScript verbosity platform pkgId bt opts cabalDep forceCompile
 
 compileSetupScript
   :: Verbosity
@@ -1307,12 +1307,6 @@ hooksHs opts = setupDir opts Cabal.Path.</> makeRelativePathEx ( "hooks" <.> "hs
 setupHooks opts = setupDir opts Cabal.Path.</> makeRelativePathEx ( "SetupHooks" <.> "hs" )
 setupProgFile opts = setupDir opts Cabal.Path.</> makeRelativePathEx ( "setup" <.> exeExtension buildPlatform )
 hooksProgFile opts = setupDir opts Cabal.Path.</> makeRelativePathEx ( "hooks" <.> exeExtension buildPlatform )
-
-f :: Version -> Maybe a -> [(a, PackageIdentifier)]
-f cabalLibVersion =
-  maybe [] (\ipkgid -> [(ipkgid, cabalPkgid)])
-  where
-    cabalPkgid = PackageIdentifier (mkPackageName "Cabal") cabalLibVersion
 
 compileSetupX
   :: String
