@@ -963,24 +963,20 @@ compileExternalSetupMethod verbosity options pkg bt = do
           writeFile (i (setupVersionFile options)) (show version ++ "\n")
 
         installedVersion
-          :: IO
-              ( Version
-              , Maybe (ComponentId, PackageIdentifier)
-              , SetupScriptOptions
-              )
+          :: IO (Version, Maybe (ComponentId, PackageIdentifier), SetupScriptOptions)
         installedVersion = do
           (comp, progdb, options') <- configureCompiler verbosity options
-          (version, mipkgid, options'') <-
-            installedCabalVersion
-              verbosity
-              pkg
-              bt
-              options'
-              comp
-              progdb
-          updateSetupScript version bt
-          writeSetupVersionFile version
-          return (version, mipkgid, options'')
+          if packageName pkg == mkPackageName "Cabal" && bt == Custom
+            then do
+              let version = packageVersion pkg
+              updateSetupScriptCustom verbosity i options'
+              writeSetupVersionFile version
+              return (version, Nothing, options')
+            else do
+              (version, mipkgid, options'') <- installedCabalVersion verbosity pkg options' comp progdb
+              updateSetupScript version bt
+              writeSetupVersionFile version
+              return (version, mipkgid, options'')
 
         savedVersion :: IO (Maybe Version)
         savedVersion = do
@@ -1045,7 +1041,6 @@ hooksExeScript = "{-# LANGUAGE NoImplicitPrelude #-}\nimport Distribution.Client
 installedCabalVersion
   :: Verbosity
   -> PackageDescription
-  -> BuildType
   -> SetupScriptOptions
   -> Compiler
   -> ProgramDb
@@ -1054,11 +1049,7 @@ installedCabalVersion
       , Maybe (ComponentId, PackageIdentifier)
       , SetupScriptOptions
       )
-installedCabalVersion _verbosity pkg bt options _ _
-  | packageName pkg == mkPackageName "Cabal"
-      && bt == Custom =
-      return (packageVersion pkg, Nothing, options)
-installedCabalVersion verbosity pkg _bt options compiler progdb = do
+installedCabalVersion verbosity pkg options compiler progdb = do
   index <- maybeGetInstalledPackages verbosity options compiler progdb
   let cabalDepName = mkPackageName "Cabal"
       cabalDepVersionRange = useCabalVersion options
