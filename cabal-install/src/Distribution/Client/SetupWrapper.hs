@@ -1267,8 +1267,8 @@ compileSetup
   -> IO FilePath
 compileSetup verbosity platform pkgId bt opts ver mbCompId forceCompile = do
   when (bt == Hooks) $
-    void $ compileHooksScript verbosity platform pkgId opts ver mbCompId forceCompile
-  compileSetupScript verbosity platform pkgId bt opts ver mbCompId forceCompile
+    void $ compileHooksScript verbosity platform pkgId opts (f ver mbCompId) forceCompile
+  compileSetupScript verbosity platform pkgId bt opts (f ver mbCompId) forceCompile
 
 compileSetupScript
   :: Verbosity
@@ -1276,28 +1276,26 @@ compileSetupScript
   -> PackageIdentifier
   -> BuildType
   -> SetupScriptOptions
-  -> Version
-  -> Maybe ComponentId
+  -> [(ComponentId, PackageId)]
   -> Bool
   -> IO FilePath
-compileSetupScript verbosity platform pkgId bt opts ver mbCompId forceCompile =
-  compileSetupX' "Setup"
+compileSetupScript verbosity platform pkgId bt opts cabalDep forceCompile =
+  compileSetupX "Setup"
     [setupHs opts] (setupProgFile opts)
-    verbosity platform pkgId bt opts ver mbCompId forceCompile
+    verbosity platform pkgId bt opts cabalDep forceCompile
 
 compileHooksScript
   :: Verbosity
   -> Platform
   -> PackageIdentifier
   -> SetupScriptOptions
-  -> Version
-  -> Maybe ComponentId
+  -> [(ComponentId, PackageId)]
   -> Bool
   -> IO FilePath
-compileHooksScript verbosity platform pkgId opts ver mbCompId forceCompile =
-  compileSetupX' "SetupHooks"
+compileHooksScript verbosity platform pkgId opts cabalDep forceCompile =
+  compileSetupX "SetupHooks"
     [setupHooks opts, hooksHs opts] (hooksProgFile opts)
-    verbosity platform pkgId Hooks opts ver mbCompId forceCompile
+    verbosity platform pkgId Hooks opts cabalDep forceCompile
 
 setupDir :: SetupScriptOptions -> SymbolicPath Pkg (Dir setup)
 setupDir opts = useDistPref opts Cabal.Path.</> makeRelativePathEx "setup"
@@ -1310,29 +1308,11 @@ setupHooks opts = setupDir opts Cabal.Path.</> makeRelativePathEx ( "SetupHooks"
 setupProgFile opts = setupDir opts Cabal.Path.</> makeRelativePathEx ( "setup" <.> exeExtension buildPlatform )
 hooksProgFile opts = setupDir opts Cabal.Path.</> makeRelativePathEx ( "hooks" <.> exeExtension buildPlatform )
 
-
-compileSetupX'
-  :: String
-  -> [SymbolicPath Pkg File]
-  -> SymbolicPath Pkg File
-  -> Verbosity
-  -> Platform
-  -> PackageIdentifier
-  -> BuildType
-  -> SetupScriptOptions
-  -> Version
-  -> Maybe ComponentId
-  -> Bool
-  -> IO FilePath
-compileSetupX' what inPaths outPath verbosity platform pkgId bt options' cabalLibVersion maybeCabalLibInstalledPkgId forceCompile =
-  compileSetupX what inPaths outPath verbosity platform pkgId bt options' cabalLibInstalledPkgId forceCompile
+f :: Version -> Maybe a -> [(a, PackageIdentifier)]
+f cabalLibVersion =
+  maybe [] (\ipkgid -> [(ipkgid, cabalPkgid)])
   where
     cabalPkgid = PackageIdentifier (mkPackageName "Cabal") cabalLibVersion
-    cabalLibInstalledPkgId =
-      maybe
-        []
-        (\ipkgid -> [(ipkgid, cabalPkgid)])
-        maybeCabalLibInstalledPkgId
 
 compileSetupX
   :: String
