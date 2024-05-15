@@ -4,6 +4,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -1379,13 +1380,17 @@ compileSetupX
           -- Otherwise we add on a dep on the Cabal library
           -- (unless 'useDependencies' already contains one).
           selectedDeps
-            |  (useDependenciesExclusive options && (bt /= Hooks))
-            -- NB: to compile build-type: Hooks packages, we need Cabal
+            | any (isCabalPkgId . snd) (useDependencies options) =
+                useDependencies options
+            -- NOTE: to compile build-type: Hooks packages, we need Cabal
             -- in order to compile @main = defaultMainWithSetupHooks setupHooks@.
-            || any (isCabalPkgId . snd) (useDependencies options)
-            = useDependencies options
+            | bt == Hooks = 
+                useDependencies options ++ cabalDep
+            | useDependenciesExclusive options =
+                useDependencies options
             | otherwise =
                 useDependencies options ++ cabalDep
+
           addRenaming (ipid, _) =
             -- Assert 'DefUnitId' invariant
             ( Backpack.DefiniteUnitId (unsafeMkDefUnitId (newSimpleUnitId ipid))
