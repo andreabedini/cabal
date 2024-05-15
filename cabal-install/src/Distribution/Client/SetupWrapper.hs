@@ -942,13 +942,13 @@ compileExternalSetupMethod verbosity options pkg bt = do
       case find (isCabalPkgId . snd) (useDependencies options) of
         Just (unitId, cabalPkgId) -> do
           let version = pkgVersion cabalPkgId
-          updateSetupScript version bt
+          updateSetupScript verbosity options i version bt
           writeSetupVersionFile version
           return (version, Just (unitId, cabalPkgId), options)
         Nothing ->
           case useCabalSpecVersion options of
             Just version -> do
-              updateSetupScript version bt
+              updateSetupScript verbosity options i version bt
               writeSetupVersionFile version
               return (version, Nothing, options)
             Nothing -> do
@@ -956,7 +956,7 @@ compileExternalSetupMethod verbosity options pkg bt = do
               case savedVer of
                 Just version | version `withinRange` useCabalVersion options ->
                   do
-                    updateSetupScript version bt
+                    updateSetupScript verbosity options i version bt
                     -- Does the previously compiled setup executable
                     -- still exist and is it up-to date?
                     useExisting <- canUseExistingSetup version
@@ -996,7 +996,7 @@ compileExternalSetupMethod verbosity options pkg bt = do
               return (version, Nothing, options')
             else do
               (version, mipkgid, options'') <- installedCabalVersion verbosity pkg options' comp progdb
-              updateSetupScript version bt
+              updateSetupScript verbosity options i version bt
               writeSetupVersionFile version
               return (version, mipkgid, options'')
 
@@ -1007,18 +1007,18 @@ compileExternalSetupMethod verbosity options pkg bt = do
             [(version, s)] | all isSpace s -> return (Just version)
             _ -> return Nothing
 
-    -- \| Update a Setup.hs script, creating it if necessary.
-    updateSetupScript :: Version -> BuildType -> IO ()
-    updateSetupScript _cabalLibVersion Custom = do
-      updateSetupScriptCustom verbosity i options
-    updateSetupScript cabalLibVersion Hooks = do
-      updateSetupScriptHooks verbosity i options cabalLibVersion
-    updateSetupScript _cabalLibVersion Simple =
-      updateSetupScriptSimple verbosity i options
-    updateSetupScript cabalLibVersion Configure = do
-      updateSetupScriptConfigure verbosity i options cabalLibVersion
-    updateSetupScript _cabalLibVersion Make = do
-      updateSetupScriptMake verbosity i options
+-- \| Update a Setup.hs script, creating it if necessary.
+updateSetupScript :: Verbosity -> SetupScriptOptions -> (SymbolicPath Pkg File -> FilePath) -> Version -> BuildType -> IO ()
+updateSetupScript verbosity options i _cabalLibVersion Custom = do
+  updateSetupScriptCustom verbosity i options
+updateSetupScript verbosity options i cabalLibVersion Hooks = do
+  updateSetupScriptHooks verbosity i options cabalLibVersion
+updateSetupScript verbosity options i _cabalLibVersion Simple =
+  updateSetupScriptSimple verbosity i options
+updateSetupScript verbosity options i cabalLibVersion Configure = do
+  updateSetupScriptConfigure verbosity i options cabalLibVersion
+updateSetupScript verbosity options i _cabalLibVersion Make = do
+  updateSetupScriptMake verbosity i options
 
 updateSetupScriptSimple :: Verbosity -> (SymbolicPath Pkg File -> FilePath) -> SetupScriptOptions -> IO ()
 updateSetupScriptSimple verbosity i options =
@@ -1341,13 +1341,23 @@ compileHooksScript verbosity platform pkgId opts forceCompile selectedDeps sourc
 
 setupDir :: SetupScriptOptions -> SymbolicPath Pkg (Dir setup)
 setupDir opts = useDistPref opts Cabal.Path.</> makeRelativePathEx "setup"
+
 setupVersionFile :: SetupScriptOptions -> SymbolicPath Pkg File
 setupVersionFile opts = setupDir opts Cabal.Path.</> makeRelativePathEx ( "setup" <.> "version" )
-setupHs, hooksHs, setupHooks, setupProgFile, hooksProgFile :: SetupScriptOptions -> SymbolicPath Pkg File
+
+setupHs :: SetupScriptOptions -> SymbolicPathX 'AllowAbsolute Pkg to
 setupHs opts = setupDir opts Cabal.Path.</> makeRelativePathEx ( "setup" <.> "hs" )
+
+hooksHs :: SetupScriptOptions -> SymbolicPathX 'AllowAbsolute Pkg to
 hooksHs opts = setupDir opts Cabal.Path.</> makeRelativePathEx ( "hooks" <.> "hs" )
+
+setupHooks :: SetupScriptOptions -> SymbolicPathX 'AllowAbsolute Pkg to
 setupHooks opts = setupDir opts Cabal.Path.</> makeRelativePathEx ( "SetupHooks" <.> "hs" )
+
+setupProgFile :: SetupScriptOptions -> SymbolicPathX 'AllowAbsolute Pkg to
 setupProgFile opts = setupDir opts Cabal.Path.</> makeRelativePathEx ( "setup" <.> exeExtension buildPlatform )
+
+hooksProgFile :: SetupScriptOptions -> SymbolicPathX 'AllowAbsolute Pkg to
 hooksProgFile opts = setupDir opts Cabal.Path.</> makeRelativePathEx ( "hooks" <.> exeExtension buildPlatform )
 
 -- With 'useDependenciesExclusive' and Custom build type,
