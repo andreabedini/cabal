@@ -275,10 +275,12 @@ getSourcePackagesAtIndexState verbosity repoCtxt mb_idxState mb_activeRepos = do
     let RepoName rname = repoName r
     info verbosity ("Reading available packages of " ++ rname ++ "...")
 
+    let idxState = lookupIndexState (repoName r) <$> mb_idxState
+
     case r of
-      RepoLocalNoIndex{} -> getRepoLocalNoIndexDataAtIndexState verbosity mb_idxState repoCtxt r
-      RepoRemote{} -> getRepoRemoteDataAtIndexState verbosity mb_idxState repoCtxt r
-      RepoSecure{} -> getRepoSecureDataAtIndexState verbosity mb_idxState repoCtxt r
+      RepoLocalNoIndex{} -> getRepoLocalNoIndexDataAtIndexState verbosity idxState repoCtxt r
+      RepoRemote{} -> getRepoRemoteDataAtIndexState verbosity idxState repoCtxt r
+      RepoSecure{} -> getRepoSecureDataAtIndexState verbosity idxState repoCtxt r
 
   let activeRepos :: ActiveRepos
       activeRepos = fromMaybe defaultActiveRepos mb_activeRepos
@@ -337,19 +339,17 @@ getSourcePackagesAtIndexState verbosity repoCtxt mb_idxState mb_activeRepos = do
     , activeRepos'
     )
 
+-- TODO: maybe deduplicate with getRepoRemoteDataAtIndexState?
 getRepoLocalNoIndexDataAtIndexState
   :: Verbosity
-  -> Maybe TotalIndexState
+  -> Maybe RepoIndexState
   -> RepoContext
   -> Repo
   -> IO RepoData
 getRepoLocalNoIndexDataAtIndexState verbosity mb_idxState repoCtxt r = do
   let RepoName rname = repoName r
 
-  -- NOTE: This is what the code used to do. I think calling this here is wrong.
-  idxState <- resolveRepoIndexState verbosity repoCtxt r mb_idxState
-  -- NOTE: ^^^
-
+  let idxState = fromMaybe IndexStateHead mb_idxState
   unless (idxState == IndexStateHead) $
     warn verbosity "index-state ignored for file+noindex repositories"
 
@@ -364,19 +364,17 @@ getRepoLocalNoIndexDataAtIndexState verbosity mb_idxState repoCtxt r = do
       , rdPreferences = deps
       }
 
+-- TODO: maybe deduplicate with getRepoLocalNoIndexDataAtIndexState?
 getRepoRemoteDataAtIndexState
   :: Verbosity
-  -> Maybe TotalIndexState
+  -> Maybe RepoIndexState
   -> RepoContext
   -> Repo
   -> IO RepoData
 getRepoRemoteDataAtIndexState verbosity mb_idxState repoCtxt r = do
   let RepoName rname = repoName r
 
-  -- NOTE: This is what the code used to do. I think calling this here is wrong.
-  idxState <- resolveRepoIndexState verbosity repoCtxt r mb_idxState
-  -- NOTE: ^^^
-
+  let idxState = fromMaybe IndexStateHead mb_idxState
   unless (idxState == IndexStateHead) $
     warn verbosity ("index-state ignored for old-format (remote repository '" ++ rname ++ "')")
 
@@ -393,14 +391,14 @@ getRepoRemoteDataAtIndexState verbosity mb_idxState repoCtxt r = do
 
 getRepoSecureDataAtIndexState
   :: Verbosity
-  -> Maybe TotalIndexState
+  -> Maybe RepoIndexState
   -> RepoContext
   -> Repo
   -> IO RepoData
 getRepoSecureDataAtIndexState verbosity mb_idxState repoCtxt r = do
   let RepoName rname = repoName r
 
-  repoIdxState <- resolveRepoIndexState verbosity repoCtxt r mb_idxState
+  repoIdxState <- resolveSecureRepoIndexState verbosity repoCtxt r mb_idxState
   (pis, deps, isi) <- readRepoIndex verbosity repoCtxt r repoIdxState
 
   case repoIdxState of
@@ -440,16 +438,15 @@ getRepoSecureDataAtIndexState verbosity mb_idxState repoCtxt r = do
       , rdPreferences = deps
       }
 
-resolveRepoIndexState
+resolveSecureRepoIndexState
   :: Verbosity
   -> RepoContext
   -> Repo
-  -> Maybe TotalIndexState
+  -> Maybe RepoIndexState
   -> IO RepoIndexState
-resolveRepoIndexState verbosity repoCtxt r mb_idxState =
+resolveSecureRepoIndexState verbosity repoCtxt r mb_idxState =
   case mb_idxState of
-    Just totalIdxState -> do
-      let idxState = lookupIndexState (repoName r) totalIdxState
+    Just idxState -> do
       info verbosity $
         "Using "
           ++ describeState idxState
@@ -458,15 +455,15 @@ resolveRepoIndexState verbosity repoCtxt r mb_idxState =
     Nothing -> do
       mb_idxState' <- readIndexTimestamp verbosity (RepoIndex repoCtxt r)
       case mb_idxState' of
-        Nothing -> do
-          info verbosity "Using most recent state (could not read timestamp file)"
-          return IndexStateHead
         Just idxState -> do
           info verbosity $
             "Using "
               ++ describeState idxState
               ++ " specified from most recent cabal update"
           return idxState
+        Nothing -> do
+          info verbosity "Using most recent state (could not read timestamp file)"
+          return IndexStateHead
   where
     describeState IndexStateHead = "most recent state"
     describeState (IndexStateTime time) = "historical state as of " ++ prettyShow time
