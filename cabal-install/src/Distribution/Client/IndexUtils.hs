@@ -344,60 +344,79 @@ getRepoDataAtIndexState verbosity mb_idxState repoCtxt r = do
 
   info verbosity ("Reading available packages of " ++ rname ++ "...")
 
-  repoIdxState <- case r of
-    RepoSecure{} ->
-      readRepoIndexState verbosity mb_idxState repoCtxt r
+  case r of
+    RepoSecure{} -> do
+      repoIdxState <- readRepoIndexState verbosity mb_idxState repoCtxt r
+      (pis, deps, isi) <- readRepoIndex verbosity repoCtxt r repoIdxState
+
+      case repoIdxState of
+        IndexStateHead -> do
+          info verbosity ("index-state(" ++ rname ++ ") = " ++ prettyShow (isiHeadTime isi))
+          return ()
+        IndexStateTime ts0 ->
+          -- isiMaxTime is the latest timestamp in the filtered view returned by
+          -- `readRepoIndex` above. It is always true that isiMaxTime is less or
+          -- equal to a requested IndexStateTime. When `isiMaxTime isi /= ts0` (or
+          -- equivalently `isiMaxTime isi < ts0`) it means that ts0 falls between
+          -- two timestamps in the index.
+          when (isiMaxTime isi /= ts0) $
+            let commonMsg =
+                  "There is no index-state for '"
+                    ++ rname
+                    ++ "' exactly at the requested timestamp ("
+                    ++ prettyShow ts0
+                    ++ "). "
+             in if isNothing $ timestampToUTCTime (isiMaxTime isi)
+                  then
+                    warn verbosity $
+                      commonMsg
+                        ++ "Also, there are no index-states before the one requested, so the repository '"
+                        ++ rname
+                        ++ "' will be empty."
+                  else
+                    info verbosity $
+                      commonMsg
+                        ++ "Falling back to the previous index-state that exists: "
+                        ++ prettyShow (isiMaxTime isi)
+      pure
+        RepoData
+          { rdRepoName = repoName r
+          , rdTimeStamp = isiMaxTime isi
+          , rdIndex = pis
+          , rdPreferences = deps
+          }
     RepoRemote{} -> do
       -- NOTE: This is what the code used to do. I think calling this here is wrong.
       idxState <- readRepoIndexState verbosity mb_idxState repoCtxt r
       unless (idxState == IndexStateHead) $
         warn verbosity ("index-state ignored for old-format (remote repository '" ++ rname ++ "')")
-      return IndexStateHead
+
+      (pis, deps, isi) <- readRepoIndex verbosity repoCtxt r IndexStateHead
+      info verbosity ("index-state(" ++ rname ++ ") = " ++ prettyShow (isiHeadTime isi))
+
+      pure
+        RepoData
+          { rdRepoName = repoName r
+          , rdTimeStamp = isiMaxTime isi
+          , rdIndex = pis
+          , rdPreferences = deps
+          }
     RepoLocalNoIndex{} -> do
       -- NOTE: This is what the code used to do. I think calling this here is wrong.
       idxState <- readRepoIndexState verbosity mb_idxState repoCtxt r
       unless (idxState == IndexStateHead) $
         warn verbosity "index-state ignored for file+noindex repositories"
-      return IndexStateHead
 
-  (pis, deps, isi) <- readRepoIndex verbosity repoCtxt r repoIdxState
-
-  case repoIdxState of
-    IndexStateHead -> do
+      (pis, deps, isi) <- readRepoIndex verbosity repoCtxt r IndexStateHead
       info verbosity ("index-state(" ++ rname ++ ") = " ++ prettyShow (isiHeadTime isi))
-      return ()
-    IndexStateTime ts0 ->
-      -- isiMaxTime is the latest timestamp in the filtered view returned by
-      -- `readRepoIndex` above. It is always true that isiMaxTime is less or
-      -- equal to a requested IndexStateTime. When `isiMaxTime isi /= ts0` (or
-      -- equivalently `isiMaxTime isi < ts0`) it means that ts0 falls between
-      -- two timestamps in the index.
-      when (isiMaxTime isi /= ts0) $
-        let commonMsg =
-              "There is no index-state for '"
-                ++ rname
-                ++ "' exactly at the requested timestamp ("
-                ++ prettyShow ts0
-                ++ "). "
-         in if isNothing $ timestampToUTCTime (isiMaxTime isi)
-              then
-                warn verbosity $
-                  commonMsg
-                    ++ "Also, there are no index-states before the one requested, so the repository '"
-                    ++ rname
-                    ++ "' will be empty."
-              else
-                info verbosity $
-                  commonMsg
-                    ++ "Falling back to the previous index-state that exists: "
-                    ++ prettyShow (isiMaxTime isi)
-  pure
-    RepoData
-      { rdRepoName = repoName r
-      , rdTimeStamp = isiMaxTime isi
-      , rdIndex = pis
-      , rdPreferences = deps
-      }
+
+      pure
+        RepoData
+          { rdRepoName = repoName r
+          , rdTimeStamp = isiMaxTime isi
+          , rdIndex = pis
+          , rdPreferences = deps
+          }
 
 readRepoIndexState :: Verbosity -> Maybe TotalIndexState -> RepoContext -> Repo -> IO RepoIndexState
 readRepoIndexState verbosity mb_idxState repoCtxt r =
