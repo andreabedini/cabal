@@ -1,6 +1,6 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -13,28 +13,20 @@
 --
 -- Maintainer  :  cabal-devel@haskell.org
 -- Portability :  portable
-{- FOURMOLU_DISABLE -}
 module Distribution.Fields.Parser
   ( -- * Types
-    Field (..)
-  , Name (..)
-  , FieldLine (..)
-  , SectionArg (..)
+    Field (..),
+    Name (..),
+    FieldLine (..),
+    SectionArg (..),
 
     -- * Grammar and parsing
     -- $grammar
-  , readFields
-  , readFields'
-  , readFieldsT
-#ifdef CABAL_PARSEC_DEBUG
-
-    -- * Internal
-  , parseFile
-  , parseStr
-  , parseBS
-#endif
-  ) where
-{- FOURMOLU_ENABLE -}
+    readFields,
+    readFields',
+    readFieldsT,
+  )
+where
 
 import Control.Monad.Trans.Writer.CPS
 import qualified Data.ByteString.Char8 as B8
@@ -43,11 +35,11 @@ import Distribution.Compat.Prelude
 import Distribution.Fields.Field
 import Distribution.Fields.Lexer
 import Distribution.Fields.LexerMonad
-  ( Lex
-  , LexState (..)
-  , LexWarning (..)
-  , LexWarningType (..)
-  , runLexer
+  ( Lex,
+    LexState (..),
+    LexWarning (..),
+    LexWarningType (..),
+    runLexer,
   )
 import Distribution.Parsec.Position (Position (..), positionCol)
 import Text.Parsec.Combinator hiding (eof, notFollowedBy)
@@ -55,12 +47,6 @@ import Text.Parsec.Error
 import Text.Parsec.Pos
 import Text.Parsec.Prim hiding (many, (<|>))
 import Prelude ()
-
-#ifdef CABAL_PARSEC_DEBUG
-import qualified Data.Text                as T
-import qualified Data.Text.Encoding       as T
-import qualified Data.Text.Encoding.Error as T
-#endif
 
 -- $setup
 -- >>> import Data.Either (isLeft)
@@ -90,13 +76,15 @@ instance Stream LexStream Identity LToken where
       _ -> return (Just (tok, stream))
 
 data AToken = AToken Int String Position Token deriving (Show)
+
 type Logger = Writer [AToken]
+
 type Parser a = ParsecT LexStream () Logger a
 
-tellTok :: Monad m => LToken -> WriterT [AToken] m ()
+tellTok :: (Monad m) => LToken -> WriterT [AToken] m ()
 tellTok (L c p t) = tell [AToken c (code2text c) p t]
 
-code2text :: IsString a => Int -> a
+code2text :: (IsString a) => Int -> a
 code2text 0 = "start"
 code2text st | st == bol_section = "bol_section"
 code2text st | st == bol_field_braces = "bol_field_braces"
@@ -120,22 +108,22 @@ instance Stream LexStream Logger LToken where
 -- | Get lexer warnings accumulated so far
 getLexerWarnings :: Parser [LexWarning]
 getLexerWarnings = do
-  LexStream (LexState{warnings = ws}) _ <- getInput
+  LexStream (LexState {warnings = ws}) _ <- getInput
   return ws
 
 addLexerWarning :: LexWarning -> Parser ()
 addLexerWarning w = do
-  LexStream ls@LexState{warnings = ws} _ <- getInput
-  setInput $! mkLexStream ls{warnings = w : ws}
+  LexStream ls@LexState {warnings = ws} _ <- getInput
+  setInput $! mkLexStream ls {warnings = w : ws}
 
-modifyInput :: Monad m => (a -> a) -> ParsecT a u m ()
+modifyInput :: (Monad m) => (a -> a) -> ParsecT a u m ()
 modifyInput f = getInput >>= setInput . f
 
 -- | Set Alex code i.e. the mode "state" lexer is in.
 setLexerMode :: Int -> Parser ()
 setLexerMode code = do
   modifyInput $ \(LexStream s _) ->
-    unfoldStream lexToken s{curCode = code}
+    unfoldStream lexToken s {curCode = code}
 
 getToken :: (Token -> Maybe a) -> Parser a
 getToken getTok = getTokenWithPos (\(L _ _ t) -> getTok t)
@@ -164,20 +152,31 @@ describeToken t = case t of
   TokBom -> "BOM"
 
 tokSym :: Parser (Name Position)
-tokSym', tokStr, tokOther :: Parser (SectionArg Position)
+tokSym = getTokenWithPos $ \case L _ pos (TokSym x) -> Just (mkName pos x); _ -> Nothing
+
+tokSym' :: Parser (SectionArg Position)
+tokSym' = getTokenWithPos $ \case L _ pos (TokSym x) -> Just (SecArgName pos x); _ -> Nothing
+
+tokStr :: Parser (SectionArg Position)
+tokStr = getTokenWithPos $ \case L _ pos (TokStr x) -> Just (SecArgStr pos x); _ -> Nothing
+
+tokOther :: Parser (SectionArg Position)
+tokOther = getTokenWithPos $ \case L _ pos (TokOther x) -> Just (SecArgOther pos x); _ -> Nothing
+
 tokIndent :: Parser Int
-tokColon, tokCloseBrace :: Parser ()
+tokIndent = getToken $ \case Indent x -> Just x; _ -> Nothing
+
+tokColon :: Parser ()
+tokColon = getToken $ \case Colon -> Just (); _ -> Nothing
+
 tokOpenBrace :: Parser Position
+tokOpenBrace = getTokenWithPos $ \case L _ pos OpenBrace -> Just pos; _ -> Nothing
+
+tokCloseBrace :: Parser ()
+tokCloseBrace = getToken $ \case CloseBrace -> Just (); _ -> Nothing
+
 tokFieldLine :: Parser (FieldLine Position)
-tokSym = getTokenWithPos $ \t -> case t of L _ pos (TokSym x) -> Just (mkName pos x); _ -> Nothing
-tokSym' = getTokenWithPos $ \t -> case t of L _ pos (TokSym x) -> Just (SecArgName pos x); _ -> Nothing
-tokStr = getTokenWithPos $ \t -> case t of L _ pos (TokStr x) -> Just (SecArgStr pos x); _ -> Nothing
-tokOther = getTokenWithPos $ \t -> case t of L _ pos (TokOther x) -> Just (SecArgOther pos x); _ -> Nothing
-tokIndent = getToken $ \t -> case t of Indent x -> Just x; _ -> Nothing
-tokColon = getToken $ \t -> case t of Colon -> Just (); _ -> Nothing
-tokOpenBrace = getTokenWithPos $ \t -> case t of L _ pos OpenBrace -> Just pos; _ -> Nothing
-tokCloseBrace = getToken $ \t -> case t of CloseBrace -> Just (); _ -> Nothing
-tokFieldLine = getTokenWithPos $ \t -> case t of L _ pos (TokFieldLine s) -> Just (FieldLine pos s); _ -> Nothing
+tokFieldLine = getTokenWithPos $ \case L _ pos (TokFieldLine s) -> Just (FieldLine pos s); _ -> Nothing
 
 -- tokComment :: Parser B8.ByteString
 -- tokComment = getToken (\case Comment s -> Just s; _ -> Nothing) *> tokWhitespace
@@ -190,9 +189,11 @@ fieldSecName :: Parser (Name Position)
 fieldSecName = tokSym <?> "field or section name"
 
 colon = tokColon <?> "\":\""
+
 openBrace = do
   pos <- tokOpenBrace <?> "\"{\""
   addLexerWarning (LexWarning LexBraces pos)
+
 closeBrace = tokCloseBrace <?> "\"}\""
 
 fieldContent :: Parser (FieldLine Position)
@@ -467,52 +468,6 @@ checkIndentation'' :: Position -> Position -> [LexWarning] -> [LexWarning]
 checkIndentation'' a b
   | positionCol a == positionCol b = id
   | otherwise = (LexWarning LexInconsistentIndentation b :)
-
-#ifdef CABAL_PARSEC_DEBUG
-parseTest' :: Show a => Parsec LexStream () a -> SourceName -> B8.ByteString -> IO ()
-parseTest' p fname s =
-    case parse p fname (lexSt s) of
-      Left err -> putStrLn (formatError s err)
-
-      Right x  -> print x
-  where
-    lexSt = mkLexStream . mkLexState
-
-parseFile :: Show a => Parser a -> FilePath -> IO ()
-parseFile p f = B8.readFile f >>= \s -> parseTest' p f s
-
-parseStr  :: Show a => Parser a -> String -> IO ()
-parseStr p = parseBS p . B8.pack
-
-parseBS  :: Show a => Parser a -> B8.ByteString -> IO ()
-parseBS p = parseTest' p "<input string>"
-
-formatError :: B8.ByteString -> ParseError -> String
-formatError input perr =
-    unlines
-      [ "Parse error "++ show (errorPos perr) ++ ":"
-      , errLine
-      , indicator ++ errmsg ]
-  where
-    pos       = errorPos perr
-    ls        = lines' (T.decodeUtf8With T.lenientDecode input)
-    errLine   = T.unpack (ls !! (sourceLine pos - 1))
-    indicator = replicate (sourceColumn pos) ' ' ++ "^"
-    errmsg    = showErrorMessages "or" "unknown parse error"
-                                  "expecting" "unexpected" "end of file"
-                                  (errorMessages perr)
-
--- | Handles windows/osx/unix line breaks uniformly
-lines' :: T.Text -> [T.Text]
-lines' s1
-  | T.null s1 = []
-  | otherwise = case T.break (\c -> c == '\r' || c == '\n') s1 of
-                  (l, s2) | Just (c,s3) <- T.uncons s2
-                         -> case T.uncons s3 of
-                              Just ('\n', s4) | c == '\r' -> l : lines' s4
-                              _               -> l : lines' s3
-                          | otherwise -> [l]
-#endif
 
 eof :: Parser ()
 eof = notFollowedBy anyToken <?> "end of file"
