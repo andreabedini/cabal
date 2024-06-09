@@ -28,6 +28,7 @@ module Distribution.Fields.Parser
   )
 where
 
+import Control.Monad.State.Strict (StateT, evalStateT, lift)
 import Control.Monad.Trans.Writer.CPS
 import qualified Data.ByteString.Char8 as B8
 import Data.Functor.Identity
@@ -77,9 +78,9 @@ instance Stream LexStream Identity LToken where
 
 data AToken = AToken Int String Position Token deriving (Show)
 
-type Logger = Writer [AToken]
+type PMonad = StateT [Token] (Writer [AToken])
 
-type Parser a = ParsecT LexStream () Logger a
+type Parser a = ParsecT LexStream () PMonad a
 
 tellTok :: (Monad m) => LToken -> WriterT [AToken] m ()
 tellTok (L c p t) = tell [AToken c (code2text c) p t]
@@ -94,16 +95,16 @@ code2text st | st == in_field_braces = "in_field_braces"
 code2text st | st == in_field_layout = "in_field_layout"
 code2text n = error $ "code unknown: " ++ show n
 
-instance Stream LexStream Logger LToken where
-  uncons :: LexStream -> Logger (Maybe (LToken, LexStream))
-  uncons (LexStream _ (tok, stream)) = do
-    tellTok tok
+instance Stream LexStream PMonad LToken where
+  uncons :: LexStream -> PMonad (Maybe (LToken, LexStream))
+  uncons (LexStream _lexState (tok, stream)) = do
+    lift $ tellTok tok
     case tok of
-      L _ _ EOF -> return Nothing
-      L _ _ (Comment _) -> uncons stream
-      L _ _ TokBom -> uncons stream
-      L _ _ (TokSkip _) -> uncons stream
-      L _ _ _ -> return $ Just (tok, stream)
+      L _startCode _pos EOF -> return Nothing
+      L _startCode _pos (Comment _) -> uncons stream
+      L _startCode _pos TokBom -> uncons stream
+      L _startCode _pos (TokSkip _) -> uncons stream
+      L _startCode _pos _ -> return $ Just (tok, stream)
 
 -- | Get lexer warnings accumulated so far
 getLexerWarnings :: Parser [LexWarning]
@@ -432,11 +433,12 @@ readFields' s = fst (readFieldsT s)
 --
 --     lexSt = mkLexStream (mkLexState s)
 
-readFieldsT :: B8.ByteString -> (Either ParseError ([Field Position], [LexWarning]), [AToken])
+readFieldsT ::
+  B8.ByteString -> (Either ParseError ([Field Position], [LexWarning]), [AToken])
 readFieldsT s = do
-  runWriter $ runParserT parser () "the input" lexSt
+  runWriter $ flip evalStateT [] $ runParserT parser () "the input" lexSt
   where
-    parser :: ParsecT LexStream () Logger ([Field Position], [LexWarning])
+    parser :: ParsecT LexStream () PMonad ([Field Position], [LexWarning])
     parser = do
       fields <- cabalStyleFile
       ws <- getLexerWarnings -- lexer accumulates warnings in reverse (consing them to the list)
