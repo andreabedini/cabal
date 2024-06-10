@@ -69,8 +69,6 @@ metaComment = \case
   (MetaComment _ bs) -> Just bs
   (MetaWhitespace _ _) -> Nothing
 
-
-
 metaAnn :: MetaField ann -> ann
 metaAnn = \case
   (MetaComment ann _) -> ann
