@@ -3,6 +3,7 @@
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TupleSections #-}
 
 -----------------------------------------------------------------------------
 
@@ -43,7 +44,7 @@ import Distribution.Compat.Lens
 import Distribution.FieldGrammar
 import Distribution.FieldGrammar.Parsec (NamelessField (..))
 import Distribution.Fields.ConfVar (parseConditionConfVar)
-import Distribution.Fields.Field (FieldName, getName, fieldLineAnn, sectionArgAnn, nameAnn)
+import Distribution.Fields.Field (metaAnn, metaComment, fieldMeta, MetaField, FieldName, getName, fieldLineAnn, sectionArgAnn, nameAnn)
 import Distribution.Fields.LexerMonad (LexWarning, toPWarnings)
 import Distribution.Fields.ParseResult
 import Distribution.Fields.Parser
@@ -72,6 +73,9 @@ import qualified Distribution.Types.GenericPackageDescription.Lens as L
 import qualified Distribution.Types.PackageDescription.Lens as L
 import qualified Distribution.Types.SetupBuildInfo.Lens as L
 import qualified Text.Parsec as P
+import Data.Text(Text)
+import Data.ByteString(ByteString)
+import Data.Text.Encoding(decodeUtf8)
 
 ------------------------------------------------------------------------------
 
@@ -143,6 +147,20 @@ stateCommonStanzas :: Lens' SectionS (Map String CondTreeBuildInfo)
 stateCommonStanzas f (SectionS gpd cs) = SectionS gpd <$> f cs
 {-# INLINE stateCommonStanzas #-}
 
+justComments :: MetaField ann -> Maybe (ann, ByteString)
+justComments field =
+  (metaAnn field,) <$> metaComment field
+
+commentMap :: [Field Position] -> Map Position Text
+commentMap fields =
+  decodeUtf8 <$> Map.fromList listOfFieldPositiosn
+  where
+    listOfFieldPositiosn :: [(Position, ByteString)]
+    listOfFieldPositiosn = catMaybes $ justComments <$> listOfMetaFields
+
+    listOfMetaFields :: [(MetaField Position)]
+    listOfMetaFields = catMaybes $ fieldMeta <$> fields
+
 -- Note [Accumulating parser]
 --
 -- This parser has two "states":
@@ -205,7 +223,7 @@ parseGenericPackageDescription' scannedVer lexWarnings utf8WarnPos fieldPosition
   -- Sections
   let gpd =
         (emptyGenericPackageDescription
-          { exactPrintMeta = ExactPrintMeta { exactPositions = toExact fieldPositions, exactComments = mempty} })
+          { exactPrintMeta = ExactPrintMeta { exactPositions = toExact fieldPositions, exactComments = commentMap fieldPositions} })
           & L.packageDescription .~ pd
   gpd1 <- view stateGpd <$> execStateT (goSections specVer sectionFields) (SectionS gpd Map.empty)
 
