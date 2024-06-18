@@ -46,20 +46,10 @@ import Distribution.Types.PkgconfigVersion
 import Distribution.Types.PkgconfigVersionRange
 import Distribution.Verbosity                   (Verbosity)
 
-newtype PkgConfigDb = PkgConfigDb (M.Map PkgconfigName (Maybe PkgconfigVersion))
+-- | The list of packages installed in the system visible to
+-- @pkg-config@.
+data PkgConfigDb = PkgConfigDb (M.Map PkgconfigName (Maybe PkgconfigVersion))
      deriving (Show, Generic, Typeable)
-
--- -- | The list of packages installed in the system visible to
--- -- @pkg-config@. This is an opaque datatype, to be constructed with
--- -- `readPkgConfigDb` and queried with `pkgConfigPkgPresent`.
--- data PkgConfigDb =  PkgConfigDb (M.Map PkgconfigName (Maybe PkgconfigVersion))
---                  -- ^ If an entry is `Nothing`, this means that the
---                  -- package seems to be present, but we don't know the
---                  -- exact version (because parsing of the version
---                  -- number failed).
---                  | NoPkgConfigDb
---                  -- ^ For when we could not run pkg-config successfully.
---      deriving (Show, Generic, Typeable)
 
 instance Binary PkgConfigDb
 instance Structured PkgConfigDb

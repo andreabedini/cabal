@@ -102,6 +102,7 @@ data POption = POption I (Maybe PackagePath)
 data FailReason = UnsupportedExtension Extension
                 | UnsupportedLanguage Language
                 | MissingPkgconfigPackage PkgconfigName PkgconfigVersionRange
+                | MissingPkgconfigProgram
                 | NewPackageDoesNotMatchExistingConstraint ConflictingDep
                 | ConflictingConstraints ConflictingDep ConflictingDep
                 | NewPackageIsMissingRequiredComponent ExposedComponent (DependencyReason QPN)
