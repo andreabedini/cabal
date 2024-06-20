@@ -764,7 +764,7 @@ runSolver = modularResolver
 resolveDependencies
   :: Platform
   -> CompilerInfo
-  -> PkgConfigDb
+  -> Maybe PkgConfigDb
   -> DepResolverParams
   -> Progress String String SolverInstallPlan
 resolveDependencies platform comp pkgConfigDB params =
