@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE Rank2Types #-}
 -----------------------------------------------------------------------------
 -- This module is meant to be local-only to Distribution...
@@ -121,14 +120,12 @@ instance Applicative ParseResult where
   pure = ParseOk []
   (<*>) = ap
 
-{- FOURMOLU_DISABLE -}
 instance Monad ParseResult where
   return = pure
   ParseFailed err >>= _ = ParseFailed err
   ParseOk ws x >>= f = case f x of
     ParseFailed err -> ParseFailed err
     ParseOk ws' x' -> ParseOk (ws' ++ ws) x'
-{- FOURMOLU_ENABLE -}
 
 instance Foldable ParseResult where
   foldMap _ (ParseFailed _) = mempty

@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
@@ -32,7 +31,6 @@ import Data.Monoid (Endo (..), Product (..), Sum (..))
 -- Another approach would be to use @TypeFamilies@ (and possibly
 -- compute inner type using "GHC.Generics"), but we think @FunctionalDependencies@
 -- version gives cleaner type signatures.
-{- FOURMOLU_DISABLE -}
 class Newtype o n | n -> o where
   pack :: o -> n
   default pack :: Coercible o n => o -> n
@@ -41,7 +39,6 @@ class Newtype o n | n -> o where
   unpack :: n -> o
   default unpack :: Coercible n o => n -> o
   unpack = coerce
-{- FOURMOLU_ENABLE -}
 
 instance Newtype a (Identity a)
 instance Newtype a (Sum a)

@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP                #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 -- | Exception type like 'ExitCode' but with more information
 -- than just integer.

@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE Trustworthy #-}
@@ -180,23 +179,25 @@ module Distribution.Compat.Prelude
   , traceShowM
   ) where
 
--- We also could hide few partial function
-{- FOURMOLU_DISABLE -}
-import Prelude                       as BasePrelude hiding
-    ( mapM, mapM_, sequence, any, all, head, tail, last, init
-    -- partial functions
-    , read
-    , foldr1, foldl1
-    -- As of base 4.11.0.0 Prelude exports part of Semigroup(..).
-    -- Hide this so we instead rely on Distribution.Compat.Semigroup.
-    , Semigroup(..)
-    , Word
-    -- We hide them, as we import only some members
-    , Traversable, traverse, sequenceA
-    , Foldable(..)
-    )
-{- FOURMOLU_ENABLE -}
 import Data.Foldable as BasePrelude (elem, foldl, maximum, minimum, product, sum)
+import Prelude as BasePrelude hiding
+  ( Foldable (..)
+  , Semigroup (..)
+  , Traversable
+  , Word
+  , all
+  , any
+  , head
+  , init
+  , last
+  , mapM
+  , mapM_
+  , read
+  , sequence
+  , sequenceA
+  , tail
+  , traverse
+  )
 
 -- AMP
 import Data.Foldable
