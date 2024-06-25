@@ -105,6 +105,14 @@ jobs:
           cabal-version: latest # latest is mandatory for cabal-testsuite, see https://github.com/haskell/cabal/issues/8133
           ghcup-release-channel: https://raw.githubusercontent.com/haskell/ghcup-metadata/master/ghcup-prereleases-0.0.8.yaml
 
+      - if: runner.os == 'windows'
+        name: Install windows dependencies
+        run: |
+          C:\msys64\usr\bin\bash -lc "pacman --disable-download-timeout --noconfirm -Syuu"
+          C:\msys64\usr\bin\bash -lc "pacman --disable-download-timeout --noconfirm -S mingw-w64-x86_64-pkg-config"
+          # Adjust cabal's configuration so it can find pkg-config
+          cabal user-config -a "extra-prog-path: C:\msys64\usr\bin"
+
       #  See the following link for a breakdown of the following step
       #  https://github.com/haskell/actions/issues/7#issuecomment-745697160
       - uses: actions/cache@v4
