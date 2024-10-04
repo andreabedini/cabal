@@ -12,7 +12,6 @@
 module Distribution.Fields.LexerMonad
   ( InputStream
   , LexState (..)
-  , LexResult (..)
   , Lex (..)
   , StartCode
   , runLexer
@@ -41,18 +40,19 @@ import Prelude ()
 import Control.Monad.State.Strict
 import qualified Data.Map.Strict as Map
 
-#ifdef CABAL_PARSEC_DEBUG
--- testing only:
-import qualified Data.Text          as T
-import qualified Data.Text.Encoding as T
-import qualified Data.Vector        as V
-#endif
-
 -- simple state monad
 newtype Lex a = Lex {unLex :: State LexState a}
   deriving (Functor, Applicative, Monad) via (State LexState)
 
-data LexResult a = LexResult {-# UNPACK #-} !LexState a
+data LexState = LexState
+  { curPos :: {-# UNPACK #-} !Position
+  -- ^ position at current input location
+  , curInput :: {-# UNPACK #-} !InputStream
+  -- ^ the current input
+  , curCode :: {-# UNPACK #-} !StartCode
+  -- ^ lexer code
+  , warnings :: [LexWarning]
+  }
 
 data LexWarningType
   = -- | Encountered non breaking space
@@ -92,16 +92,6 @@ toPWarnings =
     toWarning LexBraces _ =
       Nothing
 
-data LexState = LexState
-  { curPos :: {-# UNPACK #-} !Position
-  -- ^ position at current input location
-  , curInput :: {-# UNPACK #-} !InputStream
-  -- ^ the current input
-  , curCode :: {-# UNPACK #-} !StartCode
-  -- ^ lexer code
-  , warnings :: [LexWarning]
-  }
-
 -- TODO: check if we should cache the first token
 -- since it looks like parsec's uncons can be called many times on the same input
 
@@ -116,18 +106,17 @@ runLexer (Lex lexer) st = runState lexer st
 
 -- | Execute the given lexer on the supplied input stream.
 execLexer :: Lex a -> InputStream -> ([LexWarning], a)
-execLexer (Lex lexer) input =
-  case runState lexer initialState of
-    (result, LexState{warnings = ws}) -> (ws, result)
+execLexer (Lex lexer) input = (warnings s, result)
   where
-    initialState =
-      LexState
-        { -- TODO: add 'startPosition'
-          curPos = Position 1 1
-        , curInput = input
-        , curCode = 0
-        , warnings = []
-        }
+    (result, s) = 
+      runState lexer
+        LexState
+          { -- TODO: add 'startPosition'
+            curPos = Position 1 1
+          , curInput = input
+          , curCode = 0
+          , warnings = []
+          }
 
 setPos :: Position -> Lex ()
 setPos pos = Lex $ modify' $ \s -> s{curPos = pos}
@@ -136,7 +125,7 @@ getPos :: Lex Position
 getPos = Lex $ gets curPos
 
 adjustPos :: (Position -> Position) -> Lex ()
-adjustPos f = Lex $ modify' $ \s@LexState{curPos = pos} -> s{curPos = f pos}
+adjustPos f = Lex $ modify' $ \s -> s{curPos = f (curPos s)}
 
 getInput :: Lex InputStream
 getInput = Lex $ gets curInput
@@ -152,10 +141,10 @@ setStartCode c = Lex $ modify $ \s -> s{curCode = c}
 
 -- | Add warning at the current position
 addWarning :: LexWarningType -> Lex ()
-addWarning wt = Lex $ modify $ \s@LexState{curPos = pos, warnings = ws} ->
-  s{warnings = LexWarning wt pos : ws}
+addWarning wt = Lex $ modify $ \s ->
+  s{warnings = LexWarning wt (curPos s) : (warnings s)}
 
 -- | Add warning at specific position
 addWarningAt :: Position -> LexWarningType -> Lex ()
-addWarningAt pos wt = Lex $ modify' $ \s@LexState{warnings = ws} ->
-  s{warnings = LexWarning wt pos : ws}
+addWarningAt pos wt = Lex $ modify' $ \s ->
+  s{warnings = LexWarning wt pos : (warnings s)}
