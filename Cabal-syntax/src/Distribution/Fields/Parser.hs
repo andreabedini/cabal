@@ -10,7 +10,6 @@
 --
 -- Maintainer  :  cabal-devel@haskell.org
 -- Portability :  portable
-{- FOURMOLU_DISABLE -}
 module Distribution.Fields.Parser
   ( -- * Types
     Field (..)
@@ -22,15 +21,7 @@ module Distribution.Fields.Parser
     -- $grammar
   , readFields
   , readFields'
-#ifdef CABAL_PARSEC_DEBUG
-
-    -- * Internal
-  , parseFile
-  , parseStr
-  , parseBS
-#endif
   ) where
-{- FOURMOLU_ENABLE -}
 
 import qualified Data.ByteString.Char8 as B8
 import Data.Functor.Identity
@@ -50,12 +41,6 @@ import Text.Parsec.Error
 import Text.Parsec.Pos
 import Text.Parsec.Prim hiding (many, (<|>))
 import Prelude ()
-
-#ifdef CABAL_PARSEC_DEBUG
-import qualified Data.Text                as T
-import qualified Data.Text.Encoding       as T
-import qualified Data.Text.Encoding.Error as T
-#endif
 
 -- $setup
 -- >>> import Data.Either (isLeft)
@@ -405,52 +390,6 @@ checkIndentation'' :: Position -> Position -> [LexWarning] -> [LexWarning]
 checkIndentation'' a b
   | positionCol a == positionCol b = id
   | otherwise = (LexWarning LexInconsistentIndentation b :)
-
-#ifdef CABAL_PARSEC_DEBUG
-parseTest' :: Show a => Parsec LexState' () a -> SourceName -> B8.ByteString -> IO ()
-parseTest' p fname s =
-    case parse p fname (lexSt s) of
-      Left err -> putStrLn (formatError s err)
-
-      Right x  -> print x
-  where
-    lexSt = mkLexState' . mkLexState
-
-parseFile :: Show a => Parser a -> FilePath -> IO ()
-parseFile p f = B8.readFile f >>= \s -> parseTest' p f s
-
-parseStr  :: Show a => Parser a -> String -> IO ()
-parseStr p = parseBS p . B8.pack
-
-parseBS  :: Show a => Parser a -> B8.ByteString -> IO ()
-parseBS p = parseTest' p "<input string>"
-
-formatError :: B8.ByteString -> ParseError -> String
-formatError input perr =
-    unlines
-      [ "Parse error "++ show (errorPos perr) ++ ":"
-      , errLine
-      , indicator ++ errmsg ]
-  where
-    pos       = errorPos perr
-    ls        = lines' (T.decodeUtf8With T.lenientDecode input)
-    errLine   = T.unpack (ls !! (sourceLine pos - 1))
-    indicator = replicate (sourceColumn pos) ' ' ++ "^"
-    errmsg    = showErrorMessages "or" "unknown parse error"
-                                  "expecting" "unexpected" "end of file"
-                                  (errorMessages perr)
-
--- | Handles windows/osx/unix line breaks uniformly
-lines' :: T.Text -> [T.Text]
-lines' s1
-  | T.null s1 = []
-  | otherwise = case T.break (\c -> c == '\r' || c == '\n') s1 of
-                  (l, s2) | Just (c,s3) <- T.uncons s2
-                         -> case T.uncons s3 of
-                              Just ('\n', s4) | c == '\r' -> l : lines' s4
-                              _               -> l : lines' s3
-                          | otherwise -> [l]
-#endif
 
 eof :: Parser ()
 eof = notFollowedBy anyToken <?> "end of file"
