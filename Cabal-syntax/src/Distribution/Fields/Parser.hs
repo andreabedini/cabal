@@ -23,6 +23,7 @@ module Distribution.Fields.Parser
   , readFields'
   ) where
 
+import Control.Applicative (asum)
 import qualified Data.ByteString.Char8 as B8
 import Data.Functor.Identity
 import Distribution.Compat.Prelude
@@ -231,15 +232,15 @@ elements ilevel = many (element ilevel)
 --           |      name elementInNonLayoutContext
 element :: IndentLevel -> Parser (Field Position)
 element ilevel =
-  ( do
-      ilevel' <- indentOfAtLeast ilevel
-      name <- fieldSecName
-      elementInLayoutContext (incIndentLevel ilevel') name
-  )
-    <|> ( do
-            name <- fieldSecName
-            elementInNonLayoutContext name
-        )
+  asum
+    [ do
+        ilevel' <- indentOfAtLeast ilevel
+        name <- fieldSecName
+        elementInLayoutContext (incIndentLevel ilevel') name
+    , do
+        name <- fieldSecName
+        elementInNonLayoutContext name
+    ]
 
 -- An element (field or section) that is valid in a layout context.
 -- In a layout context we can have fields and sections that themselves
@@ -249,12 +250,15 @@ element ilevel =
 --                          | arg* sectionLayoutOrBraces
 elementInLayoutContext :: IndentLevel -> Name Position -> Parser (Field Position)
 elementInLayoutContext ilevel name =
-  (do colon; fieldLayoutOrBraces ilevel name)
-    <|> ( do
-            args <- many sectionArg
-            elems <- sectionLayoutOrBraces ilevel
-            return (Section name args elems)
-        )
+  asum
+    [ do
+        colon
+        fieldLayoutOrBraces ilevel name
+    , do
+        args <- many sectionArg
+        elems <- sectionLayoutOrBraces ilevel
+        return (Section name args elems)
+    ]
 
 -- An element (field or section) that is valid in a non-layout context.
 -- In a non-layout context we can have only have fields and sections that
@@ -264,34 +268,40 @@ elementInLayoutContext ilevel name =
 --                             | arg* '\\n'? '{' elements '\\n'? '}'
 elementInNonLayoutContext :: Name Position -> Parser (Field Position)
 elementInNonLayoutContext name =
-  (do colon; fieldInlineOrBraces name)
-    <|> ( do
-            args <- many sectionArg
-            openBrace
-            elems <- elements zeroIndentLevel
-            optional tokIndent
-            closeBrace
-            return (Section name args elems)
-        )
+  asum
+    [ do
+        colon
+        fieldInlineOrBraces name
+    , do
+        args <- many sectionArg
+        openBrace
+        elems <- elements zeroIndentLevel
+        optional tokIndent
+        closeBrace
+        return (Section name args elems)
+    ]
 
 -- The body of a field, using either layout style or braces style.
 --
 -- fieldLayoutOrBraces   ::= '\\n'? '{' content '}'
 --                         | line? ('\\n' line)*
 fieldLayoutOrBraces :: IndentLevel -> Name Position -> Parser (Field Position)
-fieldLayoutOrBraces ilevel name = braces <|> fieldLayout
-  where
-    braces = do
-      openBrace
-      ls <- inLexerMode (LexerMode in_field_braces) (many fieldContent)
-      closeBrace
-      return (Field name ls)
-    fieldLayout = inLexerMode (LexerMode in_field_layout) $ do
-      l <- optionMaybe fieldContent
-      ls <- many (do _ <- indentOfAtLeast ilevel; fieldContent)
-      return $ case l of
-        Nothing -> Field name ls
-        Just l' -> Field name (l' : ls)
+fieldLayoutOrBraces ilevel name =
+  asum
+    [ -- braces
+      do
+        openBrace
+        ls <- inLexerMode (LexerMode in_field_braces) (many fieldContent)
+        closeBrace
+        return (Field name ls)
+    , -- layout
+      inLexerMode (LexerMode in_field_layout) $ do
+        l <- optionMaybe fieldContent
+        ls <- many (do _ <- indentOfAtLeast ilevel; fieldContent)
+        return $ case l of
+          Nothing -> Field name ls
+          Just l' -> Field name (l' : ls)
+    ]
 
 -- The body of a section, using either layout style or braces style.
 --
@@ -299,14 +309,15 @@ fieldLayoutOrBraces ilevel name = braces <|> fieldLayout
 --                         | elements
 sectionLayoutOrBraces :: IndentLevel -> Parser [Field Position]
 sectionLayoutOrBraces ilevel =
-  ( do
-      openBrace
-      elems <- elements zeroIndentLevel
-      optional tokIndent
-      closeBrace
-      return elems
-  )
-    <|> (elements ilevel)
+  asum
+    [ do
+        openBrace
+        elems <- elements zeroIndentLevel
+        optional tokIndent
+        closeBrace
+        return elems
+    , elements ilevel
+    ]
 
 -- The body of a field, using either inline style or braces.
 --
@@ -314,16 +325,16 @@ sectionLayoutOrBraces ilevel =
 --                         | content
 fieldInlineOrBraces :: Name Position -> Parser (Field Position)
 fieldInlineOrBraces name =
-  ( do
-      openBrace
-      ls <- inLexerMode (LexerMode in_field_braces) (many fieldContent)
-      closeBrace
-      return (Field name ls)
-  )
-    <|> ( do
-            ls <- inLexerMode (LexerMode in_field_braces) (option [] (fmap (\l -> [l]) fieldContent))
-            return (Field name ls)
-        )
+  asum
+    [ do
+        openBrace
+        ls <- inLexerMode (LexerMode in_field_braces) (many fieldContent)
+        closeBrace
+        return (Field name ls)
+    , do
+        ls <- inLexerMode (LexerMode in_field_braces) (option [] (fmap (\l -> [l]) fieldContent))
+        return (Field name ls)
+    ]
 
 -- | Parse cabal style 'B8.ByteString' into list of 'Field's, i.e. the cabal AST.
 --
