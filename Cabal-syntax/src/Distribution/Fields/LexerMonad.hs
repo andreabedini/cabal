@@ -37,13 +37,6 @@ import Prelude ()
 
 import qualified Data.Map.Strict as Map
 
-#ifdef CABAL_PARSEC_DEBUG
--- testing only:
-import qualified Data.Text          as T
-import qualified Data.Text.Encoding as T
-import qualified Data.Vector        as V
-#endif
-
 -- simple state monad
 newtype Lex a = Lex {unLex :: LexState -> LexResult a}
 
@@ -98,7 +91,6 @@ toPWarnings =
     toWarning LexBraces _ =
       Nothing
 
-{- FOURMOLU_DISABLE -}
 data LexState = LexState
   { curPos :: {-# UNPACK #-} !Position
   -- ^ position at current input location
@@ -107,12 +99,7 @@ data LexState = LexState
   , curCode :: {-# UNPACK #-} !StartCode
   -- ^ lexer code
   , warnings :: [LexWarning]
-#ifdef CABAL_PARSEC_DEBUG
-  ,  dbgText :: V.Vector T.Text
-  -- ^ input lines, to print pretty debug info
-#endif
   }
-{- FOURMOLU_ENABLE -}
 
 -- TODO: check if we should cache the first token
 -- since it looks like parsec's uncons can be called many times on the same input
@@ -124,7 +111,6 @@ type StartCode =
 type InputStream = B.ByteString
 
 -- | Execute the given lexer on the supplied input stream.
-{- FOURMOLU_DISABLE -}
 execLexer :: Lex a -> InputStream -> ([LexWarning], a)
 execLexer (Lex lexer) input =
   case lexer initialState of
@@ -137,11 +123,7 @@ execLexer (Lex lexer) input =
         , curInput = input
         , curCode = 0
         , warnings = []
-#ifdef CABAL_PARSEC_DEBUG
-        ,  dbgText = V.fromList . T.lines . T.decodeUtf8 $ input
-#endif
         }
-{- FOURMOLU_ENABLE -}
 
 {-# INLINE returnLex #-}
 returnLex :: a -> Lex a
