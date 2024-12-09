@@ -128,10 +128,15 @@ fieldSecName :: Parser (Name Position)
 fieldSecName = tokSym <?> "field or section name"
 
 colon = tokColon <?> "\":\""
+
 openBrace = do
   pos <- tokOpenBrace <?> "\"{\""
   addLexerWarning (LexWarning LexBraces pos)
+
 closeBrace = tokCloseBrace <?> "\"}\""
+
+braces :: Parser a -> Parser a
+braces = between openBrace closeBrace
 
 fieldContent :: Parser (FieldLine Position)
 fieldContent = tokFieldLine <?> "field contents"
@@ -144,17 +149,20 @@ zeroIndentLevel = IndentLevel 0
 incIndentLevel :: IndentLevel -> IndentLevel
 incIndentLevel (IndentLevel i) = IndentLevel (succ i)
 
-indentOfAtLeast :: IndentLevel -> Parser IndentLevel
-indentOfAtLeast (IndentLevel i) = try $ do
+indentOfAtLeast :: IndentLevel -> (IndentLevel -> Parser a) -> Parser a
+indentOfAtLeast (IndentLevel i) k = try $ do
   j <- tokIndent
   guard (j >= i) <?> "indentation of at least " ++ show i
-  return (IndentLevel j)
+  k (IndentLevel j)
 
 newtype LexerMode = LexerMode Int
 
 inLexerMode :: LexerMode -> Parser p -> Parser p
-inLexerMode (LexerMode mode) p =
-  do setLexerMode mode; x <- p; setLexerMode in_section; return x
+inLexerMode (LexerMode mode) p = do
+  setLexerMode mode
+  x <- p
+  setLexerMode in_section
+  return x
 
 -----------------------
 -- Cabal file grammar
@@ -213,9 +221,7 @@ inLexerMode (LexerMode mode) p =
 --
 cabalStyleFile :: Parser [Field Position]
 cabalStyleFile = do
-  es <- elements zeroIndentLevel
-  eof
-  return es
+  elements zeroIndentLevel <* eof
 
 -- Elements that live at the top level or inside a section, i.e. fields
 -- and sections content
@@ -233,8 +239,7 @@ elements ilevel = many (element ilevel)
 element :: IndentLevel -> Parser (Field Position)
 element ilevel =
   asum
-    [ do
-        ilevel' <- indentOfAtLeast ilevel
+    [ indentOfAtLeast ilevel $ \ilevel' -> do
         name <- fieldSecName
         elementInLayoutContext (incIndentLevel ilevel') name
     , do
@@ -251,13 +256,10 @@ element ilevel =
 elementInLayoutContext :: IndentLevel -> Name Position -> Parser (Field Position)
 elementInLayoutContext ilevel name =
   asum
-    [ do
-        colon
-        fieldLayoutOrBraces ilevel name
-    , do
-        args <- many sectionArg
-        elems <- sectionLayoutOrBraces ilevel
-        return (Section name args elems)
+    [ colon *> (Field name <$> fieldLayoutOrBraces ilevel)
+    , Section name
+        <$> many sectionArg
+        <*> sectionLayoutOrBraces ilevel
     ]
 
 -- An element (field or section) that is valid in a non-layout context.
@@ -269,38 +271,28 @@ elementInLayoutContext ilevel name =
 elementInNonLayoutContext :: Name Position -> Parser (Field Position)
 elementInNonLayoutContext name =
   asum
-    [ do
-        colon
-        fieldInlineOrBraces name
-    , do
-        args <- many sectionArg
-        openBrace
-        elems <- elements zeroIndentLevel
-        optional tokIndent
-        closeBrace
-        return (Section name args elems)
+    [ colon *> (Field name <$> fieldInlineOrBraces)
+    , Section name
+        <$> many sectionArg
+        <*> braces (elements zeroIndentLevel <* optional tokIndent)
     ]
 
 -- The body of a field, using either layout style or braces style.
 --
 -- fieldLayoutOrBraces   ::= '\\n'? '{' content '}'
 --                         | line? ('\\n' line)*
-fieldLayoutOrBraces :: IndentLevel -> Name Position -> Parser (Field Position)
-fieldLayoutOrBraces ilevel name =
+fieldLayoutOrBraces :: IndentLevel -> Parser [FieldLine Position]
+fieldLayoutOrBraces ilevel =
   asum
     [ -- braces
-      do
-        openBrace
-        ls <- inLexerMode (LexerMode in_field_braces) (many fieldContent)
-        closeBrace
-        return (Field name ls)
+      braces (inLexerMode (LexerMode in_field_braces) (many fieldContent))
     , -- layout
       inLexerMode (LexerMode in_field_layout) $ do
         l <- optionMaybe fieldContent
-        ls <- many (do _ <- indentOfAtLeast ilevel; fieldContent)
+        ls <- many (indentOfAtLeast ilevel (const fieldContent))
         return $ case l of
-          Nothing -> Field name ls
-          Just l' -> Field name (l' : ls)
+          Nothing -> ls
+          Just l' -> (l' : ls)
     ]
 
 -- The body of a section, using either layout style or braces style.
@@ -310,12 +302,7 @@ fieldLayoutOrBraces ilevel name =
 sectionLayoutOrBraces :: IndentLevel -> Parser [Field Position]
 sectionLayoutOrBraces ilevel =
   asum
-    [ do
-        openBrace
-        elems <- elements zeroIndentLevel
-        optional tokIndent
-        closeBrace
-        return elems
+    [ braces (elements zeroIndentLevel <* optional tokIndent)
     , elements ilevel
     ]
 
@@ -323,17 +310,11 @@ sectionLayoutOrBraces ilevel =
 --
 -- fieldInlineOrBraces   ::= '\\n'? '{' content '}'
 --                         | content
-fieldInlineOrBraces :: Name Position -> Parser (Field Position)
-fieldInlineOrBraces name =
+fieldInlineOrBraces :: Parser [FieldLine Position]
+fieldInlineOrBraces =
   asum
-    [ do
-        openBrace
-        ls <- inLexerMode (LexerMode in_field_braces) (many fieldContent)
-        closeBrace
-        return (Field name ls)
-    , do
-        ls <- inLexerMode (LexerMode in_field_braces) (option [] (fmap (\l -> [l]) fieldContent))
-        return (Field name ls)
+    [ braces (inLexerMode (LexerMode in_field_braces) (many fieldContent))
+    , inLexerMode (LexerMode in_field_braces) (option [] (fmap (\l -> [l]) fieldContent))
     ]
 
 -- | Parse cabal style 'B8.ByteString' into list of 'Field's, i.e. the cabal AST.
