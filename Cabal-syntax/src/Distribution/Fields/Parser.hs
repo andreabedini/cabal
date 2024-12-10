@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -30,11 +31,11 @@ import Distribution.Compat.Prelude
 import Distribution.Fields.Field
 import Distribution.Fields.Lexer
 import Distribution.Fields.LexerMonad
-  ( LexResult (..)
+  ( Lex
   , LexState (..)
   , LexWarning (..)
   , LexWarningType (..)
-  , unLex
+  , runLexer
   )
 import Distribution.Parsec.Position (Position (..), positionCol)
 import Text.Parsec.Combinator hiding (eof, notFollowedBy)
@@ -46,40 +47,40 @@ import Prelude ()
 -- $setup
 -- >>> import Data.Either (isLeft)
 
--- | The 'LexState'' (with a prime) is an instance of parsec's 'Stream'
--- wrapped around lexer's 'LexState' (without a prime)
-data LexState' = LexState' !LexState (LToken, LexState')
+data LexStream = LexStream !LexState (LToken, LexStream)
 
-mkLexState' :: LexState -> LexState'
-mkLexState' st =
-  LexState'
-    st
-    (case unLex lexToken st of LexResult st' tok -> (tok, mkLexState' st'))
+unfoldStream :: Lex LToken -> LexState -> LexStream
+unfoldStream lexer s =
+  case runLexer lexer s of
+    (tok, s') -> LexStream s (tok, unfoldStream lexer s')
 
-type Parser a = ParsecT LexState' () Identity a
+mkLexStream :: LexState -> LexStream
+mkLexStream = unfoldStream lexToken
 
-instance Stream LexState' Identity LToken where
-  uncons (LexState' _ (tok, st')) =
-    case tok of
-      L _ EOF -> return Nothing
-      _ -> return (Just (tok, st'))
+instance Stream LexStream Identity LToken where
+  uncons (LexStream _ (tok, stream)) =
+    return $ case tok of
+      L _ EOF -> Nothing
+      _ -> Just (tok, stream)
+
+type Parser a = ParsecT LexStream () Identity a
 
 -- | Get lexer warnings accumulated so far
 getLexerWarnings :: Parser [LexWarning]
 getLexerWarnings = do
-  LexState' (LexState{warnings = ws}) _ <- getInput
+  LexStream (LexState{warnings = ws}) _ <- getInput
   return ws
 
 addLexerWarning :: LexWarning -> Parser ()
 addLexerWarning w = do
-  LexState' ls@LexState{warnings = ws} _ <- getInput
-  setInput $! mkLexState' ls{warnings = w : ws}
+  LexStream ls@LexState{warnings = ws} _ <- getInput
+  setInput $! mkLexStream ls{warnings = w : ws}
 
 -- | Set Alex code i.e. the mode "state" lexer is in.
 setLexerMode :: Int -> Parser ()
 setLexerMode code = do
-  LexState' ls _ <- getInput
-  setInput $! mkLexState' ls{curCode = code}
+  LexStream ls _ <- getInput
+  setInput $! mkLexStream ls{curCode = code}
 
 getToken :: (Token -> Maybe a) -> Parser a
 getToken getTok = getTokenWithPos (\(L _ t) -> getTok t)
@@ -87,7 +88,7 @@ getToken getTok = getTokenWithPos (\(L _ t) -> getTok t)
 getTokenWithPos :: (LToken -> Maybe a) -> Parser a
 getTokenWithPos getTok = tokenPrim (\(L _ t) -> describeToken t) updatePos getTok
   where
-    updatePos :: SourcePos -> LToken -> LexState' -> SourcePos
+    updatePos :: SourcePos -> LToken -> LexStream -> SourcePos
     updatePos pos (L (Position col line) _) _ = newPos (sourceName pos) col line
 
 describeToken :: Token -> String
@@ -105,34 +106,65 @@ describeToken t = case t of
   LexicalError is -> "character in input " ++ show (B8.head is)
 
 tokSym :: Parser (Name Position)
-tokSym', tokStr, tokOther :: Parser (SectionArg Position)
-tokIndent :: Parser Int
-tokColon, tokCloseBrace :: Parser ()
-tokOpenBrace :: Parser Position
-tokFieldLine :: Parser (FieldLine Position)
-tokSym = getTokenWithPos $ \t -> case t of L pos (TokSym x) -> Just (mkName pos x); _ -> Nothing
-tokSym' = getTokenWithPos $ \t -> case t of L pos (TokSym x) -> Just (SecArgName pos x); _ -> Nothing
-tokStr = getTokenWithPos $ \t -> case t of L pos (TokStr x) -> Just (SecArgStr pos x); _ -> Nothing
-tokOther = getTokenWithPos $ \t -> case t of L pos (TokOther x) -> Just (SecArgOther pos x); _ -> Nothing
-tokIndent = getToken $ \t -> case t of Indent x -> Just x; _ -> Nothing
-tokColon = getToken $ \t -> case t of Colon -> Just (); _ -> Nothing
-tokOpenBrace = getTokenWithPos $ \t -> case t of L pos OpenBrace -> Just pos; _ -> Nothing
-tokCloseBrace = getToken $ \t -> case t of CloseBrace -> Just (); _ -> Nothing
-tokFieldLine = getTokenWithPos $ \t -> case t of L pos (TokFieldLine s) -> Just (FieldLine pos s); _ -> Nothing
+tokSym = getTokenWithPos $ \case
+  L pos (TokSym x) -> Just (mkName pos x)
+  _ -> Nothing
 
-colon, openBrace, closeBrace :: Parser ()
+tokSym' :: Parser (SectionArg Position)
+tokSym' = getTokenWithPos $ \case
+  L pos (TokSym x) -> Just (SecArgName pos x)
+  _ -> Nothing
+
+tokStr :: Parser (SectionArg Position)
+tokStr = getTokenWithPos $ \case
+  L pos (TokStr x) -> Just (SecArgStr pos x)
+  _ -> Nothing
+
+tokOther :: Parser (SectionArg Position)
+tokOther = getTokenWithPos $ \case
+  L pos (TokOther x) -> Just (SecArgOther pos x)
+  _ -> Nothing
+
+tokIndent :: Parser Int
+tokIndent = getToken $ \case
+  Indent x -> Just x
+  _ -> Nothing
+
+tokColon :: Parser ()
+tokColon = getToken $ \case
+  Colon -> Just ()
+  _ -> Nothing
+
+tokOpenBrace :: Parser Position
+tokOpenBrace = getTokenWithPos $ \case
+  L pos OpenBrace -> Just pos
+  _ -> Nothing
+
+tokCloseBrace :: Parser ()
+tokCloseBrace = getToken $ \case
+  CloseBrace -> Just ()
+  _ -> Nothing
+
+tokFieldLine :: Parser (FieldLine Position)
+tokFieldLine = getTokenWithPos $ \case
+  L pos (TokFieldLine s) -> Just (FieldLine pos s)
+  _ -> Nothing
+
+colon :: Parser ()
+colon = tokColon <?> "\":\""
+
 sectionArg :: Parser (SectionArg Position)
 sectionArg = tokSym' <|> tokStr <|> tokOther <?> "section parameter"
 
 fieldSecName :: Parser (Name Position)
 fieldSecName = tokSym <?> "field or section name"
 
-colon = tokColon <?> "\":\""
-
+openBrace :: Parser ()
 openBrace = do
   pos <- tokOpenBrace <?> "\"{\""
   addLexerWarning (LexWarning LexBraces pos)
 
+closeBrace :: Parser ()
 closeBrace = tokCloseBrace <?> "\"}\""
 
 braces :: Parser a -> Parser a
@@ -158,11 +190,8 @@ indentOfAtLeast (IndentLevel i) k = try $ do
 newtype LexerMode = LexerMode Int
 
 inLexerMode :: LexerMode -> Parser p -> Parser p
-inLexerMode (LexerMode mode) p = do
-  setLexerMode mode
-  x <- p
-  setLexerMode in_section
-  return x
+inLexerMode (LexerMode mode) p =
+  setLexerMode mode *> p <* setLexerMode in_section
 
 -----------------------
 -- Cabal file grammar
@@ -356,7 +385,7 @@ readFields' s = do
       ws <- getLexerWarnings -- lexer accumulates warnings in reverse (consing them to the list)
       pure (fields, reverse ws ++ checkIndentation fields [])
 
-    lexSt = mkLexState' (mkLexState s)
+    lexSt = mkLexStream (mkLexState s)
 
 -- | Check (recursively) that all fields inside a block are indented the same.
 --
