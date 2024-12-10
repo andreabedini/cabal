@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DerivingVia #-}
 
 -----------------------------------------------------------------------------
 
@@ -11,8 +12,9 @@
 module Distribution.Fields.LexerMonad
   ( InputStream
   , LexState (..)
-  , LexResult (..)
   , Lex (..)
+  , StartCode
+  , runLexer
   , execLexer
   , getPos
   , setPos
@@ -35,23 +37,21 @@ import Distribution.Parsec.Position (Position (..), positionRow, showPos)
 import Distribution.Parsec.Warning (PWarnType (..), PWarning (..))
 import Prelude ()
 
+import Control.Monad.State.Strict (State, StateT (..), gets, modify', runState)
 import qualified Data.Map.Strict as Map
 
--- simple state monad
-newtype Lex a = Lex {unLex :: LexState -> LexResult a}
+newtype Lex a = Lex {unLex :: State LexState a}
+  deriving (Functor, Applicative, Monad) via (State LexState)
 
-instance Functor Lex where
-  fmap = liftM
-
-instance Applicative Lex where
-  pure = returnLex
-  (<*>) = ap
-
-instance Monad Lex where
-  return = pure
-  (>>=) = thenLex
-
-data LexResult a = LexResult {-# UNPACK #-} !LexState a
+data LexState = LexState
+  { curPos :: {-# UNPACK #-} !Position
+  -- ^ position at current input location
+  , curInput :: {-# UNPACK #-} !InputStream
+  -- ^ the current input
+  , curCode :: {-# UNPACK #-} !StartCode
+  -- ^ lexer code
+  , warnings :: [LexWarning]
+  }
 
 data LexWarningType
   = -- | Encountered non breaking space
@@ -91,16 +91,6 @@ toPWarnings =
     toWarning LexBraces _ =
       Nothing
 
-data LexState = LexState
-  { curPos :: {-# UNPACK #-} !Position
-  -- ^ position at current input location
-  , curInput :: {-# UNPACK #-} !InputStream
-  -- ^ the current input
-  , curCode :: {-# UNPACK #-} !StartCode
-  -- ^ lexer code
-  , warnings :: [LexWarning]
-  }
-
 -- TODO: check if we should cache the first token
 -- since it looks like parsec's uncons can be called many times on the same input
 
@@ -110,56 +100,54 @@ type StartCode =
 
 type InputStream = B.ByteString
 
+runLexer :: Lex a -> LexState -> (a, LexState)
+runLexer (Lex lexer) = runState lexer
+
 -- | Execute the given lexer on the supplied input stream.
 execLexer :: Lex a -> InputStream -> ([LexWarning], a)
-execLexer (Lex lexer) input =
-  case lexer initialState of
-    LexResult LexState{warnings = ws} result -> (ws, result)
+execLexer (Lex lexer) input = (warnings s, result)
   where
-    initialState =
-      LexState
-        { -- TODO: add 'startPosition'
-          curPos = Position 1 1
-        , curInput = input
-        , curCode = 0
-        , warnings = []
-        }
-
-{-# INLINE returnLex #-}
-returnLex :: a -> Lex a
-returnLex a = Lex $ \s -> LexResult s a
-
-{-# INLINE thenLex #-}
-thenLex :: Lex a -> (a -> Lex b) -> Lex b
-(Lex m) `thenLex` k = Lex $ \s -> case m s of LexResult s' a -> (unLex (k a)) s'
+    (result, s) =
+      runState
+        lexer
+        LexState
+          { -- TODO: add 'startPosition'
+            curPos = Position 1 1
+          , curInput = input
+          , curCode = 0
+          , warnings = []
+          }
 
 setPos :: Position -> Lex ()
-setPos pos = Lex $ \s -> LexResult s{curPos = pos} ()
+setPos pos = Lex $ modify' $ \s -> s{curPos = pos}
 
 getPos :: Lex Position
-getPos = Lex $ \s@LexState{curPos = pos} -> LexResult s pos
+getPos = Lex $ gets curPos
 
 adjustPos :: (Position -> Position) -> Lex ()
-adjustPos f = Lex $ \s@LexState{curPos = pos} -> LexResult s{curPos = f pos} ()
+adjustPos f = Lex $ modify' $ \s ->
+  s{curPos = f (curPos s)}
 
 getInput :: Lex InputStream
-getInput = Lex $ \s@LexState{curInput = i} -> LexResult s i
+getInput = Lex $ gets curInput
 
 setInput :: InputStream -> Lex ()
-setInput i = Lex $ \s -> LexResult s{curInput = i} ()
+setInput i = Lex $ modify' $ \s ->
+  s{curInput = i}
 
 getStartCode :: Lex Int
-getStartCode = Lex $ \s@LexState{curCode = c} -> LexResult s c
+getStartCode = Lex $ gets curCode
 
 setStartCode :: Int -> Lex ()
-setStartCode c = Lex $ \s -> LexResult s{curCode = c} ()
+setStartCode c = Lex $ modify' $ \s ->
+  s{curCode = c}
 
 -- | Add warning at the current position
 addWarning :: LexWarningType -> Lex ()
-addWarning wt = Lex $ \s@LexState{curPos = pos, warnings = ws} ->
-  LexResult s{warnings = LexWarning wt pos : ws} ()
+addWarning wt = Lex $ modify' $ \s ->
+  s{warnings = LexWarning wt (curPos s) : warnings s}
 
 -- | Add warning at specific position
 addWarningAt :: Position -> LexWarningType -> Lex ()
-addWarningAt pos wt = Lex $ \s@LexState{warnings = ws} ->
-  LexResult s{warnings = LexWarning wt pos : ws} ()
+addWarningAt pos wt = Lex $ modify' $ \s ->
+  s{warnings = LexWarning wt pos : warnings s}
