@@ -26,6 +26,7 @@ module Distribution.Fields.Parser
 
 import Control.Applicative (asum)
 import qualified Data.ByteString.Char8 as B8
+import Data.Function ((&))
 import Data.Functor.Identity
 import Distribution.Compat.Prelude
 import Distribution.Fields.Field
@@ -249,7 +250,7 @@ inLexerMode (LexerMode mode) p =
 -- Top level of a file using cabal syntax
 --
 cabalStyleFile :: Parser [Field Position]
-cabalStyleFile = do
+cabalStyleFile =
   elements zeroIndentLevel <* eof
 
 -- Elements that live at the top level or inside a section, i.e. fields
@@ -268,12 +269,15 @@ elements ilevel = many (element ilevel)
 element :: IndentLevel -> Parser (Field Position)
 element ilevel =
   asum
-    [ indentOfAtLeast ilevel $ \ilevel' -> do
-        name <- fieldSecName
-        elementInLayoutContext (incIndentLevel ilevel') name
-    , do
-        name <- fieldSecName
-        elementInNonLayoutContext name
+    [ indentOfAtLeast ilevel $ \ilevel' ->
+        liftA2
+          (&)
+          fieldSecName
+          (elementInLayoutContext (incIndentLevel ilevel'))
+    , liftA2
+        (&)
+        fieldSecName
+        elementInNonLayoutContext
     ]
 
 -- An element (field or section) that is valid in a layout context.
@@ -282,11 +286,15 @@ element ilevel =
 --
 -- elementInLayoutContext ::= ':'  fieldLayoutOrBraces
 --                          | arg* sectionLayoutOrBraces
-elementInLayoutContext :: IndentLevel -> Name Position -> Parser (Field Position)
-elementInLayoutContext ilevel name =
+elementInLayoutContext :: IndentLevel -> Parser (Name Position -> Field Position)
+elementInLayoutContext ilevel =
   asum
-    [ colon *> (Field name <$> fieldLayoutOrBraces ilevel)
-    , Section name
+    [ colon
+        *> ( fmap
+              (flip Field)
+              (fieldLayoutOrBraces ilevel)
+           )
+    , (\args fields name -> Section name args fields)
         <$> many sectionArg
         <*> sectionLayoutOrBraces ilevel
     ]
@@ -297,11 +305,15 @@ elementInLayoutContext ilevel name =
 --
 -- elementInNonLayoutContext ::= ':' FieldInlineOrBraces
 --                             | arg* '\\n'? '{' elements '\\n'? '}'
-elementInNonLayoutContext :: Name Position -> Parser (Field Position)
-elementInNonLayoutContext name =
+elementInNonLayoutContext :: Parser (Name Position -> Field Position)
+elementInNonLayoutContext =
   asum
-    [ colon *> (Field name <$> fieldInlineOrBraces)
-    , Section name
+    [ colon
+        *> ( fmap
+              (\fieldlines name -> Field name fieldlines)
+              fieldInlineOrBraces
+           )
+    , (\args fields name -> Section name args fields)
         <$> many sectionArg
         <*> braces (elements zeroIndentLevel <* optional tokIndent)
     ]
@@ -314,14 +326,14 @@ fieldLayoutOrBraces :: IndentLevel -> Parser [FieldLine Position]
 fieldLayoutOrBraces ilevel =
   asum
     [ -- braces
-      braces (inLexerMode (LexerMode in_field_braces) (many fieldContent))
+      braces
+        $ inLexerMode
+          (LexerMode in_field_braces)
+          (many fieldContent)
     , -- layout
-      inLexerMode (LexerMode in_field_layout) $ do
-        l <- optionMaybe fieldContent
-        ls <- many (indentOfAtLeast ilevel (const fieldContent))
-        return $ case l of
-          Nothing -> ls
-          Just l' -> (l' : ls)
+      inLexerMode
+        (LexerMode in_field_layout)
+        (option id (fmap (:) fieldContent) <*> many (indentOfAtLeast ilevel (const fieldContent)))
     ]
 
 -- The body of a section, using either layout style or braces style.
@@ -342,8 +354,13 @@ sectionLayoutOrBraces ilevel =
 fieldInlineOrBraces :: Parser [FieldLine Position]
 fieldInlineOrBraces =
   asum
-    [ braces (inLexerMode (LexerMode in_field_braces) (many fieldContent))
-    , inLexerMode (LexerMode in_field_braces) (option [] (fmap (\l -> [l]) fieldContent))
+    [ braces
+        $ inLexerMode
+          (LexerMode in_field_braces)
+          (many fieldContent)
+    , inLexerMode
+        (LexerMode in_field_braces)
+        (option [] (fmap (\l -> [l]) fieldContent))
     ]
 
 -- | Parse cabal style 'B8.ByteString' into list of 'Field's, i.e. the cabal AST.
@@ -376,7 +393,9 @@ readFields :: B8.ByteString -> Either ParseError [Field Position]
 readFields s = fmap fst (readFields' s)
 
 -- | Like 'readFields' but also return lexer warnings.
-readFields' :: B8.ByteString -> Either ParseError ([Field Position], [LexWarning])
+readFields'
+  :: B8.ByteString
+  -> Either ParseError ([Field Position], [LexWarning])
 readFields' s = do
   parse parser "the input" lexSt
   where
@@ -388,6 +407,8 @@ readFields' s = do
     lexSt = mkLexStream (mkLexState s)
 
 -- | Check (recursively) that all fields inside a block are indented the same.
+--
+-- AB: NOTE: This only emits warnings
 --
 -- We have to do this as a post-processing check.
 -- As the parser uses indentOfAtLeast approach, we don't know what is the "correct"
