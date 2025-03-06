@@ -187,7 +187,9 @@ data CabalInstallException
   | CmdPathAcceptsNoTargets
   | CmdPathCommandDoesn'tSupportDryRun
   | GenBoundsDoesNotSupportScript FilePath
-  deriving (Show)
+  | HookAcceptUnknown FilePath FilePath String
+  | HookAcceptHashMismatch FilePath FilePath String String
+  deriving (Show, Typeable)
 
 exceptionCodeCabalInstall :: CabalInstallException -> Int
 exceptionCodeCabalInstall e = case e of
@@ -340,6 +342,8 @@ exceptionCodeCabalInstall e = case e of
   CmdPathAcceptsNoTargets{} -> 7161
   CmdPathCommandDoesn'tSupportDryRun -> 7163
   GenBoundsDoesNotSupportScript{} -> 7164
+  HookAcceptUnknown{} -> 7164
+  HookAcceptHashMismatch{} -> 7165
 
 exceptionMessageCabalInstall :: CabalInstallException -> String
 exceptionMessageCabalInstall e = case e of
@@ -864,6 +868,36 @@ exceptionMessageCabalInstall e = case e of
     "The 'path' command doesn't support the flag '--dry-run'."
   GenBoundsDoesNotSupportScript{} ->
     "The 'gen-bounds' command does not support script targets."
+  HookAcceptUnknown hsPath fpath hash ->
+    concat
+      [ "The following file does not appear in the hooks-security file.\n"
+      , "    hook file : "
+      , fpath
+      , "\n"
+      , "    file hash : "
+      , hash
+      , "\n"
+      , "After checking the contents of that file, it should be added to the\n"
+      , "hooks-security file with either AcceptAlways or better yet an AcceptHash.\n"
+      , "The hooks-security file is (probably) located at: "
+      , hsPath
+      ]
+  HookAcceptHashMismatch hsPath fpath expected actual ->
+    concat
+      [ "\nHook file hash mismatch for:\n"
+      , "    hook file    : "
+      , fpath
+      , "\n"
+      , "    expected hash: "
+      , expected
+      , "\n"
+      , "    actual hash  : "
+      , actual
+      , "\n"
+      , "The hook file should be inspected and if deemed ok, the hooks-security file updated.\n"
+      , "The hooks-security file is (probably) located at: "
+      , hsPath
+      ]
 
 instance Exception (VerboseException CabalInstallException) where
   displayException :: VerboseException CabalInstallException -> [Char]
