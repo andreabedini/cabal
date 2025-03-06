@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -70,7 +71,7 @@ import qualified Distribution.Simple.Flag as Flag
 import Distribution.Simple.Setup (CommonSetupFlags (..), HaddockFlags (..), HaddockProjectFlags (..), defaultCommonSetupFlags, defaultHaddockFlags, defaultHaddockProjectFlags, toFlag)
 import Distribution.System
 import Distribution.Text
-import Distribution.Utils.Path (unsafeMakeSymbolicPath)
+import Distribution.Utils.Path (FileOrDir (File), Pkg, SymbolicPath, unsafeMakeSymbolicPath)
 import Distribution.Version
 import IntegrationTests2.CPP
 
@@ -658,7 +659,10 @@ testTargetSelectorAmbiguous reportSubCase = do
 
     withCFiles :: Executable -> [FilePath] -> Executable
     withCFiles exe files =
-      exe{buildInfo = (buildInfo exe){cSources = map unsafeMakeSymbolicPath files}}
+      exe{buildInfo = (buildInfo exe){cSources = map (mkExtraSource . unsafeMakeSymbolicPath) files}}
+
+    mkExtraSource :: SymbolicPath Pkg File -> ExtraSource Pkg
+    mkExtraSource x = ExtraSourcePkg x []
 
     withHsSrcDirs :: Executable -> [FilePath] -> Executable
     withHsSrcDirs exe srcDirs =
@@ -2193,6 +2197,7 @@ planProject testdir cliConfig = do
   (elaboratedPlan, _, elaboratedShared, _, _) <-
     rebuildInstallPlan
       verbosity
+      mempty
       distDirLayout
       cabalDirLayout
       projectConfig

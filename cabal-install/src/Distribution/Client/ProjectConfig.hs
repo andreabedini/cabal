@@ -57,6 +57,7 @@ module Distribution.Client.ProjectConfig
   , BuildTimeSettings (..)
   , resolveBuildTimeSettings
   , resolveNumJobsSetting
+  , resolveProgramDb
 
     -- * Checking configuration
   , checkBadPerPackageCompilerPaths
@@ -175,6 +176,9 @@ import Distribution.Simple.InstallDirs
   )
 import Distribution.Simple.Program
   ( ConfiguredProgram (..)
+  , ProgramDb
+  , defaultProgramDb
+  , userSpecifyPaths
   )
 import Distribution.Simple.Setup
   ( Flag (Flag)
@@ -245,6 +249,7 @@ import System.IO
   )
 
 import Distribution.Deprecated.ProjectParseUtils (ProjectParseError (..), ProjectParseWarning)
+import Distribution.Simple.Program.Db (prependProgramSearchPath)
 import Distribution.Solver.Types.ProjectConfigPath
 
 ----------------------------------------
@@ -553,6 +558,12 @@ resolveNumJobsSetting projectConfigUseSemaphore projectConfigNumJobs =
     else case (determineNumJobs projectConfigNumJobs) of
       1 -> Serial
       n -> NumJobs (Just n)
+
+resolveProgramDb :: Verbosity -> PackageConfig -> IO ProgramDb
+resolveProgramDb verbosity pkgconf = do
+  let extraPath = fromNubList (packageConfigProgramPathExtra pkgconf)
+  progdb <- prependProgramSearchPath verbosity extraPath [] defaultProgramDb
+  return $ userSpecifyPaths (Map.toList (getMapLast (packageConfigProgramPaths pkgconf))) progdb
 
 ---------------------------------------------
 -- Reading and writing project config files
@@ -1261,7 +1272,6 @@ mplusMaybeT ma mb = do
 fetchAndReadSourcePackages
   :: Verbosity
   -> DistDirLayout
-  -> Maybe Compiler
   -> ProjectConfigShared
   -> ProjectConfigBuildOnly
   -> [ProjectPackageLocation]
@@ -1269,7 +1279,6 @@ fetchAndReadSourcePackages
 fetchAndReadSourcePackages
   verbosity
   distDirLayout
-  compiler
   projectConfigShared
   projectConfigBuildOnly
   pkgLocations = do
@@ -1306,9 +1315,7 @@ fetchAndReadSourcePackages
       syncAndReadSourcePackagesRemoteRepos
         verbosity
         distDirLayout
-        compiler
         projectConfigShared
-        projectConfigBuildOnly
         (fromFlag (projectConfigOfflineMode projectConfigBuildOnly))
         [repo | ProjectPackageRemoteRepo repo <- pkgLocations]
 
@@ -1425,22 +1432,15 @@ fetchAndReadSourcePackageRemoteTarball
 syncAndReadSourcePackagesRemoteRepos
   :: Verbosity
   -> DistDirLayout
-  -> Maybe Compiler
   -> ProjectConfigShared
-  -> ProjectConfigBuildOnly
   -> Bool
   -> [SourceRepoList]
   -> Rebuild [PackageSpecifier (SourcePackage UnresolvedPkgLoc)]
 syncAndReadSourcePackagesRemoteRepos
   verbosity
   DistDirLayout{distDownloadSrcDirectory}
-  compiler
   ProjectConfigShared
     { projectConfigProgPathExtra
-    }
-  ProjectConfigBuildOnly
-    { projectConfigUseSemaphore
-    , projectConfigNumJobs
     }
   offlineMode
   repos = do
@@ -1462,6 +1462,7 @@ syncAndReadSourcePackagesRemoteRepos
             ]
 
     let progPathExtra = fromNubList projectConfigProgPathExtra
+
     getConfiguredVCS <- delayInitSharedResources $ \repoType ->
       let vcs = Map.findWithDefault (error $ "Unknown VCS: " ++ prettyShow repoType) repoType knownVCSs
        in configureVCS verbosity progPathExtra vcs
@@ -1469,7 +1470,7 @@ syncAndReadSourcePackagesRemoteRepos
     concat
       <$> rerunConcurrentlyIfChanged
         verbosity
-        (newJobControlFromParStrat verbosity compiler parStrat (Just maxNumFetchJobs))
+        (newParallelJobControl maxNumFetchJobs)
         [ ( monitor
           , repoGroup'
           , do
@@ -1488,7 +1489,6 @@ syncAndReadSourcePackagesRemoteRepos
               monitor = newFileMonitor (pathStem <.> "cache")
         ]
     where
-      parStrat = resolveNumJobsSetting projectConfigUseSemaphore projectConfigNumJobs
       syncRepoGroupAndReadSourcePackages
         :: VCS ConfiguredProgram
         -> FilePath
