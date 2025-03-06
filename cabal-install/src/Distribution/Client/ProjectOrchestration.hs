@@ -180,6 +180,8 @@ import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Distribution.Client.Errors
+import Distribution.Client.HookAccept (loadHookHasheshMap)
+
 import Distribution.Package
 import Distribution.Simple.Command (commandShowOptions)
 import Distribution.Simple.Compiler
@@ -367,6 +369,8 @@ withInstallPlan
     , installedPackages
     }
   action = do
+    hookHashes <- loadHookHasheshMap (projectConfigConfigFile $ projectConfigShared projectConfig)
+
     -- Take the project configuration and make a plan for how to build
     -- everything in the project. This is independent of any specific targets
     -- the user has asked for.
@@ -374,6 +378,7 @@ withInstallPlan
     (elaboratedPlan, _, elaboratedShared, _, _) <-
       rebuildInstallPlan
         verbosity
+        hookHashes
         distDirLayout
         cabalDirLayout
         projectConfig
@@ -396,6 +401,8 @@ runProjectPreBuildPhase
     , installedPackages
     }
   selectPlanSubset = do
+    hookHashes <- loadHookHasheshMap (projectConfigConfigFile $ projectConfigShared projectConfig)
+
     -- Take the project configuration and make a plan for how to build
     -- everything in the project. This is independent of any specific targets
     -- the user has asked for.
@@ -403,6 +410,7 @@ runProjectPreBuildPhase
     (elaboratedPlan, _, elaboratedShared, _, _) <-
       rebuildInstallPlan
         verbosity
+        hookHashes
         distDirLayout
         cabalDirLayout
         projectConfig

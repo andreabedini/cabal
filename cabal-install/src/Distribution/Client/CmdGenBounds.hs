@@ -97,6 +97,7 @@ genBoundsAction flags targetStrings globalFlags =
     (_, elaboratedPlan, _, _, _) <-
       rebuildInstallPlan
         verbosity
+        mempty
         distDirLayout
         cabalDirLayout
         projectConfig

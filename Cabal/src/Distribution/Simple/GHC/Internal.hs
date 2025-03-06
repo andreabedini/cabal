@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 
@@ -48,6 +49,9 @@ module Distribution.Simple.GHC.Internal
   , ghcEnvironmentFileName
   , renderGhcEnvironmentFile
   , renderGhcEnvironmentFileEntry
+
+    -- * Paths
+  , SourcePath (..)
   ) where
 
 import Distribution.Compat.Prelude
@@ -331,7 +335,6 @@ getExtensions verbosity implInfo ghcProg = do
           then lines str
           else -- Older GHCs only gave us either Foo or NoFoo,
           -- so we have to work out the other one ourselves
-
             [ extStr''
             | extStr <- lines str
             , let extStr' = case extStr of
@@ -351,7 +354,6 @@ getExtensions verbosity implInfo ghcProg = do
           -- Since it was not a proper extension, it could
           -- not be turned off, hence we omit a
           -- DisableExtension entry here.
-
             (EnableExtension NondecreasingIndentation, Nothing)
               : extensions0
           else extensions0
@@ -377,21 +379,23 @@ includePaths lbi bi clbi odir =
          | dir <- mapMaybe (symbolicPathRelative_maybe . unsafeCoerceSymbolicPath) $ includeDirs bi
          ]
 
-componentCcGhcOptions
-  :: Verbosity
-  -> LocalBuildInfo
-  -> BuildInfo
-  -> ComponentLocalBuildInfo
-  -> SymbolicPath Pkg (Dir Artifacts)
-  -> SymbolicPath Pkg File
-  -> GhcOptions
-componentCcGhcOptions verbosity lbi bi clbi odir filename =
+type ExtraSourceGhcOptions pkg =
+  Verbosity
+    -> LocalBuildInfo
+    -> BuildInfo
+    -> ComponentLocalBuildInfo
+    -> SymbolicPath Pkg (Dir Artifacts)
+    -> ExtraSource pkg
+    -> GhcOptions
+
+componentCcGhcOptions :: SourcePath (ExtraSource pkg) => ExtraSourceGhcOptions pkg
+componentCcGhcOptions verbosity lbi bi clbi odir extraSource =
   mempty
     { -- Respect -v0, but don't crank up verbosity on GHC if
       -- Cabal verbosity is requested. For that, use --ghc-option=-v instead!
       ghcOptVerbosity = toFlag (min verbosity normal)
     , ghcOptMode = toFlag GhcModeCompile
-    , ghcOptInputFiles = toNubListR [filename]
+    , ghcOptInputFiles = toNubListR [sourcePath lbi extraSource]
     , ghcOptCppIncludePath = includePaths lbi bi clbi odir
     , ghcOptHideAllPackages = toFlag True
     , ghcOptPackageDBs = withPackageDB lbi
@@ -408,29 +412,23 @@ componentCcGhcOptions verbosity lbi bi clbi odir filename =
                 MaximalDebugInfo -> ["-g3"]
              )
           ++ ccOptions bi
+          ++ extraSourceOpts extraSource
     , ghcOptCcProgram =
         maybeToFlag $
           programPath
-            <$> lookupProgram gccProgram (withPrograms lbi)
+          <$> lookupProgram gccProgram (withPrograms lbi)
     , ghcOptObjDir = toFlag odir
     , ghcOptExtra = hcOptions GHC bi
     }
 
-componentCxxGhcOptions
-  :: Verbosity
-  -> LocalBuildInfo
-  -> BuildInfo
-  -> ComponentLocalBuildInfo
-  -> SymbolicPath Pkg (Dir Artifacts)
-  -> SymbolicPath Pkg File
-  -> GhcOptions
-componentCxxGhcOptions verbosity lbi bi clbi odir filename =
+componentCxxGhcOptions :: SourcePath (ExtraSource pkg) => ExtraSourceGhcOptions pkg
+componentCxxGhcOptions verbosity lbi bi clbi odir extraSource =
   mempty
     { -- Respect -v0, but don't crank up verbosity on GHC if
       -- Cabal verbosity is requested. For that, use --ghc-option=-v instead!
       ghcOptVerbosity = toFlag (min verbosity normal)
     , ghcOptMode = toFlag GhcModeCompile
-    , ghcOptInputFiles = toNubListR [filename]
+    , ghcOptInputFiles = toNubListR [sourcePath lbi extraSource]
     , ghcOptCppIncludePath = includePaths lbi bi clbi odir
     , ghcOptHideAllPackages = toFlag True
     , ghcOptPackageDBs = withPackageDB lbi
@@ -447,29 +445,23 @@ componentCxxGhcOptions verbosity lbi bi clbi odir filename =
                 MaximalDebugInfo -> ["-g3"]
              )
           ++ cxxOptions bi
+          ++ extraSourceOpts extraSource
     , ghcOptCcProgram =
         maybeToFlag $
           programPath
-            <$> lookupProgram gccProgram (withPrograms lbi)
+          <$> lookupProgram gccProgram (withPrograms lbi)
     , ghcOptObjDir = toFlag odir
     , ghcOptExtra = hcOptions GHC bi
     }
 
-componentAsmGhcOptions
-  :: Verbosity
-  -> LocalBuildInfo
-  -> BuildInfo
-  -> ComponentLocalBuildInfo
-  -> SymbolicPath Pkg (Dir Artifacts)
-  -> SymbolicPath Pkg File
-  -> GhcOptions
-componentAsmGhcOptions verbosity lbi bi clbi odir filename =
+componentAsmGhcOptions :: SourcePath (ExtraSource pkg) => ExtraSourceGhcOptions pkg
+componentAsmGhcOptions verbosity lbi bi clbi odir extraSource =
   mempty
     { -- Respect -v0, but don't crank up verbosity on GHC if
       -- Cabal verbosity is requested. For that, use --ghc-option=-v instead!
       ghcOptVerbosity = toFlag (min verbosity normal)
     , ghcOptMode = toFlag GhcModeCompile
-    , ghcOptInputFiles = toNubListR [filename]
+    , ghcOptInputFiles = toNubListR [sourcePath lbi extraSource]
     , ghcOptCppIncludePath = includePaths lbi bi clbi odir
     , ghcOptHideAllPackages = toFlag True
     , ghcOptPackageDBs = withPackageDB lbi
@@ -490,21 +482,14 @@ componentAsmGhcOptions verbosity lbi bi clbi odir filename =
     , ghcOptExtra = hcOptions GHC bi
     }
 
-componentJsGhcOptions
-  :: Verbosity
-  -> LocalBuildInfo
-  -> BuildInfo
-  -> ComponentLocalBuildInfo
-  -> SymbolicPath Pkg (Dir Artifacts)
-  -> SymbolicPath Pkg File
-  -> GhcOptions
-componentJsGhcOptions verbosity lbi bi clbi odir filename =
+componentJsGhcOptions :: SourcePath (ExtraSource pkg) => ExtraSourceGhcOptions pkg
+componentJsGhcOptions verbosity lbi bi clbi odir extraSource =
   mempty
     { -- Respect -v0, but don't crank up verbosity on GHC if
       -- Cabal verbosity is requested. For that, use --ghc-option=-v instead!
       ghcOptVerbosity = toFlag (min verbosity normal)
     , ghcOptMode = toFlag GhcModeCompile
-    , ghcOptInputFiles = toNubListR [filename]
+    , ghcOptInputFiles = toNubListR [sourcePath lbi extraSource]
     , ghcOptJSppOptions = jsppOptions bi
     , ghcOptCppIncludePath = includePaths lbi bi clbi odir
     , ghcOptHideAllPackages = toFlag True
@@ -601,21 +586,14 @@ toGhcOptimisation NoOptimisation = mempty -- TODO perhaps override?
 toGhcOptimisation NormalOptimisation = toFlag GhcNormalOptimisation
 toGhcOptimisation MaximumOptimisation = toFlag GhcMaximumOptimisation
 
-componentCmmGhcOptions
-  :: Verbosity
-  -> LocalBuildInfo
-  -> BuildInfo
-  -> ComponentLocalBuildInfo
-  -> SymbolicPath Pkg (Dir Artifacts)
-  -> SymbolicPath Pkg File
-  -> GhcOptions
-componentCmmGhcOptions verbosity lbi bi clbi odir filename =
+componentCmmGhcOptions :: SourcePath (ExtraSource pkg) => ExtraSourceGhcOptions pkg
+componentCmmGhcOptions verbosity lbi bi clbi odir extraSource =
   mempty
     { -- Respect -v0, but don't crank up verbosity on GHC if
       -- Cabal verbosity is requested. For that, use --ghc-option=-v instead!
       ghcOptVerbosity = toFlag (min verbosity normal)
     , ghcOptMode = toFlag GhcModeCompile
-    , ghcOptInputFiles = toNubListR [filename]
+    , ghcOptInputFiles = toNubListR [sourcePath lbi extraSource]
     , ghcOptCppIncludePath = includePaths lbi bi clbi odir
     , ghcOptCppOptions = cppOptions bi
     , ghcOptCppIncludes =
@@ -626,7 +604,7 @@ componentCmmGhcOptions verbosity lbi bi clbi odir filename =
     , ghcOptPackages = toNubListR $ mkGhcOptPackages (promisedPkgs lbi) clbi
     , ghcOptOptimisation = toGhcOptimisation (withOptimization lbi)
     , ghcOptDebugInfo = toFlag (withDebugInfo lbi)
-    , ghcOptExtra = hcOptions GHC bi <> cmmOptions bi
+    , ghcOptExtra = hcOptions GHC bi <> cmmOptions bi ++ extraSourceOpts extraSource
     , ghcOptObjDir = toFlag odir
     }
 
@@ -862,3 +840,12 @@ renderGhcEnvironmentFileEntry entry = case entry of
       UserPackageDB -> "user-package-db"
       SpecificPackageDB dbfile -> "package-db " ++ dbfile
   GhcEnvFileClearPackageDbStack -> "clear-package-db"
+
+class ExtraSourceClass e => SourcePath e where
+  sourcePath :: LocalBuildInfo -> e -> SymbolicPath Pkg 'File
+
+instance SourcePath (ExtraSource Pkg) where
+  sourcePath _ (ExtraSourcePkg f _) = f
+
+instance SourcePath (ExtraSource Build) where
+  sourcePath lbi (ExtraSourceBuild f _) = buildDir lbi </> f
