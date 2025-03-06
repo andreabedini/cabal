@@ -76,6 +76,7 @@ import Distribution.Simple.Utils
 import Distribution.System
 import Distribution.Types.BuildInfo
 import Distribution.Types.ComponentLocalBuildInfo
+import Distribution.Types.ExtraSource (ExtraSource (..))
 import Distribution.Types.GivenComponent
 import qualified Distribution.Types.InstalledPackageInfo as IPI
 import Distribution.Types.Library
@@ -357,21 +358,21 @@ splitCandCxxOptions
   -> BuildInfo
   -> ComponentLocalBuildInfo
   -> SymbolicPathX 'AllowAbsolute Pkg (Dir Artifacts)
-  -> SymbolicPathX 'AllowAbsolute Pkg File
+  -> ExtraSource
   -> GhcOptions
-splitCandCxxOptions source verbosity lbi bi clbi odir filename = case source of
+splitCandCxxOptions source verbosity lbi bi clbi odir extraSource = case source of
   CxxProgram ->
     -- For C++ sources: reset ccOptions for GHC < 8.10, because on those
     -- old GHCs there's no -optcxx flag — all options go through -optc.
     -- Without this reset, C-specific flags (ccOptions) would leak into
     -- C++ compilation via -optc, which is wrong.
-    setGppProgram $ setCcOptions $ sourcesGhcOptions verbosity lbi bi clbi odir filename
+    setGppProgram $ setCcOptions $ sourcesGhcOptions verbosity lbi bi clbi odir extraSource
   CcProgram ->
     -- For C sources: reset cxxOptions for GHC < 8.10, because on those
     -- old GHCs there's no -optcxx flag — all options go through -optc.
     -- Without this reset, C++-specific flags (cxxOptions) would leak into
     -- C compilation via -optc, which is wrong.
-    setCcProgram $ setCxxOptions $ sourcesGhcOptions verbosity lbi bi clbi odir filename
+    setCcProgram $ setCxxOptions $ sourcesGhcOptions verbosity lbi bi clbi odir extraSource
   where
     setCcOptions xxx =
       xxx
@@ -444,16 +445,24 @@ sourcesGhcOptions
   -> BuildInfo
   -> ComponentLocalBuildInfo
   -> SymbolicPath Pkg (Dir Artifacts)
-  -> SymbolicPath Pkg File
+  -> ExtraSource
   -> GhcOptions
-sourcesGhcOptions verbosity lbi bi clbi odir filename =
-  (componentGhcOptions verbosity lbi bi clbi odir)
-    { ghcOptVerbosity = toFlag (min verbosity Normal)
-    , ghcOptMode = toFlag GhcModeCompile
-    , ghcOptInputFiles = toNubListR [filename]
-    , ghcOptObjDir = toFlag odir
-    , ghcOptPackages = toNubListR $ mkGhcOptPackages (promisedPkgs lbi) clbi
-    }
+sourcesGhcOptions verbosity lbi bi clbi odir extraSource =
+  let baseOpts = componentGhcOptions verbosity lbi bi clbi odir
+   in baseOpts
+        { ghcOptVerbosity = toFlag (min verbosity Normal)
+        , ghcOptMode = toFlag GhcModeCompile
+        , ghcOptInputFiles = toNubListR [extraSourceFile extraSource]
+        , ghcOptObjDir = toFlag odir
+        , ghcOptPackages = toNubListR $ mkGhcOptPackages (promisedPkgs lbi) clbi
+        , -- Per-file options are appended to the per-language compiler option
+          -- fields; GHC selects the relevant one by the source file's extension.
+          -- (For C/C++, 'splitCandCxxOptions' resets the non-matching field for
+          -- the GHC < 8.10 -optc/-optcxx quirk, leaving the matching one intact.)
+          ghcOptCcOptions = ghcOptCcOptions baseOpts ++ extraSourceOpts extraSource
+        , ghcOptCxxOptions = ghcOptCxxOptions baseOpts ++ extraSourceOpts extraSource
+        , ghcOptAsmOptions = ghcOptAsmOptions baseOpts ++ extraSourceOpts extraSource
+        }
 
 optimizationCFlags :: LocalBuildInfo -> [String]
 optimizationCFlags lbi =
