@@ -756,7 +756,6 @@ convertLegacyAllPackageFlags globalFlags configFlags configExFlags installFlags 
       , installFineGrainedConflicts = projectConfigFineGrainedConflicts
       , installMinimizeConflictSet = projectConfigMinimizeConflictSet
       , installPerComponent = projectConfigPerComponent
-      , installIndependentGoals = projectConfigIndependentGoals
       , installPreferOldest = projectConfigPreferOldest
       , -- installShadowPkgs         = projectConfigShadowPkgs,
       installStrongFlags = projectConfigStrongFlags
@@ -1039,7 +1038,6 @@ convertToLegacySharedConfig
           , installCountConflicts = projectConfigCountConflicts
           , installFineGrainedConflicts = projectConfigFineGrainedConflicts
           , installMinimizeConflictSet = projectConfigMinimizeConflictSet
-          , installIndependentGoals = projectConfigIndependentGoals
           , installPreferOldest = projectConfigPreferOldest
           , installShadowPkgs = mempty -- projectConfigShadowPkgs,
           , installStrongFlags = projectConfigStrongFlags

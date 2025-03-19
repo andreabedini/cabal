@@ -637,7 +637,6 @@ instance Arbitrary ProjectConfigShared where
     projectConfigAllowBootLibInstalls <- arbitrary
     projectConfigOnlyConstrained <- arbitrary
     projectConfigPerComponent <- arbitrary
-    projectConfigIndependentGoals <- arbitrary
     projectConfigPreferOldest <- arbitrary
     projectConfigProgPathExtra <- toNubList <$> listOf arbitraryShortToken
     projectConfigMultiRepl <- arbitrary
@@ -684,7 +683,6 @@ instance Arbitrary ProjectConfigShared where
         <*> shrinker projectConfigAllowBootLibInstalls
         <*> shrinker projectConfigOnlyConstrained
         <*> shrinker projectConfigPerComponent
-        <*> shrinker projectConfigIndependentGoals
         <*> shrinker projectConfigPreferOldest
         <*> shrinker projectConfigProgPathExtra
         <*> shrinker projectConfigMultiRepl
@@ -1045,9 +1043,6 @@ instance Arbitrary FineGrainedConflicts where
 
 instance Arbitrary MinimizeConflictSet where
   arbitrary = MinimizeConflictSet <$> arbitrary
-
-instance Arbitrary IndependentGoals where
-  arbitrary = IndependentGoals <$> arbitrary
 
 instance Arbitrary PreferOldest where
   arbitrary = PreferOldest <$> arbitrary
