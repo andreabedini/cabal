@@ -41,10 +41,12 @@ module Distribution.Simple.InstallDirs
   , combinePathTemplate
   , substPathTemplate
   , initialPathTemplateEnv
+  , initialPathTemplateEnv'
   , platformTemplateEnv
   , compilerTemplateEnv
   , packageTemplateEnv
   , abiTemplateEnv
+  , abiTemplateEnv'
   , installDirsGrammar
   , installDirsTemplateEnv
   ) where
@@ -440,6 +442,20 @@ initialPathTemplateEnv pkgId libname compiler platform =
     ++ platformTemplateEnv platform
     ++ abiTemplateEnv compiler platform
 
+-- | The initial environment has all the static stuff but no paths
+initialPathTemplateEnv'
+  :: PackageIdentifier
+  -> UnitId
+  -> CompilerId
+  -> AbiTag
+  -> Platform
+  -> PathTemplateEnv
+initialPathTemplateEnv' pkgId libname compilerId compilerAbiTag platform =
+  packageTemplateEnv pkgId libname
+    ++ compilerTemplateEnv' compilerId
+    ++ platformTemplateEnv platform
+    ++ abiTemplateEnv' compilerId compilerAbiTag platform
+
 packageTemplateEnv :: PackageIdentifier -> UnitId -> PathTemplateEnv
 packageTemplateEnv pkgId uid =
   [ (PkgNameVar, PathTemplate [Ordinary $ prettyShow (packageName pkgId)])
@@ -453,6 +469,11 @@ packageTemplateEnv pkgId uid =
 compilerTemplateEnv :: CompilerInfo -> PathTemplateEnv
 compilerTemplateEnv compiler =
   [ (CompilerVar, PathTemplate [Ordinary $ prettyShow (compilerInfoId compiler)])
+  ]
+
+compilerTemplateEnv' :: CompilerId -> PathTemplateEnv
+compilerTemplateEnv' compilerId =
+  [ (CompilerVar, PathTemplate [Ordinary $ prettyShow compilerId])
   ]
 
 platformTemplateEnv :: Platform -> PathTemplateEnv
@@ -478,6 +499,25 @@ abiTemplateEnv compiler (Platform arch os) =
         ]
     )
   , (AbiTagVar, PathTemplate [Ordinary $ abiTagString (compilerInfoAbiTag compiler)])
+  ]
+
+abiTemplateEnv' :: CompilerId -> AbiTag -> Platform -> PathTemplateEnv
+abiTemplateEnv' compilerId abiTag (Platform arch os) =
+  [
+    ( AbiVar
+    , PathTemplate
+        [ Ordinary $
+            prettyShow arch
+              ++ '-'
+              : prettyShow os
+              ++ '-'
+              : prettyShow compilerId
+              ++ case abiTag of
+                NoAbiTag -> ""
+                AbiTag tag -> '-' : tag
+        ]
+    )
+  , (AbiTagVar, PathTemplate [Ordinary $ abiTagString abiTag])
   ]
 
 installDirsTemplateEnv :: InstallDirs PathTemplate -> PathTemplateEnv

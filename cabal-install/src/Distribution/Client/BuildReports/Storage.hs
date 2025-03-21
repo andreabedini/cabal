@@ -42,7 +42,6 @@ import Distribution.Solver.Types.SourcePackage
 
 import Distribution.Compiler
   ( CompilerId (..)
-  , CompilerInfo (..)
   )
 import Distribution.Package
   ( PackageId
@@ -54,7 +53,7 @@ import Distribution.PackageDescription
 import Distribution.Simple.InstallDirs
   ( PathTemplate
   , fromPathTemplate
-  , initialPathTemplateEnv
+  , initialPathTemplateEnv'
   , substPathTemplate
   )
 import Distribution.Simple.Utils
@@ -111,12 +110,11 @@ storeAnonymous reports =
       ]
 
 storeLocal
-  :: CompilerInfo
-  -> [PathTemplate]
+  :: [PathTemplate]
   -> [(BuildReport, Maybe Repo)]
   -> Platform
   -> IO ()
-storeLocal cinfo templates reports platform =
+storeLocal templates reports platform =
   sequence_
     [ do
       createDirectoryIfMissing True (takeDirectory file)
@@ -138,14 +136,15 @@ storeLocal cinfo templates reports platform =
       fromPathTemplate (substPathTemplate env template)
       where
         env =
-          initialPathTemplateEnv
+          initialPathTemplateEnv'
             (BuildReport.package report)
             -- TODO: In principle, we can support $pkgkey, but only
             -- if the configure step succeeds.  So add a Maybe field
             -- to the build report, and either use that or make up
             -- a fake identifier if it's not available.
             (error "storeLocal: package key not available")
-            cinfo
+            (BuildReport.compiler report)
+            (BuildReport.compilerAbiTag report)
             platform
 
     groupByFileName =
