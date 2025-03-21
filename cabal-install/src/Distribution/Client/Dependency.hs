@@ -113,7 +113,6 @@ import Distribution.PackageDescription.Configuration
   )
 import qualified Distribution.PackageDescription.Configuration as PD
 import Distribution.Simple.PackageIndex (InstalledPackageIndex)
-import qualified Distribution.Simple.PackageIndex as InstalledPackageIndex
 import Distribution.Simple.Setup
   ( asBool
   )
@@ -148,10 +147,12 @@ import Distribution.Solver.Types.PackagePreferences
 import Distribution.Solver.Types.PkgConfigDb (PkgConfigDb)
 import Distribution.Solver.Types.Progress
 import Distribution.Solver.Types.ResolverPackage
+import Distribution.Solver.Types.Stage
 import Distribution.Solver.Types.Settings
 import Distribution.Solver.Types.SolverId
 import Distribution.Solver.Types.SolverPackage
 import Distribution.Solver.Types.SourcePackage
+import Distribution.Solver.Types.Toolchain
 import Distribution.Solver.Types.Variable
 
 import Control.Exception
@@ -177,7 +178,6 @@ data DepResolverParams = DepResolverParams
   , depResolverConstraints :: [LabeledPackageConstraint]
   , depResolverPreferences :: [PackagePreference]
   , depResolverPreferenceDefault :: PackagesPreferenceDefault
-  , depResolverInstalledPkgIndex :: InstalledPackageIndex
   , depResolverSourcePkgIndex :: PackageIndex.PackageIndex UnresolvedSourcePackage
   , depResolverReorderGoals :: ReorderGoals
   , depResolverCountConflicts :: CountConflicts
@@ -279,7 +279,6 @@ basicDepResolverParams installedPkgIndex sourcePkgIndex =
     , depResolverConstraints = []
     , depResolverPreferences = []
     , depResolverPreferenceDefault = PreferLatestForSelected
-    , depResolverInstalledPkgIndex = installedPkgIndex
     , depResolverSourcePkgIndex = sourcePkgIndex
     , depResolverReorderGoals = ReorderGoals False
     , depResolverCountConflicts = CountConflicts True
@@ -767,12 +766,12 @@ runSolver = modularResolver
 -- a 'Progress' structure that can be unfolded to provide progress information,
 -- logging messages and the final result or an error.
 resolveDependencies
-  :: Platform
-  -> CompilerInfo
-  -> Maybe PkgConfigDb
+  :: Staged Toolchain
+  -> Staged (Maybe PkgConfigDb)
+  -> Staged InstalledPackageIndex 
   -> DepResolverParams
   -> Progress String String SolverInstallPlan
-resolveDependencies platform comp pkgConfigDB params =
+resolveDependencies toolchains pkgConfigDBs installedPkgIndex params =
   Step (showDepResolverParams finalparams) $
     fmap (validateSolverResult platform comp) $
       runSolver
@@ -792,11 +791,10 @@ resolveDependencies platform comp pkgConfigDB params =
             verbosity
             (PruneAfterFirstSuccess False)
         )
-        platform
-        comp
+        toolchains
+        pkgConfigDBs
         installedPkgIndex
         sourcePkgIndex
-        pkgConfigDB
         preferences
         constraints
         targets
@@ -806,7 +804,6 @@ resolveDependencies platform comp pkgConfigDB params =
                     constraints
                     prefs
                     defpref
-                    installedPkgIndex
                     sourcePkgIndex
                     reordGoals
                     cntConflicts
@@ -822,7 +819,7 @@ resolveDependencies platform comp pkgConfigDB params =
                     solveExes
                     order
                     verbosity
-                  ) =
+           ) =
         if asBool (depResolverAllowBootLibInstalls params)
           then params
           else dontInstallNonReinstallablePackages params
@@ -1125,7 +1122,6 @@ resolveWithoutDependencies
       constraints
       prefs
       defpref
-      installedPkgIndex
       sourcePkgIndex
       _reorderGoals
       _countConflicts
