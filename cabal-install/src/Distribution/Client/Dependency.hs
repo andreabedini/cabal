@@ -477,33 +477,20 @@ addSourcePackages pkgs params =
           pkgs
     }
 
+-- FIXME this actually works by package name, not by package id
 hideInstalledPackagesSpecificBySourcePackageId
   :: [PackageId]
   -> DepResolverParams
   -> DepResolverParams
-hideInstalledPackagesSpecificBySourcePackageId pkgids params =
-  -- TODO: this should work using exclude constraints instead
-  params
-    { depResolverInstalledPkgIndex =
-        foldl'
-          (flip InstalledPackageIndex.deleteSourcePackageId)
-          (depResolverInstalledPkgIndex params)
-          pkgids
-    }
-
-hideInstalledPackagesAllVersions
-  :: [PackageName]
-  -> DepResolverParams
-  -> DepResolverParams
-hideInstalledPackagesAllVersions pkgnames params =
-  -- TODO: this should work using exclude constraints instead
-  params
-    { depResolverInstalledPkgIndex =
-        foldl'
-          (flip InstalledPackageIndex.deletePackageName)
-          (depResolverInstalledPkgIndex params)
-          pkgnames
-    }
+hideInstalledPackagesSpecificBySourcePackageId pkgids =
+  addConstraints
+    [ LabeledPackageConstraint
+      (PackageConstraint (ScopeAnyQualifier name) PackagePropertySource)
+      -- FIXME
+      ConstraintSourceUnknown
+    | pkgId <- pkgids
+    , let name = packageName pkgId
+    ]
 
 -- | Remove upper bounds in dependencies using the policy specified by the
 -- 'AllowNewer' argument (all/some/none).
@@ -685,7 +672,16 @@ upgradeDependencies = setPreferenceDefault PreferAllLatest
 
 reinstallTargets :: DepResolverParams -> DepResolverParams
 reinstallTargets params =
-  hideInstalledPackagesAllVersions (Set.toList $ depResolverTargets params) params
+  addConstraints
+    [ LabeledPackageConstraint
+      ( PackageConstraint
+          (ScopeAnyQualifier pkgName)
+          PackagePropertySource
+      )
+      ConstraintSourceProfiledDynamic
+    | pkgName <- Set.toList (depResolverTargets params)
+    ]
+    params
 
 -- | A basic solver policy on which all others are built.
 basicInstallPolicy
