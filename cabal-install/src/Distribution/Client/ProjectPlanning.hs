@@ -175,7 +175,6 @@ import Distribution.Simple.LocalBuildInfo
   , pkgComponents
   )
 
-import Distribution.Simple.BuildWay
 import Distribution.Simple.PackageIndex (InstalledPackageIndex)
 import Distribution.Simple.Program
 import Distribution.Simple.Program.Db
@@ -211,8 +210,6 @@ import qualified Distribution.InstalledPackageInfo as IPI
 import qualified Distribution.PackageDescription as PD
 import qualified Distribution.PackageDescription.Configuration as PD
 import qualified Distribution.Simple.Configure as Cabal
-import qualified Distribution.Simple.GHC as GHC
-import qualified Distribution.Simple.GHCJS as GHCJS
 import qualified Distribution.Simple.InstallDirs as InstallDirs
 import qualified Distribution.Simple.LocalBuildInfo as Cabal
 import qualified Distribution.Simple.Setup as Cabal
@@ -1711,8 +1708,7 @@ elaborateInstallPlan
                 (map fst src_comps)
             let whyNotPerComp = why_not_per_component src_comps
             case NE.nonEmpty whyNotPerComp of
-              Nothing -> do
-                elaborationWarnings
+              Nothing ->
                 return comps
               Just notPerCompReasons -> do
                 checkPerPackageOk comps notPerCompReasons
@@ -1783,7 +1779,7 @@ elaborateInstallPlan
                   <+> fsep (punctuate comma $ map (text . whyNotPerComponent) $ toList reasons)
           -- TODO: Maybe exclude Backpack too
 
-          (elab0, elaborationWarnings) = elaborateSolverToCommon spkg
+          elab0 = elaborateSolverToCommon spkg
           pkgid = elabPkgSourceId elab0
           pd = elabPkgDescription elab0
 
@@ -2094,10 +2090,9 @@ elaborateInstallPlan
           -- Knot tying: the final elab includes the
           -- pkgInstalledId, which is calculated by hashing many
           -- of the other fields of the elaboratedPackage.
-          elaborationWarnings
           return elab
           where
-            (elab0@ElaboratedConfiguredPackage{..}, elaborationWarnings) =
+            elab0@ElaboratedConfiguredPackage{..} =
               elaborateSolverToCommon pkg
 
             elab1 =
@@ -2183,7 +2178,7 @@ elaborateInstallPlan
 
       elaborateSolverToCommon
         :: SolverPackage UnresolvedPkgLoc
-        -> (ElaboratedConfiguredPackage, LogProgress ())
+        -> ElaboratedConfiguredPackage
       elaborateSolverToCommon
         pkg@( SolverPackage
                 (SourcePackage pkgid gdesc srcloc descOverride)
@@ -2192,7 +2187,7 @@ elaborateInstallPlan
                 deps0
                 _exe_deps0
               ) =
-          (elaboratedPackage, wayWarnings pkgid)
+          elaboratedPackage
           where
             elaboratedPackage = ElaboratedConfiguredPackage{..}
 
@@ -2300,7 +2295,7 @@ elaborateInstallPlan
             elabBuildOptions =
               LBC.BuildOptions
                 { withVanillaLib = perPkgOptionFlag pkgid True packageConfigVanillaLib -- TODO: [required feature]: also needs to be handled recursively
-                , withSharedLib = canBuildSharedLibs && pkgid `Set.member` pkgsUseSharedLibrary
+                , withSharedLib = pkgid `Set.member` pkgsUseSharedLibrary
                 , withStaticLib = perPkgOptionFlag pkgid False packageConfigStaticLib
                 , withDynExe =
                     perPkgOptionFlag pkgid False packageConfigDynExe
@@ -2311,8 +2306,8 @@ elaborateInstallPlan
                 , withFullyStaticExe = perPkgOptionFlag pkgid False packageConfigFullyStaticExe
                 , withGHCiLib = perPkgOptionFlag pkgid False packageConfigGHCiLib -- TODO: [required feature] needs to default to enabled on windows still
                 , withProfExe = profExe
-                , withProfLib = canBuildProfilingLibs && pkgid `Set.member` pkgsUseProfilingLibrary
-                , withProfLibShared = canBuildProfilingSharedLibs && pkgid `Set.member` pkgsUseProfilingLibraryShared
+                , withProfLib = pkgid `Set.member` pkgsUseProfilingLibrary
+                , withProfLibShared = pkgid `Set.member` pkgsUseProfilingLibraryShared
                 , exeCoverage = perPkgOptionFlag pkgid False packageConfigCoverage
                 , libCoverage = perPkgOptionFlag pkgid False packageConfigCoverage
                 , withOptimization = perPkgOptionFlag pkgid NormalOptimisation packageConfigOptimization
@@ -2481,7 +2476,9 @@ elaborateInstallPlan
 
       needsSharedLib pkgid =
         fromMaybe
-          compilerShouldUseSharedLibByDefault
+          -- FIXME
+          -- compilerShouldUseSharedLibByDefault
+          False
           -- Case 1: --enable-shared or --disable-shared is passed explicitly, honour that.
           ( case pkgSharedLib of
               Just v -> Just v
@@ -2492,7 +2489,7 @@ elaborateInstallPlan
                   -- Case 3: If --enable-profiling is passed, then we are going to
                   -- build profiled dynamic, so no need for shared libraries.
                   case pkgProf of
-                    Just True -> if canBuildProfilingSharedLibs then Nothing else Just True
+                    Just True -> Nothing
                     _ -> Just True
                 -- But don't necessarily turn off shared library generation if
                 -- --disable-executable-dynamic is passed. The shared objects might
@@ -2504,53 +2501,12 @@ elaborateInstallPlan
           pkgDynExe = perPkgOptionMaybe pkgid packageConfigDynExe
           pkgProf = perPkgOptionMaybe pkgid packageConfigProf
 
-      -- TODO: [code cleanup] move this into the Cabal lib. It's currently open
-      -- coded in Distribution.Simple.Configure, but should be made a proper
-      -- function of the Compiler or CompilerInfo.
-      compilerShouldUseSharedLibByDefault =
-        case compilerFlavor compiler of
-          GHC -> GHC.compilerBuildWay compiler == DynWay && canBuildSharedLibs
-          GHCJS -> GHCJS.isDynamic compiler
-          _ -> False
-
-      compilerShouldUseProfilingLibByDefault =
-        case compilerFlavor compiler of
-          GHC -> GHC.compilerBuildWay compiler == ProfWay && canBuildProfilingLibs
-          _ -> False
-
-      compilerShouldUseProfilingSharedLibByDefault =
-        case compilerFlavor compiler of
-          GHC -> GHC.compilerBuildWay compiler == ProfDynWay && canBuildProfilingSharedLibs
-          _ -> False
-
-      -- Returns False if we definitely can't build shared libs
-      canBuildWayLibs predicate = case predicate compiler of
-        Just can_build -> can_build
-        -- If we don't know for certain, just assume we can
-        -- which matches behaviour in previous cabal releases
-        Nothing -> True
-
-      canBuildSharedLibs = canBuildWayLibs dynamicSupported
-      canBuildProfilingLibs = canBuildWayLibs profilingVanillaSupported
-      canBuildProfilingSharedLibs = canBuildWayLibs profilingDynamicSupported
-
-      wayWarnings pkg = do
-        when
-          (needsProfilingLib pkg && not canBuildProfilingLibs)
-          (warnProgress (text "Compiler does not support building p libraries, profiling is disabled"))
-        when
-          (needsSharedLib pkg && not canBuildSharedLibs)
-          (warnProgress (text "Compiler does not support building dyn libraries, dynamic libraries are disabled"))
-        when
-          (needsProfilingLibShared pkg && not canBuildProfilingSharedLibs)
-          (warnProgress (text "Compiler does not support building p_dyn libraries, profiling dynamic libraries are disabled."))
-
       pkgsUseProfilingLibrary :: Set PackageId
       pkgsUseProfilingLibrary =
         packagesWithLibDepsDownwardClosedProperty needsProfilingLib
 
       needsProfilingLib pkg =
-        fromFlagOrDefault compilerShouldUseProfilingLibByDefault (profBothFlag <> profLibFlag)
+        fromFlagOrDefault False (profBothFlag <> profLibFlag)
         where
           pkgid = packageId pkg
           profBothFlag = lookupPerPkgOption pkgid packageConfigProf
@@ -2562,7 +2518,9 @@ elaborateInstallPlan
 
       needsProfilingLibShared pkg =
         fromMaybe
-          compilerShouldUseProfilingSharedLibByDefault
+          -- FIXME
+          -- compilerShouldUseProfilingSharedLibByDefault
+          False
           -- case 1: If --enable-profiling-shared is passed explicitly, honour that
           ( case profLibSharedFlag of
               Just v -> Just v
@@ -2571,7 +2529,7 @@ elaborateInstallPlan
                   case pkgProf of
                     -- case 2: --enable-executable-dynamic + --enable-profiling
                     -- turn on shared profiling libraries
-                    Just True -> if canBuildProfilingSharedLibs then Just True else Nothing
+                    Just True -> Just True
                     _ -> Nothing
                 -- But don't necessarily turn off shared library generation is
                 -- --disable-executable-dynamic is passed. The shared objects might
