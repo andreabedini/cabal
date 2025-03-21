@@ -1194,24 +1194,6 @@ db10 =
       , Right $ exAv "C" 1 [ExFix "A" 2] `withSetupDeps` [ExFix "A" 1]
       ]
 
--- | This database tests that a package's setup dependencies are correctly
--- linked when the package is linked. See pull request #3268.
---
--- When A and B are installed as independent goals, their dependencies on C must
--- be linked, due to the single instance restriction. Since C depends on D, 0.D
--- and 1.D must be linked. C also has a setup dependency on D, so 0.C-setup.D
--- and 1.C-setup.D must be linked. However, D's two link groups must remain
--- independent. The solver should be able to choose D-1 for C's library and D-2
--- for C's setup script.
-dbSetupDeps :: ExampleDb
-dbSetupDeps =
-  [ Right $ exAv "A" 1 [ExAny "C"]
-  , Right $ exAv "B" 1 [ExAny "C"]
-  , Right $ exAv "C" 1 [ExFix "D" 1] `withSetupDeps` [ExFix "D" 2]
-  , Right $ exAv "D" 1 []
-  , Right $ exAv "D" 2 []
-  ]
-
 -- | Tests for dealing with base shims
 db11 :: ExampleDb
 db11 =
@@ -1504,46 +1486,6 @@ db17 =
   , Right $ exAv "A" 3 [ExAny "C"]
   , Right $ exAv "B" 1 []
   , Right $ exAv "C" 1 [ExAny "B"]
-  ]
-
--- | Issue #2834
--- When both A and B are installed as independent goals, their dependencies on
--- C must be linked. The only combination of C's flags that is consistent with
--- A and B's dependencies on D is -flagA +flagB. This database tests that the
--- solver can backtrack to find the right combination of flags (requiring F, but
--- not E or G) and apply it to both 0.C and 1.C.
---
--- > flagA flagB  C depends on
--- >  On    _     D-1, E-*
--- >  Off   On    F-*        <-- Only valid choice
--- >  Off   Off   D-2, G-*
---
--- The single instance restriction means we cannot have one instance of C
--- built against D-1 and one instance built against D-2; since A depends on
--- D-1, and B depends on C-2, it is therefore important that C cannot depend
--- on any version of D.
-db18 :: ExampleDb
-db18 =
-  [ Right $ exAv "A" 1 [ExAny "C", ExFix "D" 1]
-  , Right $ exAv "B" 1 [ExAny "C", ExFix "D" 2]
-  , Right $
-      exAv
-        "C"
-        1
-        [ exFlagged
-            "flagA"
-            [ExFix "D" 1, ExAny "E"]
-            [ exFlagged
-                "flagB"
-                [ExAny "F"]
-                [ExFix "D" 2, ExAny "G"]
-            ]
-        ]
-  , Right $ exAv "D" 1 []
-  , Right $ exAv "D" 2 []
-  , Right $ exAv "E" 1 []
-  , Right $ exAv "F" 1 []
-  , Right $ exAv "G" 1 []
   ]
 
 -- | When both values for flagA introduce package B, the solver should be able
@@ -1920,14 +1862,6 @@ dbBJ7 =
   , Right $ exAv "B" 1 [ExFix "C" 1]
   , Right $ exAv "C" 1 []
   , Right $ exAv "C" 2 []
-  ]
-
--- | Conflict sets for SIR (C shared subgoal of independent goals A, B)
-dbBJ8 :: ExampleDb
-dbBJ8 =
-  [ Right $ exAv "A" 1 [ExAny "C"]
-  , Right $ exAv "B" 1 [ExAny "C"]
-  , Right $ exAv "C" 1 []
   ]
 
 {-------------------------------------------------------------------------------

@@ -262,8 +262,8 @@ data MergedPackageConflict = MergedPackageConflict {
 showOption :: QPN -> POption -> String
 showOption qpn@(Q _pp pn) (POption i linkedTo) =
   case linkedTo of
-    Nothing  -> showPI (PI qpn i) -- Consistent with prior to POption
-    Just pp' -> showQPN qpn ++ "~>" ++ showPI (PI (Q pp' pn) i)
+    Nothing  -> showQPN qpn ++ " == " ++ showI i
+    Just pp' -> showQPN qpn ++ " ~> " ++ showQPN (Q pp' pn)
 
 -- | Shows a mixed list of instances and versions in a human-friendly way,
 -- abbreviated.
