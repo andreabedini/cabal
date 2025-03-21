@@ -103,20 +103,28 @@ encodePlanAsJson :: DistDirLayout -> ElaboratedInstallPlan -> ElaboratedSharedCo
 encodePlanAsJson distDirLayout elaboratedInstallPlan elaboratedSharedConfig =
   -- TODO: [nice to have] include all of the sharedPackageConfig and all of
   --      the parts of the elaboratedInstallPlan
-  J.object
-    [ "cabal-version" J..= jdisplay cabalInstallVersion
-    , "cabal-lib-version" J..= jdisplay cabalVersion
-    , "compiler-id"
-        J..= (J.String . showCompilerId . pkgConfigCompiler)
-          elaboratedSharedConfig
-    , "compiler-abi" J..= jdisplay (compilerAbiTag (pkgConfigCompiler elaboratedSharedConfig))
-    , "os" J..= jdisplay os
-    , "arch" J..= jdisplay arch
-    , "install-plan" J..= installPlanToJ elaboratedInstallPlan
-    ]
+  J.object $
+    [ "toolchain" J..= toolchainJ
+    , "install-plan" J..= installPlanToJ elaboratedInstallPlan ]
   where
-    plat :: Platform
-    plat@(Platform arch os) = pkgConfigPlatform elaboratedSharedConfig
+    toolchainJ = J.object
+      [ "cabal-version" J..= jdisplay cabalInstallVersion
+      , "cabal-lib-version" J..= jdisplay cabalVersion
+      , "build" J..= toolchainStageJ Build
+      , "host" J..= toolchainStageJ Host
+      ]
+
+    toolchainStageJ stage = J.Object
+      [ "compiler-id" J..= J.String (showCompilerId toolchainCompiler)
+      , "compiler-abi" J..= jdisplay (compilerAbiTag toolchainCompiler)
+      , "arch" J..= jdisplay arch
+      , "os" J..= jdisplay os
+      ]
+      where
+        Toolchain{toolchainCompiler, toolchainPlatform = Platform arch os} =
+          getStage (pkgConfigToolchains elaboratedSharedConfig) stage
+
+    platforms = toolchainPlatform <$> pkgConfigToolchains elaboratedSharedConfig
 
     installPlanToJ :: ElaboratedInstallPlan -> [J.Value]
     installPlanToJ = map planPackageToJ . InstallPlan.toList
@@ -307,6 +315,8 @@ encodePlanAsJson distDirLayout elaboratedInstallPlan elaboratedSharedConfig =
               if isInplaceBuildStyle (elabBuildStyle elab)
                 then dist_dir </> "build" </> prettyShow s </> ("lib" ++ prettyShow s) <.> dllExtension plat
                 else InstallDirs.bindir (elabInstallDirs elab) </> ("lib" ++ prettyShow s) <.> dllExtension plat
+
+        plat = getStage platforms (elabStage elab)
 
     comp2str :: ComponentDeps.Component -> String
     comp2str = prettyShow
@@ -803,11 +813,16 @@ createPackageEnvironmentAndArgs
   elaboratedPlan
   elaboratedShared
   buildStatus
-    | compilerFlavor (pkgConfigCompiler elaboratedShared) == GHC =
+    | buildCompiler /= hostCompiler =
+        do
+          warn verbosity "package environment configuration is not supported for cross-compilation; commands that need the current project's package database are likely to fail"
+          return ([], [])
+    | compilerFlavor hostCompiler == GHC =
         do
           envFileM <-
             writePlanGhcEnvironment
               path
+              Host
               elaboratedPlan
               elaboratedShared
               buildStatus
@@ -821,41 +836,49 @@ createPackageEnvironmentAndArgs
           warn verbosity "package environment configuration is not supported for the currently configured compiler; commands that need the current project's package database are likely to fail"
           return ([], [])
 
+  where
+    compilers = toolchainCompiler <$> pkgConfigToolchains elaboratedShared
+    buildCompiler = getStage compilers Build
+    hostCompiler = getStage compilers Host
+
 -- Writing .ghc.environment files
 --
 
 writePlanGhcEnvironment
   :: FilePath
+  -> Stage
   -> ElaboratedInstallPlan
   -> ElaboratedSharedConfig
   -> PostBuildProjectStatus
   -> IO (Maybe FilePath)
 writePlanGhcEnvironment
   path
+  stage
   elaboratedInstallPlan
-  ElaboratedSharedConfig
-    { pkgConfigCompiler = compiler
-    , pkgConfigPlatform = platform
-    }
+  elaboratedSharedConfig
   postBuildStatus
-    | compilerFlavor compiler == GHC
-    , supportsPkgEnvFiles (getImplInfo compiler) =
+  = if (compilerFlavor toolchainCompiler == GHC && supportsPkgEnvFiles (getImplInfo toolchainCompiler)) 
+      then
         -- TODO: check ghcjs compat
         fmap Just $
           writeGhcEnvironmentFile
             path
-            platform
-            (compilerVersion compiler)
+            toolchainPlatform
+            (compilerVersion toolchainCompiler)
             ( renderGhcEnvironmentFile
                 path
-                elaboratedInstallPlan
+                stagePlan
                 postBuildStatus
             )
+      else return Nothing
+  where
+    Toolchain{..} = getStage (pkgConfigToolchains elaboratedSharedConfig) stage
+    -- TODO
+    stagePlan = InstallPlan.remove {- (\pkg -> undefined pkg /= Host) -} (const False) elaboratedInstallPlan
+
 -- TODO: [required eventually] support for writing user-wide package
 -- environments, e.g. like a global project, but we would not put the
 -- env file in the home dir, rather it lives under ~/.ghc/
-
-writePlanGhcEnvironment _ _ _ _ = return Nothing
 
 renderGhcEnvironmentFile
   :: FilePath
