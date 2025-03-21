@@ -8,7 +8,7 @@ import Distribution.Compat.Lens
 import Prelude ()
 
 import Distribution.Client.BuildReports.Types (BuildReport, InstallOutcome, Outcome)
-import Distribution.Compiler (CompilerId)
+import Distribution.Compiler (CompilerId, AbiTag)
 import Distribution.System (Arch, OS)
 import Distribution.Types.Flag (FlagAssignment)
 import Distribution.Types.PackageId (PackageIdentifier)
@@ -26,6 +26,9 @@ arch f s = fmap (\x -> s{T.arch = x}) (f (T.arch s))
 
 compiler :: Lens' BuildReport CompilerId
 compiler f s = fmap (\x -> s{T.compiler = x}) (f (T.compiler s))
+
+compilerAbiTag :: Lens' BuildReport AbiTag
+compilerAbiTag f s = fmap (\x -> s{T.compilerAbiTag = x}) (f (T.compilerAbiTag s))
 
 client :: Lens' BuildReport PackageIdentifier
 client f s = fmap (\x -> s{T.client = x}) (f (T.client s))

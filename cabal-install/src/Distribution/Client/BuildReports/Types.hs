@@ -26,7 +26,7 @@ import Prelude ()
 import qualified Distribution.Compat.CharParsing as P
 import qualified Text.PrettyPrint as Disp
 
-import Distribution.Compiler (CompilerId (..))
+import Distribution.Compiler (CompilerId (..), AbiTag)
 import Distribution.PackageDescription (FlagAssignment)
 import Distribution.System (Arch, OS)
 import Distribution.Types.PackageId (PackageIdentifier)
@@ -70,6 +70,7 @@ data BuildReport = BuildReport
   , arch :: Arch
   , compiler :: CompilerId
   -- ^ The Haskell compiler (and hopefully version) used
+  , compilerAbiTag :: AbiTag
   , client :: PackageIdentifier
   -- ^ The uploading client, ie cabal-install-x.y.z
   , flagAssignment :: FlagAssignment

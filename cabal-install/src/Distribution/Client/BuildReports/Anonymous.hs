@@ -37,7 +37,7 @@ import Prelude ()
 import Distribution.CabalSpecVersion
 import Distribution.Client.BuildReports.Types
 import Distribution.Client.Version (cabalInstallVersion)
-import Distribution.Compiler (CompilerId (..))
+import Distribution.Compiler (CompilerId (..), AbiTag (NoAbiTag))
 import Distribution.FieldGrammar
 import Distribution.Fields
 import Distribution.Package (PackageIdentifier (..), mkPackageName)
@@ -70,6 +70,7 @@ newBuildReport os' arch' comp pkgid flags deps result =
     , os = os'
     , arch = arch'
     , compiler = comp
+    , compilerAbiTag = NoAbiTag
     , client = cabalInstallID
     , flagAssignment = flags
     , dependencies = deps
@@ -114,6 +115,7 @@ fieldDescrs
      , FieldGrammar c g
      , c (Identity Arch)
      , c (Identity CompilerId)
+     , c (Identity AbiTag)
      , c (Identity FlagAssignment)
      , c (Identity InstallOutcome)
      , c (Identity OS)
@@ -128,6 +130,7 @@ fieldDescrs =
     <*> uniqueField "os" L.os
     <*> uniqueField "arch" L.arch
     <*> uniqueField "compiler" L.compiler
+    <*> uniqueField "compiler" L.compilerAbiTag
     <*> uniqueField "client" L.client
     <*> monoidalField "flags" L.flagAssignment
     <*> monoidalFieldAla "dependencies" (alaList VCat) L.dependencies
