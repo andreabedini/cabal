@@ -281,11 +281,13 @@ testConditionForComponent stage os arch cinfo constraints p tree =
       Lit False -> Just False
       _         -> Nothing
   where
+    -- TODO: fix for stage
     flagAssignment :: [(FlagName, Bool)]
     flagAssignment =
         mconcat [ unFlagAssignment fa
-                | PackageConstraint (ScopeAnyQualifier _) (PackagePropertyFlags fa)
-                    <- L.map unlabelPackageConstraint constraints]
+                | PackageConstraint (ConstraintScope stage' (ScopeAnyQualifier _)) (PackagePropertyFlags fa)
+                    <- L.map unlabelPackageConstraint constraints
+                , maybe True (== stage) stage']
 
     -- Simplify the condition, using the current environment. Most of this
     -- function was copied from convBranch and
