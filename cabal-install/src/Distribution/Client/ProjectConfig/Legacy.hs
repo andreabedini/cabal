@@ -385,7 +385,7 @@ parseProjectSkeleton cacheDir httpTransport verbosity projectDir source (Project
     modifiesCompiler :: ProjectConfig -> Bool
     modifiesCompiler pc = isSet projectConfigHcFlavor || isSet projectConfigHcPath || isSet projectConfigHcPkg
       where
-        isSet f = f (projectConfigShared pc) /= NoFlag
+        isSet f = f (projectConfigToolchain $ projectConfigShared pc) /= NoFlag
 
     sanityWalkPCS :: Bool -> ProjectConfigSkeleton -> ProjectParseResult ProjectConfigSkeleton
     sanityWalkPCS underConditional t@(CondNode d (listToMaybe -> c) comps)
@@ -716,17 +716,17 @@ convertLegacyAllPackageFlags globalFlags configFlags configExFlags installFlags 
       , globalStoreDir = projectConfigStoreDir
       } = globalFlags
 
+    projectConfigToolchain = ProjectConfigToolchain {..}
     projectConfigPackageDBs = (fmap . fmap) (interpretPackageDB Nothing) projectConfigPackageDBs_
+    projectConfigBuildPackageDBs = (fmap . fmap) (interpretPackageDB Nothing) projectConfigBuildPackageDBs_
 
     ConfigFlags
       { configCommonFlags = commonFlags
       , configHcFlavor = projectConfigHcFlavor
       , configHcPath = projectConfigHcPath
       , configHcPkg = projectConfigHcPkg
-      , -- configProgramPathExtra    = projectConfigProgPathExtra DELETE ME
-      configInstallDirs = projectConfigInstallDirs
-      , -- configUserInstall         = projectConfigUserInstall,
-      configPackageDBs = projectConfigPackageDBs_
+      , configInstallDirs = projectConfigInstallDirs
+      , configPackageDBs = projectConfigPackageDBs_
       } = configFlags
 
     CommonSetupFlags
@@ -747,6 +747,7 @@ convertLegacyAllPackageFlags globalFlags configFlags configExFlags installFlags 
       , configBuildHcFlavor = projectConfigBuildHcFlavor
       , configBuildHcPath = projectConfigBuildHcPath
       , configBuildHcPkg = projectConfigBuildHcPkg
+      , configBuildPackageDBs = projectConfigBuildPackageDBs_
       } = configExFlags
 
     InstallFlags
@@ -967,10 +968,7 @@ convertToLegacySharedConfig
   ProjectConfig
     { projectConfigBuildOnly = ProjectConfigBuildOnly{..}
     , projectConfigShared = ProjectConfigShared{..}
-    , projectConfigAllPackages =
-      PackageConfig
-        { packageConfigDocumentation
-        }
+    , projectConfigAllPackages = PackageConfig{..}
     } =
     LegacySharedConfig
       { legacyGlobalFlags = globalFlags
@@ -982,6 +980,7 @@ convertToLegacySharedConfig
       , legacyMultiRepl = projectConfigMultiRepl
       }
     where
+      ProjectConfigToolchain{..} = projectConfigToolchain
       globalFlags =
         GlobalFlags
           { globalVersion = mempty
@@ -1029,6 +1028,7 @@ convertToLegacySharedConfig
           , configBuildHcFlavor = projectConfigBuildHcFlavor
           , configBuildHcPath = projectConfigBuildHcPath
           , configBuildHcPkg = projectConfigBuildHcPkg
+          , configBuildPackageDBs = fmap (fmap (fmap unsafeMakeSymbolicPath)) projectConfigBuildPackageDBs
           }
 
       installFlags =
@@ -1089,6 +1089,8 @@ convertToLegacyAllPackageConfig
       , legacyBenchmarkFlags = mempty
       }
     where
+      ProjectConfigToolchain{..} = projectConfigToolchain
+      
       commonFlags =
         mempty
 
