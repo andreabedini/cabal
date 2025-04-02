@@ -370,12 +370,16 @@ rebuildProjectConfig
     , distProjectFile
     }
   cliConfig@ProjectConfig
-    { projectConfigShared =
-      ProjectConfigShared
-        { projectConfigIgnoreProject
-        , projectConfigConfigFile
+    { projectConfigShared = ProjectConfigShared
+        { projectConfigToolchain
+        , projectConfigIgnoreProject
+        , projectConfigConfigFile       
         }
-    } = do
+    , projectConfigLocalPackages = PackageConfig
+        { packageConfigProgramPaths
+        , packageConfigProgramPathExtra
+        }
+  } = do
     progsearchpath <- liftIO $ getSystemSearchPath
 
     let fileMonitorProjectConfig = newFileMonitor (distProjectCacheFile "config")
@@ -385,10 +389,10 @@ rebuildProjectConfig
       return
         ( configPath
         , distProjectFile ""
-        , toolchainCacheKey
         , progsearchpath
         , packageConfigProgramPaths
         , packageConfigProgramPathExtra
+        , projectConfigToolchain
         )
 
     (projectConfig, localPackages) <-
@@ -426,18 +430,6 @@ rebuildProjectConfig
 
     return (projectConfig <> cliConfig, localPackages)
     where
-      toolchainCacheKey =
-        ( projectConfigBuildHcFlavor (projectConfigShared cliConfig)
-        , projectConfigBuildHcPath (projectConfigShared cliConfig)
-        , projectConfigBuildHcPkg (projectConfigShared cliConfig)
-        , projectConfigHcFlavor (projectConfigShared cliConfig)
-        , projectConfigHcPath (projectConfigShared cliConfig)
-        , projectConfigHcPkg (projectConfigShared cliConfig)
-        )
-
-      PackageConfig{packageConfigProgramPaths, packageConfigProgramPathExtra} =
-        projectConfigLocalPackages cliConfig
-
       -- Read the cabal.project (or implicit config) and combine it with
       -- arguments from the command line
       --
@@ -485,12 +477,17 @@ configureToolchains
   ProjectConfig
     { projectConfigShared =
       ProjectConfigShared
-        { projectConfigHcFlavor
-        , projectConfigHcPath
-        , projectConfigHcPkg
-        , projectConfigBuildHcFlavor
-        , projectConfigBuildHcPath
-        , projectConfigBuildHcPkg
+        { projectConfigToolchain =
+          ProjectConfigToolchain
+            { projectConfigHcFlavor
+            , projectConfigHcPath
+            , projectConfigHcPkg
+            , projectConfigPackageDBs
+            , projectConfigBuildHcFlavor
+            , projectConfigBuildHcPath
+            , projectConfigBuildHcPkg
+            , projectConfigBuildPackageDBs
+            }
         }
     , projectConfigLocalPackages =
       projectConfigLocalPackages@PackageConfig
@@ -526,6 +523,7 @@ configureToolchains
           -- We do know however that the compiler will only configure the
           -- programs it cares about, and those are the ones we monitor here.
           monitorFiles (programsMonitorFiles toolchainProgramDb)
+          let toolchainPackageDBs = Cabal.interpretPackageDbFlags False projectConfigBuildPackageDBs
           return Toolchain{..}
 
         hostToolchain <- do
@@ -539,6 +537,7 @@ configureToolchains
           -- We do know however that the compiler will only configure the
           -- programs it cares about, and those are the ones we monitor here.
           monitorFiles (programsMonitorFiles toolchainProgramDb)
+          let toolchainPackageDBs = Cabal.interpretPackageDbFlags False projectConfigPackageDBs
           return Toolchain{..}
 
         return $ Staged (\case Build -> buildToolchain; Host -> hostToolchain)
@@ -816,7 +815,7 @@ rebuildInstallPlan
           where
             corePackageDbs :: PackageDBStackCWD
             corePackageDbs =
-              Cabal.interpretPackageDbFlags False (projectConfigPackageDBs projectConfigShared)
+              Cabal.interpretPackageDbFlags False (projectConfigPackageDBs (projectConfigToolchain projectConfigShared))
 
             withRepoCtx :: (RepoContext -> IO a) -> IO a
             withRepoCtx =
@@ -2192,7 +2191,8 @@ elaborateInstallPlan
               if shouldBuildInplaceOnly pkg
                 then BuildInplaceOnly OnDisk
                 else BuildAndInstall
-            elabPackageDbs = Cabal.interpretPackageDbFlags False (projectConfigPackageDBs sharedPackageConfig)
+
+            elabPackageDbs = Cabal.interpretPackageDbFlags False (projectConfigPackageDBs (projectConfigToolchain sharedPackageConfig))
             elabBuildPackageDBStack = buildAndRegisterDbs
             elabRegisterPackageDBStack = buildAndRegisterDbs
 
@@ -2207,7 +2207,7 @@ elaborateInstallPlan
 
             inplacePackageDbs = corePackageDbs ++ [distPackageDB (compilerId elabCompiler)]
 
-            corePackageDbs = Cabal.interpretPackageDbFlags False (projectConfigPackageDBs sharedPackageConfig) ++  [storePackageDB storeDirLayout elabCompiler]
+            corePackageDbs = Cabal.interpretPackageDbFlags False (projectConfigPackageDBs (projectConfigToolchain sharedPackageConfig)) ++  [storePackageDB storeDirLayout elabCompiler]
 
             elabInplaceBuildPackageDBStack = inplacePackageDbs
             elabInplaceRegisterPackageDBStack = inplacePackageDbs
