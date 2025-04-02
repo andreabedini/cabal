@@ -1459,7 +1459,9 @@ planPackages
             , not (null stanzas)
             ]
           . addConstraints
-            -- enable stanza constraints where the user asked to enable
+            -- Enable stanza constraints where the user asked to enable
+            -- Only applies to the host stage.
+            -- TODO: Disable test and bench for build stage packages.
             [ LabeledPackageConstraint
               ( PackageConstraint
                   (scopeToplevel pkgname)
