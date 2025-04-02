@@ -11,6 +11,7 @@ module Distribution.Client.ProjectConfig
   , ProjectConfigToParse (..)
   , ProjectConfigBuildOnly (..)
   , ProjectConfigShared (..)
+  , ProjectConfigToolchain (..)
   , ProjectConfigProvenance (..)
   , PackageConfig (..)
   , MapLast (..)
