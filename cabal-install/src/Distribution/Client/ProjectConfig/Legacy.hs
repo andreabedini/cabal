@@ -192,7 +192,7 @@ import Distribution.Types.PackageVersionConstraint
   ( PackageVersionConstraint
   )
 import Distribution.Utils.Path hiding
-  ( (<.>)
+  (makeAbsolute, (<.>)
   , (</>)
   )
 

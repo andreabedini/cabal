@@ -911,7 +911,7 @@ argsEquivalentOfGhcEnvironmentFileGhc
       projectRootDir = distProjectRootDirectory distDirLayout
       packageIds = selectGhcEnvironmentFileLibraries postBuildStatus
       packageDBs =
-        relativePackageDBPaths projectRootDir $
+        relativePackageDBPaths (getAbsolutePath projectRootDir) $
           selectGhcEnvironmentFilePackageDbs elaboratedInstallPlan
       -- TODO use proper flags? but packageDbArgsDb is private
       clearPackageDbStackFlag = ["-clear-package-db", "-global-package-db"]

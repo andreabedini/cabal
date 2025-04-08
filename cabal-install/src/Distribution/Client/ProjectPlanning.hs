@@ -148,10 +148,8 @@ import Distribution.CabalSpecVersion
 import Distribution.Utils.LogProgress
 import Distribution.Utils.MapAccum
 import Distribution.Utils.NubList
-import Distribution.Utils.Path hiding
-  ( (<.>)
-  , (</>)
-  )
+
+import Distribution.Utils.Path
 
 import qualified Hackage.Security.Client as Sec
 
@@ -3963,20 +3961,20 @@ storePackageInstallDirs'
   :: StoreDirLayout
   -> Compiler
   -> UnitId
-  -> InstallDirs.InstallDirs FilePath
+  -> InstallDirs.InstallDirs (StorePath (Dir OtherDir))
 storePackageInstallDirs'
   StoreDirLayout
     { storePackageDirectory
-    , storeDirectory
+    , storeCompilerDirectory
     }
   compiler
   unitid =
     InstallDirs.InstallDirs{..}
     where
-      store = storeDirectory compiler
+      store = storeCompilerDirectory compiler
       prefix = storePackageDirectory compiler unitid
-      bindir = prefix </> "bin"
-      libdir = prefix </> "lib"
+      bindir = prefix </> makeRelativePathEx "bin"
+      libdir = prefix </> makeRelativePathEx "lib"
       libsubdir = ""
       -- Note: on macOS, we place libraries into
       --       @store/lib@ to work around the load

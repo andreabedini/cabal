@@ -38,7 +38,7 @@ import Distribution.Simple.Utils
 import Distribution.System
 import Distribution.TestSuite
 import qualified Distribution.Types.LocalBuildInfo as LBI
-import Distribution.Utils.Path
+import Distribution.Utils.Path hiding (getCurrentDirectory)
 import Distribution.Verbosity
 
 import qualified Control.Exception as CE

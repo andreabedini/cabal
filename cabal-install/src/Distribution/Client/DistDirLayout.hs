@@ -1,4 +1,7 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 -- |
 --
@@ -22,12 +25,16 @@ module Distribution.Client.DistDirLayout
   , CabalDirLayout (..)
   , mkCabalDirLayout
   , defaultCabalDirLayout
+  , ProjectPath
+  , StorePath
+  , interpretStorePath
+  , interpretPackagePath
+  , PackageDBH
+  , PackageDBStackH
   ) where
 
 import Distribution.Client.Compat.Prelude
 import Prelude ()
-
-import System.FilePath
 
 import Distribution.Client.Config
   ( defaultLogsDir
@@ -37,18 +44,19 @@ import Distribution.Compiler
 import Distribution.Package
   ( ComponentId
   , PackageId
-  , PackageIdentifier
   , UnitId
   )
 import Distribution.Simple.Compiler
   ( Compiler (..)
   , OptimisationLevel (..)
-  , PackageDBCWD
   , PackageDBX (..)
+  , PackageDBS
+  , PackageDBStackS
   )
 import Distribution.System
 import Distribution.Types.ComponentName
 import Distribution.Types.LibraryName
+import Distribution.Utils.Path
 
 -- | Information which can be used to construct the path to
 -- the build directory of a build.  This is LESS fine-grained
@@ -68,62 +76,80 @@ data DistDirParams = DistDirParams
   --  Optimization
   }
 
+data ProjectRootDir
+type ProjectPath = SymbolicPath ProjectRootDir
+
 -- | The layout of the project state directory. Traditionally this has been
 -- called the @dist@ directory.
 data DistDirLayout = DistDirLayout
-  { distProjectRootDirectory :: FilePath
+  { distProjectRootDirectory :: AbsolutePath (Dir ProjectRootDir)
   -- ^ The root directory of the project. Many other files are relative to
   -- this location (e.g. the @cabal.project@ file).
-  , distProjectFile :: String -> FilePath
+  , distProjectFile :: String -> AbsolutePath File
   -- ^ The @cabal.project@ file and related like @cabal.project.freeze@.
   -- The parameter is for the extension, like \"freeze\", or \"\" for the
   -- main file.
-  , distDirectory :: FilePath
+  , distDirectory :: ProjectPath (Dir Dist)
   -- ^ The \"dist\" directory, which is the root of where cabal keeps all
   -- its state including the build artifacts from each package we build.
-  , distBuildDirectory :: DistDirParams -> FilePath
+  , distBuildDirectory :: DistDirParams -> ProjectPath (Dir Build)
   -- ^ The directory under dist where we keep the build artifacts for a
   -- package we're building from a local directory.
   --
   -- This uses a 'UnitId' not just a 'PackageName' because technically
   -- we can have multiple instances of the same package in a solution
   -- (e.g. setup deps).
-  , distBuildRootDirectory :: FilePath
-  , distDownloadSrcDirectory :: FilePath
+  , distBuildRootDirectory :: ProjectPath (Dir Build)
+  , distDownloadSrcDirectory :: ProjectPath (Dir Source)
   -- ^ The directory under dist where we download tarballs and source
   -- control repos to.
-  , distUnpackedSrcDirectory :: PackageId -> FilePath
+  , distUnpackedSrcDirectory :: PackageId -> ProjectPath (Dir Source)
   -- ^ The directory under dist where we put the unpacked sources of
   -- packages, in those cases where it makes sense to keep the build
   -- artifacts to reduce rebuild times.
-  , distUnpackedSrcRootDirectory :: FilePath
-  , distProjectCacheFile :: String -> FilePath
+  , distUnpackedSrcRootDirectory :: ProjectPath (Dir OtherDir)
+  , distProjectCacheFile :: String -> ProjectPath (Dir OtherDir)
   -- ^ The location for project-wide cache files (e.g. state used in
   -- incremental rebuilds).
-  , distProjectCacheDirectory :: FilePath
-  , distPackageCacheFile :: DistDirParams -> String -> FilePath
+  , distProjectCacheDirectory :: ProjectPath (Dir OtherDir)
+  , distPackageCacheFile :: DistDirParams -> String -> ProjectPath File
   -- ^ The location for package-specific cache files (e.g. state used in
   -- incremental rebuilds).
-  , distPackageCacheDirectory :: DistDirParams -> FilePath
-  , distSdistFile :: PackageId -> FilePath
+  , distPackageCacheDirectory :: DistDirParams -> ProjectPath (Dir OtherDir)
+  , distSdistFile :: PackageId -> (ProjectPath File)
   -- ^ The location that sdists are placed by default.
-  , distSdistDirectory :: FilePath
-  , distTempDirectory :: FilePath
-  , distBinDirectory :: FilePath
-  , distPackageDB :: CompilerId -> PackageDBCWD
-  , distHaddockOutputDir :: Maybe FilePath
+  , distSdistDirectory :: (ProjectPath (Dir OtherDir))
+  , distTempDirectory :: ProjectPath (Dir Tmp)
+  , distBinDirectory :: (ProjectPath (Dir OtherDir))
+  , distPackageDB :: CompilerId -> PackageDBX (ProjectPath (Dir PkgDB))
+  , distHaddockOutputDir :: Maybe (ProjectPath (Dir OtherDir))
   -- ^ Is needed when `--haddock-output-dir` flag is used.
   }
 
+interpretPackagePath :: DistDirLayout -> ProjectPath a -> FilePath
+interpretPackagePath DistDirLayout{..} path =
+  interpretSymbolicPathAbsolute distProjectRootDirectory path
+
+type PackageDBH  = PackageDBS HomeDir
+type PackageDBStackH = PackageDBStackS HomeDir
+
 -- | The layout of a cabal nix-style store.
 data StoreDirLayout = StoreDirLayout
-  { storeDirectory :: Compiler -> FilePath
-  , storePackageDirectory :: Compiler -> UnitId -> FilePath
-  , storePackageDBPath :: Compiler -> FilePath
-  , storePackageDB :: Compiler -> PackageDBCWD
-  , storeIncomingDirectory :: Compiler -> FilePath
-  , storeIncomingLock :: Compiler -> UnitId -> FilePath
+  { storeRootDirectory :: SymbolicPath HomeDir (Dir StoreDir)
+  , storeCompilerDirectory :: Compiler -> StorePath (Dir OtherDir)
+  -- ^ The root directory of the store, which is a directory
+  , storePackageDirectory :: Compiler -> UnitId -> StorePath (Dir Pkg)
+  
+  , storePackageDBPath :: Compiler -> StorePath (Dir PkgDB)
+  , storePackageDB :: Compiler -> PackageDBS StoreDir
+
+  , storeIncomingDirectory :: Compiler -> StorePath (Dir OtherDir)
+  , storeIncomingLock :: Compiler -> UnitId -> StorePath File
   }
+
+interpretStorePath :: StoreDirLayout -> StorePath a -> FilePath
+interpretStorePath StoreDirLayout{..} path =
+  interpretSymbolicPath Nothing (storeRootDirectory </> path)
 
 -- TODO: move to another module, e.g. CabalDirLayout?
 -- or perhaps rename this module to DirLayouts.
@@ -146,17 +172,20 @@ data CabalDirLayout = CabalDirLayout
 data ProjectRoot
   = -- | An implicit project root. It contains the absolute project
     -- root dir.
-    ProjectRootImplicit FilePath
+    ProjectRootImplicit (AbsolutePath (Dir ProjectRootDir))
   | -- | An explicit project root. It contains the absolute project
     -- root dir and the relative @cabal.project@ file (or explicit override)
-    ProjectRootExplicit FilePath FilePath
+    ProjectRootExplicit (AbsolutePath (Dir ProjectRootDir)) (RelativePath ProjectRootDir File)
   | -- | An explicit, absolute project root dir and an explicit, absolute
     -- @cabal.project@ file.
-    ProjectRootExplicitAbsolute FilePath FilePath
+    ProjectRootExplicitAbsolute (AbsolutePath (Dir ProjectRootDir)) (AbsolutePath File)
   deriving (Eq, Show)
 
-defaultProjectFile :: FilePath
-defaultProjectFile = "cabal.project"
+-- defaultProjectFilename :: FilePath
+-- defaultProjectFilename = "cabal.project"
+
+defaultProjectFile :: RelativePath ProjectRootDir File
+defaultProjectFile = makeRelativePathEx "cabal.project"
 
 -- | Make the default 'DistDirLayout' based on the project root dir and
 -- optional overrides for the location of the @dist@ directory, the
@@ -164,40 +193,36 @@ defaultProjectFile = "cabal.project"
 defaultDistDirLayout
   :: ProjectRoot
   -- ^ the project root
-  -> Maybe FilePath
-  -- ^ the @dist@ directory (relative to package root)
-  -> Maybe FilePath
+  -> Maybe (ProjectPath (Dir Dist))
+  -- ^ the @dist@ directory (relative to project root)
+  -> Maybe (ProjectPath (Dir OtherDir))
   -- ^ the documentation directory
   -> DistDirLayout
 defaultDistDirLayout projectRoot mdistDirectory haddockOutputDir =
-  DistDirLayout{..}
+  DistDirLayout {..}
   where
     (projectRootDir, projectFile) = case projectRoot of
       ProjectRootImplicit dir -> (dir, dir </> defaultProjectFile)
       ProjectRootExplicit dir file -> (dir, dir </> file)
       ProjectRootExplicitAbsolute dir file -> (dir, file)
 
-    distProjectRootDirectory :: FilePath
     distProjectRootDirectory = projectRootDir
 
-    distProjectFile :: String -> FilePath
     distProjectFile ext = projectFile <.> ext
 
-    distDirectory :: FilePath
-    distDirectory =
-      distProjectRootDirectory
-        </> fromMaybe "dist-newstyle" mdistDirectory
+    distDirectory :: ProjectPath (Dir Dist)
+    distDirectory = fromMaybe (makeSymbolicPath "dist-newstyle") mdistDirectory
 
-    distBuildRootDirectory :: FilePath
-    distBuildRootDirectory = distDirectory </> "build"
+    distBuildRootDirectory :: ProjectPath (Dir Build)
+    distBuildRootDirectory = distDirectory </> makeRelativePathEx "build"
 
-    distBuildDirectory :: DistDirParams -> FilePath
+    distBuildDirectory :: DistDirParams -> ProjectPath (Dir Build)
     distBuildDirectory params =
       distBuildRootDirectory
-        </> prettyShow (distParamPlatform params)
-        </> prettyShow (distParamCompilerId params)
-        </> prettyShow (distParamPackageId params)
-        </> ( case distParamComponentName params of
+        </> makeRelativePathEx (prettyShow (distParamPlatform params))
+        </> makeRelativePathEx (prettyShow (distParamCompilerId params))
+        </> makeRelativePathEx (prettyShow (distParamPackageId params))
+        </> makeRelativePathEx ( case distParamComponentName params of
                 Nothing -> ""
                 Just (CLibName LMainLibName) -> ""
                 Just (CLibName (LSubLibName name)) -> "l" </> prettyShow name
@@ -206,90 +231,80 @@ defaultDistDirLayout projectRoot mdistDirectory haddockOutputDir =
                 Just (CTestName name) -> "t" </> prettyShow name
                 Just (CBenchName name) -> "b" </> prettyShow name
             )
-        </> ( case distParamOptimization params of
+        </> makeRelativePathEx ( case distParamOptimization params of
                 NoOptimisation -> "noopt"
                 NormalOptimisation -> ""
                 MaximumOptimisation -> "opt"
             )
-        </> ( let uid_str = prettyShow (distParamUnitId params)
+        </> makeRelativePathEx ( let uid_str = prettyShow (distParamUnitId params)
                in if uid_str == prettyShow (distParamComponentId params)
                     then ""
                     else uid_str
             )
 
-    distUnpackedSrcRootDirectory :: FilePath
-    distUnpackedSrcRootDirectory = distDirectory </> "src"
+    distUnpackedSrcRootDirectory = distDirectory </> makeRelativePathEx "src"
 
-    distUnpackedSrcDirectory :: PackageId -> FilePath
     distUnpackedSrcDirectory pkgid =
-      distUnpackedSrcRootDirectory
-        </> prettyShow pkgid
+      distUnpackedSrcRootDirectory </> makeRelativePathEx (prettyShow pkgid)
+
     -- we shouldn't get name clashes so this should be fine:
-    distDownloadSrcDirectory :: FilePath
     distDownloadSrcDirectory = distUnpackedSrcRootDirectory
 
-    distProjectCacheDirectory :: FilePath
-    distProjectCacheDirectory = distDirectory </> "cache"
+    distProjectCacheDirectory = distDirectory </> makeRelativePathEx "cache"
 
-    distProjectCacheFile :: FilePath -> FilePath
-    distProjectCacheFile name = distProjectCacheDirectory </> name
+    distProjectCacheFile name = distProjectCacheDirectory </> makeRelativePathEx name
 
-    distPackageCacheDirectory :: DistDirParams -> FilePath
-    distPackageCacheDirectory params = distBuildDirectory params </> "cache"
+    distPackageCacheDirectory params = distBuildDirectory params </> makeRelativePathEx "cache"
 
-    distPackageCacheFile :: DistDirParams -> String -> FilePath
-    distPackageCacheFile params name = distPackageCacheDirectory params </> name
+    distPackageCacheFile params name = distPackageCacheDirectory params </> makeRelativePathEx name
 
-    distSdistFile :: PackageIdentifier -> FilePath
-    distSdistFile pid = distSdistDirectory </> prettyShow pid <.> "tar.gz"
+    distSdistFile pid = distSdistDirectory </> makeRelativePathEx (prettyShow pid) <.> "tar.gz"
 
-    distSdistDirectory :: FilePath
-    distSdistDirectory = distDirectory </> "sdist"
+    distSdistDirectory = distDirectory </> makeRelativePathEx "sdist"
 
-    distTempDirectory :: FilePath
-    distTempDirectory = distDirectory </> "tmp"
+    distTempDirectory = distDirectory </> makeRelativePathEx "tmp"
 
-    distBinDirectory :: FilePath
-    distBinDirectory = distDirectory </> "bin"
+    distBinDirectory = distDirectory </> makeRelativePathEx "bin"
 
-    distPackageDBPath :: CompilerId -> FilePath
-    distPackageDBPath compid = distDirectory </> "packagedb" </> prettyShow compid
+    distPackageDBPath compid = distDirectory </> makeRelativePathEx "packagedb" </> makeRelativePathEx (prettyShow compid)
 
-    distPackageDB :: CompilerId -> PackageDBCWD
     distPackageDB = SpecificPackageDB . distPackageDBPath
 
-    distHaddockOutputDir :: Maybe FilePath
     distHaddockOutputDir = haddockOutputDir
 
-defaultStoreDirLayout :: FilePath -> StoreDirLayout
-defaultStoreDirLayout storeRoot =
+data HomeDir
+data StoreDir
+
+type StorePath = RelativePath StoreDir
+
+defaultStoreDirLayout :: SymbolicPath HomeDir (Dir StoreDir) -> StoreDirLayout
+defaultStoreDirLayout storeRootDirectory =
   StoreDirLayout{..}
   where
-    storeDirectory :: Compiler -> FilePath
-    storeDirectory compiler =
-      storeRoot </> case compilerAbiTag compiler of
-        NoAbiTag -> prettyShow (compilerId compiler)
-        AbiTag tag -> prettyShow (compilerId compiler) <> "-" <> tag
+    storeCompilerDirectory :: Compiler -> StorePath (Dir OtherDir)
+    storeCompilerDirectory compiler =
+      case compilerAbiTag compiler of
+        NoAbiTag -> makeRelativePathEx (prettyShow (compilerId compiler))
+        AbiTag tag -> makeRelativePathEx (prettyShow (compilerId compiler) <> "-" <> tag)
 
-    storePackageDirectory :: Compiler -> UnitId -> FilePath
     storePackageDirectory compiler ipkgid =
-      storeDirectory compiler </> prettyShow ipkgid
+      storeCompilerDirectory compiler </> makeRelativePathEx (prettyShow ipkgid)
 
-    storePackageDBPath :: Compiler -> FilePath
+    storePackageDBPath :: Compiler -> StorePath (Dir PkgDB)
     storePackageDBPath compiler =
-      storeDirectory compiler </> "package.db"
+      storeCompilerDirectory compiler </> makeRelativePathEx "package.db"
 
-    storePackageDB :: Compiler -> PackageDBCWD
+    storePackageDB :: Compiler -> PackageDBS StoreDir
     storePackageDB compiler =
-      SpecificPackageDB (storePackageDBPath compiler)
+      SpecificPackageDB (relativeSymbolicPath (storePackageDBPath compiler))
 
-    storeIncomingDirectory :: Compiler -> FilePath
+    storeIncomingDirectory :: Compiler -> StorePath (Dir OtherDir)
     storeIncomingDirectory compiler =
-      storeDirectory compiler </> "incoming"
+      storeCompilerDirectory compiler </> makeRelativePathEx "incoming"
 
-    storeIncomingLock :: Compiler -> UnitId -> FilePath
+    storeIncomingLock :: Compiler -> UnitId -> StorePath File
     storeIncomingLock compiler unitid =
-      storeIncomingDirectory compiler </> prettyShow unitid <.> "lock"
+      storeIncomingDirectory compiler </> makeRelativePathEx (prettyShow unitid) <.> "lock"
 
 defaultCabalDirLayout :: IO CabalDirLayout
 defaultCabalDirLayout =
@@ -302,8 +317,8 @@ mkCabalDirLayout
   -- ^ Log directory
   -> IO CabalDirLayout
 mkCabalDirLayout mstoreDir mlogDir = do
-  cabalStoreDirLayout <-
-    defaultStoreDirLayout <$> maybe defaultStoreDir pure mstoreDir
+  cabalStoreDirLayout <- defaultStoreDirLayout . makeSymbolicPath <$> do
+    maybe defaultStoreDir pure mstoreDir
   cabalLogsDirectory <-
     maybe defaultLogsDir pure mlogDir
   pure $ CabalDirLayout{..}

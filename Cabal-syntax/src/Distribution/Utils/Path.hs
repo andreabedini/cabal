@@ -8,6 +8,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE DerivingVia #-}
 
 module Distribution.Utils.Path
   ( -- * Symbolic path endpoints
@@ -31,6 +32,7 @@ module Distribution.Utils.Path
   , Tmp
   , Response
   , PkgConf
+  , OtherDir
 
     -- * Symbolic paths
   , RelativePath
@@ -43,7 +45,9 @@ module Distribution.Utils.Path
     -- ** Symbolic path API
   , getSymbolicPath
   , getAbsolutePath
+  , getCurrentDirectory
   , sameDirectory
+  , makeAbsolute
   , makeRelativePathEx
   , makeSymbolicPath
   , unsafeMakeSymbolicPath
@@ -220,6 +224,12 @@ type SymbolicPath = SymbolicPathX 'AllowAbsolute
 
 newtype AbsolutePath (to :: FileOrDir) = AbsolutePath (forall from. SymbolicPath from to)
 
+instance Show (AbsolutePath to) where
+  show (AbsolutePath p) = show p
+
+instance Eq (AbsolutePath to) where
+  AbsolutePath p1 == AbsolutePath p2 = p1 == p2
+
 unsafeMakeAbsolutePath :: FilePath -> AbsolutePath to
 unsafeMakeAbsolutePath fp = AbsolutePath (makeSymbolicPath fp)
 
@@ -331,7 +341,7 @@ interpretSymbolicPathCWD (SymbolicPath p) = p
 getAbsolutePath :: AbsolutePath to -> FilePath
 getAbsolutePath (AbsolutePath p) = getSymbolicPath p
 
-interpretSymbolicPathAbsolute :: AbsolutePath (Dir Pkg) -> SymbolicPathX allowAbsolute Pkg to -> FilePath
+interpretSymbolicPathAbsolute :: AbsolutePath (Dir dir) -> SymbolicPathX allowAbsolute dir to -> FilePath
 interpretSymbolicPathAbsolute (AbsolutePath p) sym = interpretSymbolicPath (Just p) sym
 
 -- | Change what a symbolic path is pointing to.
@@ -359,7 +369,14 @@ symbolicPathRelative_maybe (SymbolicPath fp) =
 -- | Absolute path to the current working directory.
 absoluteWorkingDir :: Maybe (SymbolicPath CWD to) -> IO (AbsolutePath to)
 absoluteWorkingDir Nothing = unsafeMakeAbsolutePath <$> Directory.getCurrentDirectory
-absoluteWorkingDir (Just wd) = unsafeMakeAbsolutePath <$> Directory.makeAbsolute (getSymbolicPath wd)
+absoluteWorkingDir (Just wd) = makeAbsolute wd
+
+makeAbsolute :: SymbolicPath from to -> IO (AbsolutePath to)
+makeAbsolute (SymbolicPath fp) =
+  unsafeMakeAbsolutePath <$> Directory.makeAbsolute fp
+
+getCurrentDirectory :: IO (AbsolutePath (Dir d))
+getCurrentDirectory = unsafeMakeAbsolutePath <$> Directory.getCurrentDirectory
 
 -- | Try to make a symbolic path relative.
 --
@@ -415,6 +432,9 @@ instance FileLike FilePath where
 
 instance p ~ File => FileLike (SymbolicPathX allowAbsolute dir p) where
   SymbolicPath p <.> ext = SymbolicPath (p <.> ext)
+
+instance p ~ File => FileLike (AbsolutePath p) where
+  AbsolutePath p <.> ext = AbsolutePath (p <.> ext)
 
 infixr 5 </>
 
@@ -531,3 +551,5 @@ data Response
 --
 -- See Note [Symbolic paths] in Distribution.Utils.Path.
 data PkgConf
+
+data OtherDir
