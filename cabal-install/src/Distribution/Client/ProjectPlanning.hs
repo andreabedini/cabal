@@ -2235,7 +2235,7 @@ elaborateInstallPlan
               if shouldBuildInplaceOnly pkg
                 then BuildInplaceOnly OnDisk
                 else BuildAndInstall
-            elabPackageDbs = projectConfigPackageDBs sharedPackageConfig
+            elabPackageDbs = Cabal.interpretPackageDbFlags False (projectConfigPackageDBs sharedPackageConfig)
             elabBuildPackageDBStack = buildAndRegisterDbs
             elabRegisterPackageDBStack = buildAndRegisterDbs
 
