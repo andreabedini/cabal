@@ -34,7 +34,7 @@ import Distribution.Simple.Setup.Config
 import Distribution.Simple.Utils
 import Distribution.System (Platform, buildPlatform)
 import Distribution.Utils.NubList
-import Distribution.Utils.Path
+import Distribution.Utils.Path hiding (makeAbsolute)
 
 -- Base
 import System.Directory (createDirectoryIfMissing, doesFileExist)
@@ -67,7 +67,7 @@ runConfigureScript cfg flags programDb hp = do
   unless confExists $
     dieWithException verbosity (ConfigureScriptNotFound configureScriptPath)
   configureFile <-
-    makeAbsolute $ configureScriptPath
+    makeAbsolute configureScriptPath
   env <- getEnvironment
   (ccProg, ccFlags) <- configureCCompiler verbosity programDb
   ccProgShort <- getShortPathName ccProg

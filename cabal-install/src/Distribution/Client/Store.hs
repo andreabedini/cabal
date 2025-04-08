@@ -37,11 +37,12 @@ import Distribution.Simple.Utils
 import Distribution.Verbosity
   ( silent
   )
+import Distribution.Utils.Path
 
 import Control.Exception
 import qualified Data.Set as Set
 import System.Directory
-import System.FilePath
+import System.FilePath hiding ((</>))
 
 #ifdef MIN_VERSION_lukko
 import Lukko
@@ -127,14 +128,15 @@ import GHC.IO.Handle.Lock (LockMode (ExclusiveLock), hLock, hTryLock, hUnlock)
 
 -- | Check if a particular 'UnitId' exists in the store.
 doesStoreEntryExist :: StoreDirLayout -> Compiler -> UnitId -> IO Bool
-doesStoreEntryExist StoreDirLayout{storePackageDirectory} compiler unitid =
-  doesDirectoryExist (storePackageDirectory compiler unitid)
+doesStoreEntryExist storeDirLayout compiler unitid =
+  doesDirectoryExist $ interpretStorePath storeDirLayout (storePackageDirectory storeDirLayout compiler unitid)
 
 -- | Return the 'UnitId's of all packages\/components already installed in the
 -- store.
 getStoreEntries :: StoreDirLayout -> Compiler -> Rebuild (Set UnitId)
-getStoreEntries StoreDirLayout{storeDirectory} compiler = do
-  paths <- getDirectoryContentsMonitored (storeDirectory compiler)
+getStoreEntries storeDirLayout compiler = do
+  let d = interpretStorePath storeDirLayout (storeCompilerDirectory storeDirLayout compiler)
+  paths <- getDirectoryContentsMonitored d
   return $! mkEntries paths
   where
     mkEntries =
@@ -214,7 +216,7 @@ newStoreEntry
             -- Atomically rename the temp dir to the final store entry location.
             renameDirectory incomingEntryDir finalEntryDir
             for_ otherFiles $ \file -> do
-              let finalStoreFile = storeDirectory compiler </> makeRelative (normalise $ incomingTmpDir </> (dropDrive (storeDirectory compiler))) file
+              let finalStoreFile = storeCompilerDirectory compiler </> makeRelative (normalise $ incomingTmpDir </> (dropDrive (storeCompilerDirectory compiler))) file
               createDirectoryIfMissing True (takeDirectory finalStoreFile)
               renameFile file finalStoreFile
 
