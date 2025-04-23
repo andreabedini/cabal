@@ -800,7 +800,7 @@ rebuildInstallPlan
                     planPackages
                       verbosity
                       solverSettings
-                      toolchains
+                      compilerAndPlatform
                       pkgConfigDbs
                       ipis
                       sourcePkgDb
@@ -813,6 +813,11 @@ rebuildInstallPlan
                     dieWithException verbosity $ PhaseRunSolverErr msg
                   Right plan -> return (plan, ipis, pkgConfigDbs, tis, ar)
           where
+            compilerAndPlatform =
+              fmap
+                (\Toolchain{toolchainCompiler, toolchainPlatform} -> (compilerInfo toolchainCompiler, toolchainPlatform))
+                toolchains
+            
             corePackageDbs :: PackageDBStackCWD
             corePackageDbs =
               Cabal.interpretPackageDbFlags False (projectConfigPackageDBs (projectConfigToolchain projectConfigShared))
@@ -1282,7 +1287,7 @@ getPackageSourceHashes verbosity withRepoCtx solverPlan = do
 planPackages
   :: Verbosity
   -> SolverSettings
-  -> Staged Toolchain
+  -> Staged (CompilerInfo, Platform)
   -> Staged (Maybe PkgConfigDb)
   -> Staged InstalledPackageIndex
   -> SourcePackageDb
@@ -1298,11 +1303,7 @@ planPackages
   sourcePkgs
   localPackages
   pkgStanzasEnable =
-    resolveDependencies
-      (fmap (\Toolchain{toolchainCompiler, toolchainPlatform} -> (compilerInfo toolchainCompiler, toolchainPlatform)) toolchains)
-      pkgConfigDbs
-      installedPkgs
-      resolverParams
+    resolveDependencies toolchains pkgConfigDbs installedPkgs resolverParams
     where
       -- TODO: [nice to have] disable multiple instances restriction in
       -- the solver, but then make sure we can cope with that in the
