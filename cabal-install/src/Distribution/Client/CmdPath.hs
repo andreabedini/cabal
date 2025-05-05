@@ -42,7 +42,6 @@ import Distribution.Client.ProjectConfig.Types
   )
 import Distribution.Client.ProjectOrchestration
 import Distribution.Client.ProjectPlanning
-import Distribution.Client.ProjectPlanning.Types (Toolchain (..))
 import Distribution.Client.RebuildMonad (runRebuild)
 import Distribution.Client.ScriptUtils
 import Distribution.Client.Setup
@@ -55,7 +54,6 @@ import qualified Distribution.Client.Utils.Json as Json
 import Distribution.Client.Version
   ( cabalInstallVersion
   )
-import Distribution.Solver.Types.Stage
 import Distribution.ReadE
   ( ReadE (ReadE)
   )
