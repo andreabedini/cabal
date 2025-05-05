@@ -15,12 +15,13 @@ import Prelude ()
 import Distribution.Types.InstalledPackageInfo (InstalledPackageInfo)
 import Distribution.Types.PackageId (PackageId)
 import Distribution.Types.UnitId (UnitId)
+import Distribution.Client.ProjectPlanning.Stage (WithStage(..))
 
 -- | A summary of the outcome for building a single package.
 type BuildOutcome = Either BuildFailure BuildResult
 
 -- | A summary of the outcome for building a whole set of packages.
-type BuildOutcomes = Map UnitId BuildOutcome
+type BuildOutcomes = Map (WithStage UnitId) BuildOutcome
 
 data BuildFailure
   = PlanningFailed

@@ -193,6 +193,7 @@ symlinkBinaries
 
       pkgDescription
         ( ConfiguredPackage
+            _stage
             _
             (SourcePackage _ gpd _ _)
             flags

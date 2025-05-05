@@ -128,7 +128,7 @@ import Distribution.Client.Types as Source
 import Distribution.Client.Types.OverwritePolicy (OverwritePolicy (..))
 import qualified Distribution.Client.Win32SelfUpgrade as Win32SelfUpgrade
 import qualified Distribution.InstalledPackageInfo as Installed
-import Distribution.Solver.Types.PackageFixedDeps
+import Distribution.Client.Types.PackageFixedDeps
 
 import qualified Distribution.Solver.Types.ComponentDeps as CD
 import Distribution.Solver.Types.ConstraintSource
@@ -279,6 +279,7 @@ import Distribution.Version
 
 import qualified Data.ByteString as BS
 import Distribution.Client.Errors
+import Distribution.Client.ProjectPlanning.Types (WithStage)
 
 -- TODO:
 
@@ -446,7 +447,7 @@ makeInstallContext
     --       (packageIndex sourcePkgDb)
     --       configExFlags
     --     return iidx
-        
+
     -- pkgConfigDb <- for toolchains $ \Toolchain{..} -> readPkgConfigDb verbosity toolchainProgramDb
 
     checkConfigExFlags
@@ -1013,6 +1014,7 @@ printPlan dryRun verbosity plan sourcePkgDb = case plan of
       [ (rpid, packageId cpkg)
       | (ReadyPackage cpkg, _) <- plan
       , ConfiguredId
+          _stage
           rpid
           ( Just
               ( PackageDescription.CLibName
@@ -1581,7 +1583,7 @@ performInstallations
 
 executeInstallPlan
   :: Verbosity
-  -> JobControl IO (UnitId, BuildOutcome)
+  -> JobControl IO (WithStage UnitId, BuildOutcome)
   -> Bool
   -> UseLogFile
   -> InstallPlan
@@ -1644,6 +1646,7 @@ installReadyPackage
   configFlags
   ( ReadyPackage
       ( ConfiguredPackage
+          _stage
           ipid
           (SourcePackage _ gpkg source pkgoverride)
           flags
@@ -1662,6 +1665,7 @@ installReadyPackage
           configConstraints =
             [ thisPackageVersionConstraint srcid
             | ConfiguredId
+                _stage
                 srcid
                 ( Just
                     ( PackageDescription.CLibName
@@ -1673,7 +1677,7 @@ installReadyPackage
             ]
         , configDependencies =
             [ GivenComponent (packageName srcid) cname dep_ipid
-            | ConfiguredId srcid (Just (PackageDescription.CLibName cname)) dep_ipid <-
+            | ConfiguredId _stage srcid (Just (PackageDescription.CLibName cname)) dep_ipid <-
                 CD.nonSetupDeps deps
             ]
         , -- Use '--exact-configuration' if supported.

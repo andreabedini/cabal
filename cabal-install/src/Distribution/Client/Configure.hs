@@ -209,11 +209,12 @@ configure
          in case fst (InstallPlan.ready installPlan) of
               [ pkg@( ReadyPackage
                         ( ConfiguredPackage
-                            _
+                            _stage
+                            _instPkgId
                             (SourcePackage _ _ (LocalUnpackedPackage _) _)
-                            _
-                            _
-                            _
+                            _flags
+                            _stanzas
+                            _deps
                           )
                       )
                 ] -> do
@@ -342,10 +343,10 @@ configureSetupScript
         return
           [ (cid, srcid)
           | ConfiguredId
+              _stage
               srcid
               (Just (PkgDesc.CLibName PkgDesc.LMainLibName))
-              cid <-
-              CD.setupDeps (confPkgDeps cpkg)
+              cid <- CD.setupDeps (confPkgDeps cpkg)
           ]
 
 -- | Warn if any constraints or preferences name packages that are not in the
@@ -499,7 +500,9 @@ configurePackage
   comp
   scriptOptions
   configFlags
-  (ReadyPackage (ConfiguredPackage ipid spkg flags stanzas deps))
+  -- FIXME: I guess we need to bring the toolchain info to here
+  -- NOTE: This might be a v1 codepath so maybe we can just drop this
+  (ReadyPackage (ConfiguredPackage _stage ipid spkg flags stanzas deps))
   extraArgs =
     setupWrapper
       verbosity
@@ -532,12 +535,12 @@ configurePackage
               -- depending on the Cabal version we are talking to.
               configConstraints =
                 [ thisPackageVersionConstraint srcid
-                | ConfiguredId srcid (Just (PkgDesc.CLibName PkgDesc.LMainLibName)) _uid <-
+                | ConfiguredId _stage srcid (Just (PkgDesc.CLibName PkgDesc.LMainLibName)) _uid <-
                     CD.nonSetupDeps deps
                 ]
             , configDependencies =
                 [ GivenComponent (packageName srcid) cname uid
-                | ConfiguredId srcid (Just (PkgDesc.CLibName cname)) uid <-
+                | ConfiguredId _stage srcid (Just (PkgDesc.CLibName cname)) uid <-
                     CD.nonSetupDeps deps
                 ]
             , -- Use '--exact-configuration' if supported.

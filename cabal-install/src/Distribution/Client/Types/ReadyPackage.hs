@@ -15,7 +15,7 @@ import Distribution.Package (HasMungedPackageId, HasUnitId, Package, PackageInst
 
 import Distribution.Client.Types.ConfiguredPackage (ConfiguredPackage)
 import Distribution.Client.Types.PackageLocation (UnresolvedPkgLoc)
-import Distribution.Solver.Types.PackageFixedDeps
+import Distribution.Client.Types.PackageFixedDeps
 
 -- | Like 'ConfiguredPackage', but with all dependencies guaranteed to be
 -- installed already, hence itself ready to be installed.

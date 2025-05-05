@@ -3,6 +3,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# OPTIONS_GHC -Wno-unused-matches #-}
 
 -- | cabal-install CLI command: build
 module Distribution.Client.CmdInstall
@@ -92,7 +93,7 @@ import Distribution.Client.ProjectPlanning
   ( storePackageInstallDirs'
   )
 import Distribution.Client.ProjectPlanning.Types
-  ( ElaboratedInstallPlan
+  ( ElaboratedInstallPlan, WithStage (..)
   )
 import Distribution.Client.RebuildMonad
   ( runRebuild
@@ -261,7 +262,7 @@ type InstallAction =
   Verbosity
   -> OverwritePolicy
   -> InstallExe
-  -> (UnitId, [(ComponentTarget, NonEmpty TargetSelector)])
+  -> (WithStage UnitId, [(ComponentTarget, NonEmpty TargetSelector)])
   -> IO ()
 
 data InstallCfg = InstallCfg
@@ -280,7 +281,7 @@ data InstallCfg = InstallCfg
 data InstallExe = InstallExe
   { installMethod :: InstallMethod
   , installDir :: FilePath
-  , mkSourceBinDir :: UnitId -> FilePath
+  , mkSourceBinDir :: WithStage UnitId -> FilePath
   -- ^ A function to get an UnitId's store directory.
   , mkExeName :: UnqualComponentName -> FilePath
   -- ^ A function to get an exe's filename.
@@ -531,18 +532,18 @@ installAction flags@NixStyleFlags{extraFlags, configFlags, installFlags, project
 
     -- Having built everything, do the install.
     unless dryRun $
-      if installLibs
-        then
-          installLibraries
-            verbosity
-            buildCtx
-            installedIndex
-            compiler
-            packageDbs
-            envFile
-            nonGlobalEnvEntries'
-            (not usedExistingPkgEnvFile && not usedPackageEnvFlag)
-        else -- Install any built exe by symlinking or copying it we don't use
+      -- if installLibs
+      --   then
+      --     installLibraries
+      --       verbosity
+      --       buildCtx
+      --       installedIndex
+      --       compiler
+      --       packageDbs
+      --       envFile
+      --       nonGlobalEnvEntries'
+      --       (not usedExistingPkgEnvFile && not usedPackageEnvFlag)
+      --   else -- Install any built exe by symlinking or copying it we don't use
         -- BuildOutcomes because we also need the component names
           traverseInstall (installCheckUnitExes InstallCheckInstall) installCfg
   where
@@ -781,9 +782,10 @@ getSpecsAndTargetSelectors verbosity reducedVerbosity sourcePkgDb targetSelector
 
       localPkgs = sdistize <$> localPackages baseCtx
 
-      gatherTargets :: UnitId -> TargetSelector
+      gatherTargets :: WithStage UnitId -> TargetSelector
       gatherTargets targetId = TargetPackageNamed pkgName targetFilter
         where
+          -- FIXME: fixed stage
           targetUnit = Map.findWithDefault (error "cannot find target unit") targetId planMap
           PackageIdentifier{..} = packageId targetUnit
 
@@ -921,10 +923,10 @@ prepareExeInstall
         prefix = fromFlagOrDefault "" (fmap InstallDirs.fromPathTemplate (configProgPrefix installConfigFlags))
         suffix = fromFlagOrDefault "" (fmap InstallDirs.fromPathTemplate (configProgSuffix installConfigFlags))
 
-        mkUnitBinDir :: UnitId -> FilePath
-        mkUnitBinDir =
-          InstallDirs.bindir
-            . storePackageInstallDirs' storeDirLayout compiler
+        -- FIXME: we ignore stage
+        mkUnitBinDir :: WithStage UnitId -> FilePath
+        mkUnitBinDir (WithStage _stage uid) =
+          InstallDirs.bindir (storePackageInstallDirs' storeDirLayout compiler uid)
 
         mkExeName :: UnqualComponentName -> FilePath
         mkExeName exe = unUnqualComponentName exe <.> exeExtension platform
@@ -958,86 +960,86 @@ prepareExeInstall
 
     return $ InstallExe installMethod installdir mkUnitBinDir mkExeName mkFinalExeName
 
--- | Install any built library by adding it to the default ghc environment
-installLibraries
-  :: Verbosity
-  -> ProjectBuildContext
-  -> PI.PackageIndex InstalledPackageInfo
-  -> Compiler
-  -> PackageDBStackCWD
-  -> FilePath
-  -- ^ Environment file
-  -> [GhcEnvironmentFileEntry FilePath]
-  -> Bool
-  -- ^ Whether we need to show a warning (i.e. we created a new environment
-  --   file, and the user did not use --package-env)
-  -> IO ()
-installLibraries
-  verbosity
-  buildCtx
-  installedIndex
-  compiler
-  packageDbs'
-  envFile
-  envEntries
-  showWarning = do
-    if supportsPkgEnvFiles $ getImplInfo compiler
-      then do
-        let validDb (SpecificPackageDB fp) = doesPathExist fp
-            validDb _ = pure True
-        -- if a user "installs" a global package and no existing cabal db exists, none will be created.
-        -- this ensures we don't add the "phantom" path to the file.
-        packageDbs <- filterM validDb packageDbs'
-        let
-          getLatest =
-            (=<<) (maybeToList . safeHead . snd)
-              . take 1
-              . sortBy (comparing (Down . fst))
-              . PI.lookupPackageName installedIndex
-          globalLatest = concat (getLatest <$> globalPackages)
-          globalEntries = GhcEnvFilePackageId . installedUnitId <$> globalLatest
-          baseEntries =
-            GhcEnvFileClearPackageDbStack : fmap GhcEnvFilePackageDb packageDbs
-          pkgEntries =
-            ordNub $
-              globalEntries
-                ++ envEntries
-                ++ entriesForLibraryComponents (targetsMap buildCtx)
-          contents' = renderGhcEnvironmentFile (baseEntries ++ pkgEntries)
-        createDirectoryIfMissing True (takeDirectory envFile)
-        writeFileAtomic envFile (BS.pack contents')
-        when showWarning $
-          warn verbosity $
-            "The libraries were installed by creating a global GHC environment file at:\n"
-              ++ envFile
-              ++ "\n"
-              ++ "\n"
-              ++ "The presence of such an environment file is likely to confuse or break other "
-              ++ "tools because it changes GHC's behaviour: it changes the default package set in "
-              ++ "ghc and ghci from its normal value (which is \"all boot libraries\"). GHC "
-              ++ "environment files are little-used and often not tested for.\n"
-              ++ "\n"
-              ++ "Furthermore, management of these environment files is still more difficult than "
-              ++ "it could be; see e.g. https://github.com/haskell/cabal/issues/6481 .\n"
-              ++ "\n"
-              ++ "Double-check that creating a global GHC environment file is really what you "
-              ++ "wanted! You can limit the effects of the environment file by creating it in a "
-              ++ "specific directory using the --package-env flag. For example, use:\n"
-              ++ "\n"
-              ++ "cabal install --lib <packages...> --package-env .\n"
-              ++ "\n"
-              ++ "to create the file in the current directory."
-      else
-        warn verbosity $
-          "The current compiler doesn't support safely installing libraries, "
-            ++ "so only executables will be available. (Library installation is "
-            ++ "supported on GHC 8.0+ only)"
+-- -- | Install any built library by adding it to the default ghc environment
+-- installLibraries
+--   :: Verbosity
+--   -> ProjectBuildContext
+--   -> PI.PackageIndex InstalledPackageInfo
+--   -> Compiler
+--   -> PackageDBStackCWD
+--   -> FilePath
+--   -- ^ Environment file
+--   -> [GhcEnvironmentFileEntry FilePath]
+--   -> Bool
+--   -- ^ Whether we need to show a warning (i.e. we created a new environment
+--   --   file, and the user did not use --package-env)
+--   -> IO ()
+-- installLibraries
+--   verbosity
+--   buildCtx
+--   installedIndex
+--   compiler
+--   packageDbs'
+--   envFile
+--   envEntries
+--   showWarning = do
+--     if supportsPkgEnvFiles $ getImplInfo compiler
+--       then do
+--         let validDb (SpecificPackageDB fp) = doesPathExist fp
+--             validDb _ = pure True
+--         -- if a user "installs" a global package and no existing cabal db exists, none will be created.
+--         -- this ensures we don't add the "phantom" path to the file.
+--         packageDbs <- filterM validDb packageDbs'
+--         let
+--           getLatest =
+--             (=<<) (maybeToList . safeHead . snd)
+--               . take 1
+--               . sortBy (comparing (Down . fst))
+--               . PI.lookupPackageName installedIndex
+--           globalLatest = concat (getLatest <$> globalPackages)
+--           globalEntries = GhcEnvFilePackageId . installedUnitId <$> globalLatest
+--           baseEntries =
+--             GhcEnvFileClearPackageDbStack : fmap GhcEnvFilePackageDb packageDbs
+--           pkgEntries =
+--             ordNub $
+--               globalEntries
+--                 ++ envEntries
+--                 ++ entriesForLibraryComponents (targetsMap buildCtx)
+--           contents' = renderGhcEnvironmentFile (baseEntries ++ pkgEntries)
+--         createDirectoryIfMissing True (takeDirectory envFile)
+--         writeFileAtomic envFile (BS.pack contents')
+--         when showWarning $
+--           warn verbosity $
+--             "The libraries were installed by creating a global GHC environment file at:\n"
+--               ++ envFile
+--               ++ "\n"
+--               ++ "\n"
+--               ++ "The presence of such an environment file is likely to confuse or break other "
+--               ++ "tools because it changes GHC's behaviour: it changes the default package set in "
+--               ++ "ghc and ghci from its normal value (which is \"all boot libraries\"). GHC "
+--               ++ "environment files are little-used and often not tested for.\n"
+--               ++ "\n"
+--               ++ "Furthermore, management of these environment files is still more difficult than "
+--               ++ "it could be; see e.g. https://github.com/haskell/cabal/issues/6481 .\n"
+--               ++ "\n"
+--               ++ "Double-check that creating a global GHC environment file is really what you "
+--               ++ "wanted! You can limit the effects of the environment file by creating it in a "
+--               ++ "specific directory using the --package-env flag. For example, use:\n"
+--               ++ "\n"
+--               ++ "cabal install --lib <packages...> --package-env .\n"
+--               ++ "\n"
+--               ++ "to create the file in the current directory."
+--       else
+--         warn verbosity $
+--           "The current compiler doesn't support safely installing libraries, "
+--             ++ "so only executables will be available. (Library installation is "
+--             ++ "supported on GHC 8.0+ only)"
 
--- See ticket #8894. This is safe to include any nonreinstallable boot pkg,
--- but the particular package users will always expect to be in scope without specific installation
--- is base, so that they can access prelude, regardless of if they specifically asked for it.
-globalPackages :: [PackageName]
-globalPackages = mkPackageName <$> ["base"]
+-- -- See ticket #8894. This is safe to include any nonreinstallable boot pkg,
+-- -- but the particular package users will always expect to be in scope without specific installation
+-- -- is base, so that they can access prelude, regardless of if they specifically asked for it.
+-- globalPackages :: [PackageName]
+-- globalPackages = mkPackageName <$> ["base"]
 
 warnIfNoExes :: Verbosity -> ProjectBuildContext -> IO ()
 warnIfNoExes verbosity buildCtx =
@@ -1121,7 +1123,7 @@ ignoreProgramAffixes configFlags =
 
 -- | Prepares a record containing the information needed to either symlink or
 -- copy an executable.
-symlink :: OverwritePolicy -> InstallExe -> UnitId -> UnqualComponentName -> Symlink
+symlink :: OverwritePolicy -> InstallExe -> WithStage UnitId -> UnqualComponentName -> Symlink
 symlink
   overwritePolicy
   InstallExe{installDir, mkSourceBinDir, mkExeName, mkFinalExeName}
@@ -1253,21 +1255,21 @@ installBuiltExe
           "Existing file found while installing executable. Do you want to overwrite that file? (y/n)"
           overwrite
 
--- | Create 'GhcEnvironmentFileEntry's for packages with exposed libraries.
-entriesForLibraryComponents :: TargetsMap -> [GhcEnvironmentFileEntry FilePath]
-entriesForLibraryComponents = Map.foldrWithKey' (\k v -> mappend (go k v)) []
-  where
-    hasLib :: (ComponentTarget, NonEmpty TargetSelector) -> Bool
-    hasLib (ComponentTarget (CLibName _) _, _) = True
-    hasLib _ = False
+-- -- | Create 'GhcEnvironmentFileEntry's for packages with exposed libraries.
+-- entriesForLibraryComponents :: TargetsMap -> [GhcEnvironmentFileEntry FilePath]
+-- entriesForLibraryComponents = Map.foldrWithKey' (\k v -> mappend (go k v)) []
+--   where
+--     hasLib :: (ComponentTarget, NonEmpty TargetSelector) -> Bool
+--     hasLib (ComponentTarget (CLibName _) _, _) = True
+--     hasLib _ = False
 
-    go
-      :: UnitId
-      -> [(ComponentTarget, NonEmpty TargetSelector)]
-      -> [GhcEnvironmentFileEntry FilePath]
-    go unitId targets
-      | any hasLib targets = [GhcEnvFilePackageId unitId]
-      | otherwise = []
+--     go
+--       :: UnitId
+--       -> [(ComponentTarget, NonEmpty TargetSelector)]
+--       -> [GhcEnvironmentFileEntry FilePath]
+--     go unitId targets
+--       | any hasLib targets = [GhcEnvFilePackageId unitId]
+--       | otherwise = []
 
 -- | Gets the file path to the request environment file. The @Bool@ is @True@
 -- if we got an explicit instruction using @--package-env@, @False@ if we used

@@ -238,7 +238,7 @@ selectPackageTargets haddockFlags targetSelector targets
     -- When there's a target filter like "pkg:exes" then we do select exes,
     -- but if it's just a target like "pkg" then we don't build docs for exes
     -- unless they are requested by default (i.e. by using --executables)
-    disableNotRequested t@(AvailableTarget _ cname (TargetBuildable _ _) _)
+    disableNotRequested t@(AvailableTarget _stage _ cname (TargetBuildable _ _) _)
       | not (isRequested targetSelector (componentKind cname)) =
           t{availableTargetStatus = TargetDisabledByUser}
     disableNotRequested t = t

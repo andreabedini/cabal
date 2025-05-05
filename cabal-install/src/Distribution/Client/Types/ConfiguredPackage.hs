@@ -18,10 +18,11 @@ import Distribution.Types.MungedPackageId (computeCompatPackageId)
 
 import Distribution.Client.Types.ConfiguredId
 import Distribution.Solver.Types.OptionalStanza (OptionalStanzaSet)
-import Distribution.Solver.Types.PackageFixedDeps
 import Distribution.Solver.Types.SourcePackage (SourcePackage)
 
 import qualified Distribution.Solver.Types.ComponentDeps as CD
+import Distribution.Client.ProjectPlanning.Stage (WithStage(..), Stage(..))
+import Distribution.Client.Types.PackageFixedDeps
 
 -- | A 'ConfiguredPackage' is a not-yet-installed package along with the
 -- total configuration information. The configuration information is total in
@@ -31,7 +32,8 @@ import qualified Distribution.Solver.Types.ComponentDeps as CD
 -- 'ConfiguredPackage' is assumed to not support Backpack.  Only the
 -- @v2-build@ codepath supports Backpack.
 data ConfiguredPackage loc = ConfiguredPackage
-  { confPkgId :: InstalledPackageId
+  { confPkgStage :: Stage
+  , confPkgId :: InstalledPackageId
   , confPkgSource :: SourcePackage loc
   -- ^ package info, including repo
   , confPkgFlags :: FlagAssignment
@@ -51,16 +53,16 @@ data ConfiguredPackage loc = ConfiguredPackage
 -- This type class is mostly used to conveniently finesse between
 -- 'ElaboratedPackage' and 'ElaboratedComponent'.
 instance HasConfiguredId (ConfiguredPackage loc) where
-  configuredId pkg = ConfiguredId (packageId pkg) (Just (CLibName LMainLibName)) (confPkgId pkg)
+  configuredId pkg = ConfiguredId (confPkgStage pkg) (packageId pkg) (Just (CLibName LMainLibName)) (confPkgId pkg)
 
 -- 'ConfiguredPackage' is the legacy codepath, we are guaranteed
 -- to never have a nontrivial 'UnitId'
 instance PackageFixedDeps (ConfiguredPackage loc) where
-  depends = fmap (map (newSimpleUnitId . confInstId)) . confPkgDeps
+  depends pkg = fmap (map (newSimpleUnitId . confInstId)) (confPkgDeps pkg)
 
 instance IsNode (ConfiguredPackage loc) where
-  type Key (ConfiguredPackage loc) = UnitId
-  nodeKey = newSimpleUnitId . confPkgId
+  type Key (ConfiguredPackage loc) = WithStage UnitId
+  nodeKey pkg = WithStage (confPkgStage pkg) (newSimpleUnitId (confPkgId pkg))
 
   -- TODO: if we update ConfiguredPackage to support order-only
   -- dependencies, need to include those here.

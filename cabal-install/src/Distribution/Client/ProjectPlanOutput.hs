@@ -14,10 +14,10 @@ module Distribution.Client.ProjectPlanOutput
   , updatePostBuildProjectStatus
   , createPackageEnvironment
   , writePlanGhcEnvironment
-  , argsEquivalentOfGhcEnvironmentFile
+  -- , argsEquivalentOfGhcEnvironmentFile
 
     -- TODO: only to avoid a warning
-  , Distribution.Client.ProjectPlanOutput.renderGhcEnvironmentFile
+  -- , Distribution.Client.ProjectPlanOutput.renderGhcEnvironmentFile
   ) where
 
 import Distribution.Client.DistDirLayout
@@ -49,7 +49,6 @@ import Distribution.Simple.BuildPaths
   , exeExtension
   )
 import Distribution.Simple.Compiler
-import Distribution.Simple.GHC
 import Distribution.Simple.Utils
 import Distribution.System
 import Distribution.Types.Version
@@ -71,8 +70,6 @@ import qualified Data.Set as Set
 
 import System.FilePath
 import System.IO
-
-import Distribution.Simple.Program.GHC (packageDbArgsDb)
 
 -----------------------------------------------------------------------------
 -- Writing plan.json files
@@ -111,14 +108,14 @@ encodePlanAsJson distDirLayout elaboratedInstallPlan elaboratedSharedConfig =
   where
     toolchains = pkgConfigToolchains elaboratedSharedConfig
 
-    toolchainJ stage =
+    toolchainJ stage_ =
       [ prefixed "compiler-id" J..= J.String (showCompilerId toolchainCompiler)
       , prefixed "arch" J..= (jdisplay arch)
       , prefixed "os" J..= (jdisplay os)
       ]
       where
-        Toolchain{toolchainCompiler, toolchainPlatform = Platform arch os} = Stage.getStage toolchains stage
-        prefixed s = case stage of 
+        Toolchain{toolchainCompiler, toolchainPlatform = Platform arch os} = Stage.getStage toolchains stage_
+        prefixed s = case stage_ of
           Stage.Build -> "build-" ++ s
           Stage.Host -> s
 
@@ -136,8 +133,8 @@ encodePlanAsJson distDirLayout elaboratedInstallPlan elaboratedSharedConfig =
     -- that case, but the code supports it in case we want to use this
     -- later in some use case where we want the status of the build.
 
-    installedPackageInfoToJ :: InstalledPackageInfo -> J.Value
-    installedPackageInfoToJ ipi =
+    installedPackageInfoToJ :: WithStage InstalledPackageInfo -> J.Value
+    installedPackageInfoToJ (WithStage s ipi) =
       -- Pre-existing packages lack configuration information such as their flag
       -- settings or non-lib components. We only get pre-existing packages for
       -- the global/core packages however, so this isn't generally a problem.
@@ -145,6 +142,7 @@ encodePlanAsJson distDirLayout elaboratedInstallPlan elaboratedSharedConfig =
       --
       J.object
         [ "type" J..= J.String "pre-existing"
+        , "stage" J..= jdisplay s
         , "id" J..= (jdisplay . installedUnitId) ipi
         , "pkg-name" J..= (jdisplay . pkgName . packageId) ipi
         , "pkg-version" J..= (jdisplay . pkgVersion . packageId) ipi
@@ -448,7 +446,7 @@ encodePlanAsJson distDirLayout elaboratedInstallPlan elaboratedSharedConfig =
 -- successfully then they're still out of date -- meeting our definition of
 -- invalid.
 
-type PackageIdSet = Set UnitId
+type PackageIdSet = Set (WithStage UnitId)
 type PackagesUpToDate = PackageIdSet
 
 data PostBuildProjectStatus = PostBuildProjectStatus
@@ -501,7 +499,7 @@ data PostBuildProjectStatus = PostBuildProjectStatus
   -- or data file generation failing.
   --
   -- This is a subset of 'packagesInvalidByChangedLibDeps'.
-  , packagesLibDepGraph :: Graph (Node UnitId ElaboratedPlanPackage)
+  , packagesLibDepGraph :: Graph (Node (WithStage UnitId) ElaboratedPlanPackage)
   -- ^ A subset of the plan graph, including only dependency-on-library
   -- edges. That is, dependencies /on/ libraries, not dependencies /of/
   -- libraries. This tells us all the libraries that packages link to.
@@ -583,12 +581,12 @@ postBuildProjectStatus
           (InstallPlan.keysSet plan)
 
       packagesOutOfDatePreBuild =
-        Set.fromList . map installedUnitId $
+        Set.fromList . map Graph.nodeKey $
           InstallPlan.reverseDependencyClosure
             plan
             [ ipkgid
             | pkg <- InstallPlan.toList plan
-            , let ipkgid = installedUnitId pkg
+            , let ipkgid = Graph.nodeKey pkg
             , lookupBuildStatusRequiresBuild False ipkgid
             -- For packages not in the plan subset we did the dry-run on we don't
             -- know anything about their status, so not known to be /out of date/.
@@ -610,6 +608,7 @@ postBuildProjectStatus
 
       -- Packages that have a library dependency on a package for which a build
       -- was attempted
+      packagesDepOnChangedLib :: Set (WithStage UnitId)
       packagesDepOnChangedLib =
         Set.fromList . map Graph.nodeKey $
           fromMaybe (error "packagesBuildStatusAfterBuild: broken dep closure") $
@@ -621,15 +620,15 @@ postBuildProjectStatus
               )
 
       -- The plan graph but only counting dependency-on-library edges
-      packagesLibDepGraph :: Graph (Node UnitId ElaboratedPlanPackage)
+      packagesLibDepGraph :: Graph (Node (WithStage UnitId) ElaboratedPlanPackage)
       packagesLibDepGraph =
         Graph.fromDistinctList
-          [ Graph.N pkg (installedUnitId pkg) libdeps
+          [ Graph.N pkg (Graph.nodeKey pkg) libdeps
           | pkg <- InstallPlan.toList plan
           , let libdeps = case pkg of
-                  InstallPlan.PreExisting ipkg -> installedDepends ipkg
-                  InstallPlan.Configured srcpkg -> elabLibDeps srcpkg
-                  InstallPlan.Installed srcpkg -> elabLibDeps srcpkg
+                  InstallPlan.PreExisting ipkg -> Graph.nodeNeighbors ipkg
+                  InstallPlan.Configured srcpkg -> map (WithStage (elabStage srcpkg)) (elabLibDeps srcpkg)
+                  InstallPlan.Installed srcpkg -> map (WithStage (elabStage srcpkg)) (elabLibDeps srcpkg)
           ]
 
       elabLibDeps :: ElaboratedConfiguredPackage -> [UnitId]
@@ -650,13 +649,13 @@ postBuildProjectStatus
       buildAttempted _ (Left BuildFailure{}) = True
       buildAttempted _ (Right _) = True
 
-      lookupBuildStatusRequiresBuild :: Bool -> UnitId -> Bool
+      lookupBuildStatusRequiresBuild :: Bool -> WithStage UnitId -> Bool
       lookupBuildStatusRequiresBuild def ipkgid =
         case Map.lookup ipkgid pkgBuildStatus of
           Nothing -> def -- Not in the plan subset we did the dry-run on
           Just buildStatus -> buildStatusRequiresBuild buildStatus
 
-      packagesBuildLocal :: Set UnitId
+      packagesBuildLocal :: Set (WithStage UnitId)
       packagesBuildLocal =
         selectPlanPackageIdSet $ \pkg ->
           case pkg of
@@ -664,7 +663,7 @@ postBuildProjectStatus
             InstallPlan.Installed _ -> False
             InstallPlan.Configured srcpkg -> elabLocalToProject srcpkg
 
-      packagesBuildInplace :: Set UnitId
+      packagesBuildInplace :: Set (WithStage UnitId)
       packagesBuildInplace =
         selectPlanPackageIdSet $ \pkg ->
           case pkg of
@@ -672,7 +671,7 @@ postBuildProjectStatus
             InstallPlan.Installed _ -> False
             InstallPlan.Configured srcpkg -> isInplaceBuildStyle (elabBuildStyle srcpkg)
 
-      packagesAlreadyInStore :: Set UnitId
+      packagesAlreadyInStore :: Set (WithStage UnitId)
       packagesAlreadyInStore =
         selectPlanPackageIdSet $ \pkg ->
           case pkg of
@@ -680,11 +679,7 @@ postBuildProjectStatus
             InstallPlan.Installed _ -> True
             InstallPlan.Configured _ -> False
 
-      selectPlanPackageIdSet
-        :: ( InstallPlan.GenericPlanPackage InstalledPackageInfo ElaboratedConfiguredPackage
-             -> Bool
-           )
-        -> Set UnitId
+      selectPlanPackageIdSet :: (ElaboratedPlanPackage -> Bool) -> Set (WithStage UnitId)
       selectPlanPackageIdSet p =
         Map.keysSet
           . Map.filter p
@@ -862,64 +857,64 @@ writePlanGhcEnvironment
 
 writePlanGhcEnvironment _ _ _ _ = return Nothing
 
-renderGhcEnvironmentFile
-  :: FilePath
-  -> ElaboratedInstallPlan
-  -> PostBuildProjectStatus
-  -> [GhcEnvironmentFileEntry FilePath]
-renderGhcEnvironmentFile
-  projectRootDir
-  elaboratedInstallPlan
-  postBuildStatus =
-    headerComment
-      : simpleGhcEnvironmentFile packageDBs unitIds
-    where
-      headerComment =
-        GhcEnvFileComment $
-          "This is a GHC environment file written by cabal. This means you can\n"
-            ++ "run ghc or ghci and get the environment of the project as a whole.\n"
-            ++ "But you still need to use cabal repl $target to get the environment\n"
-            ++ "of specific components (libs, exes, tests etc) because each one can\n"
-            ++ "have its own source dirs, cpp flags etc.\n\n"
-      unitIds = selectGhcEnvironmentFileLibraries postBuildStatus
-      packageDBs =
-        relativePackageDBPaths projectRootDir $
-          selectGhcEnvironmentFilePackageDbs elaboratedInstallPlan
+-- renderGhcEnvironmentFile
+--   :: FilePath
+--   -> ElaboratedInstallPlan
+--   -> PostBuildProjectStatus
+--   -> [GhcEnvironmentFileEntry FilePath]
+-- renderGhcEnvironmentFile
+--   projectRootDir
+--   elaboratedInstallPlan
+--   postBuildStatus =
+--     headerComment
+--       : simpleGhcEnvironmentFile packageDBs unitIds
+--     where
+--       headerComment =
+--         GhcEnvFileComment $
+--           "This is a GHC environment file written by cabal. This means you can\n"
+--             ++ "run ghc or ghci and get the environment of the project as a whole.\n"
+--             ++ "But you still need to use cabal repl $target to get the environment\n"
+--             ++ "of specific components (libs, exes, tests etc) because each one can\n"
+--             ++ "have its own source dirs, cpp flags etc.\n\n"
+--       unitIds = selectGhcEnvironmentFileLibraries postBuildStatus
+--       packageDBs =
+--         relativePackageDBPaths projectRootDir $
+--           selectGhcEnvironmentFilePackageDbs elaboratedInstallPlan
 
-argsEquivalentOfGhcEnvironmentFile
-  :: Compiler
-  -> DistDirLayout
-  -> ElaboratedInstallPlan
-  -> PostBuildProjectStatus
-  -> [String]
-argsEquivalentOfGhcEnvironmentFile compiler =
-  case compilerId compiler of
-    CompilerId GHC _ -> argsEquivalentOfGhcEnvironmentFileGhc
-    CompilerId GHCJS _ -> argsEquivalentOfGhcEnvironmentFileGhc
-    CompilerId _ _ -> error "Only GHC and GHCJS are supported"
+-- argsEquivalentOfGhcEnvironmentFile
+--   :: Compiler
+--   -> DistDirLayout
+--   -> ElaboratedInstallPlan
+--   -> PostBuildProjectStatus
+--   -> [String]
+-- argsEquivalentOfGhcEnvironmentFile compiler =
+--   case compilerId compiler of
+--     CompilerId GHC _ -> argsEquivalentOfGhcEnvironmentFileGhc
+--     CompilerId GHCJS _ -> argsEquivalentOfGhcEnvironmentFileGhc
+--     CompilerId _ _ -> error "Only GHC and GHCJS are supported"
 
--- TODO remove this when we drop support for non-.ghc.env ghc
-argsEquivalentOfGhcEnvironmentFileGhc
-  :: DistDirLayout
-  -> ElaboratedInstallPlan
-  -> PostBuildProjectStatus
-  -> [String]
-argsEquivalentOfGhcEnvironmentFileGhc
-  distDirLayout
-  elaboratedInstallPlan
-  postBuildStatus =
-    clearPackageDbStackFlag
-      ++ packageDbArgsDb packageDBs
-      ++ foldMap packageIdFlag packageIds
-    where
-      projectRootDir = distProjectRootDirectory distDirLayout
-      packageIds = selectGhcEnvironmentFileLibraries postBuildStatus
-      packageDBs =
-        relativePackageDBPaths projectRootDir $
-          selectGhcEnvironmentFilePackageDbs elaboratedInstallPlan
-      -- TODO use proper flags? but packageDbArgsDb is private
-      clearPackageDbStackFlag = ["-clear-package-db", "-global-package-db"]
-      packageIdFlag uid = ["-package-id", prettyShow uid]
+-- -- TODO remove this when we drop support for non-.ghc.env ghc
+-- argsEquivalentOfGhcEnvironmentFileGhc
+--   :: DistDirLayout
+--   -> ElaboratedInstallPlan
+--   -> PostBuildProjectStatus
+--   -> [String]
+-- argsEquivalentOfGhcEnvironmentFileGhc
+--   distDirLayout
+--   elaboratedInstallPlan
+--   postBuildStatus =
+--     clearPackageDbStackFlag
+--       ++ packageDbArgsDb packageDBs
+--       ++ foldMap packageIdFlag packageIds
+--     where
+--       projectRootDir = distProjectRootDirectory distDirLayout
+--       packageIds = selectGhcEnvironmentFileLibraries postBuildStatus
+--       packageDBs =
+--         relativePackageDBPaths projectRootDir $
+--           selectGhcEnvironmentFilePackageDbs elaboratedInstallPlan
+--       -- TODO use proper flags? but packageDbArgsDb is private
+--       clearPackageDbStackFlag = ["-clear-package-db", "-global-package-db"]
+--       packageIdFlag uid = ["-package-id", prettyShow uid]
 
 -- We're producing an environment for users to use in ghci, so of course
 -- that means libraries only (can't put exes into the ghc package env!).
@@ -953,75 +948,75 @@ argsEquivalentOfGhcEnvironmentFileGhc
 -- to find the libs) then those exes still end up in our list so we have
 -- to filter them out at the end.
 --
-selectGhcEnvironmentFileLibraries :: PostBuildProjectStatus -> [UnitId]
-selectGhcEnvironmentFileLibraries PostBuildProjectStatus{..} =
-  case Graph.closure packagesLibDepGraph (Set.toList packagesBuildLocal) of
-    Nothing -> error "renderGhcEnvironmentFile: broken dep closure"
-    Just nodes ->
-      [ pkgid | Graph.N pkg pkgid _ <- nodes, hasUpToDateLib pkg
-      ]
-  where
-    hasUpToDateLib planpkg = case planpkg of
-      -- A pre-existing global lib
-      InstallPlan.PreExisting _ -> True
-      -- A package in the store. Check it's a lib.
-      InstallPlan.Installed pkg -> elabRequiresRegistration pkg
-      -- A package we were installing this time, either destined for the store
-      -- or just locally. Check it's a lib and that it is probably up to date.
-      InstallPlan.Configured pkg ->
-        elabRequiresRegistration pkg
-          && installedUnitId pkg `Set.member` packagesProbablyUpToDate
+-- selectGhcEnvironmentFileLibraries :: PostBuildProjectStatus -> [UnitId]
+-- selectGhcEnvironmentFileLibraries PostBuildProjectStatus{..} =
+--   case Graph.closure packagesLibDepGraph (Set.toList packagesBuildLocal) of
+--     Nothing -> error "renderGhcEnvironmentFile: broken dep closure"
+--     Just nodes ->
+--       [ pkgid | Graph.N pkg pkgid _ <- nodes, hasUpToDateLib pkg
+--       ]
+--   where
+--     hasUpToDateLib planpkg = case planpkg of
+--       -- A pre-existing global lib
+--       InstallPlan.PreExisting _ -> True
+--       -- A package in the store. Check it's a lib.
+--       InstallPlan.Installed pkg -> elabRequiresRegistration pkg
+--       -- A package we were installing this time, either destined for the store
+--       -- or just locally. Check it's a lib and that it is probably up to date.
+--       InstallPlan.Configured pkg ->
+--         elabRequiresRegistration pkg
+--           && installedUnitId pkg `Set.member` packagesProbablyUpToDate
 
-selectGhcEnvironmentFilePackageDbs :: ElaboratedInstallPlan -> PackageDBStackCWD
-selectGhcEnvironmentFilePackageDbs elaboratedInstallPlan =
-  -- If we have any inplace packages then their package db stack is the
-  -- one we should use since it'll include the store + the local db but
-  -- it's certainly possible to have no local inplace packages
-  -- e.g. just "extra" packages coming from the store.
-  case (inplacePackages, sourcePackages) of
-    ([], pkgs) -> checkSamePackageDBs pkgs
-    (pkgs, _) -> checkSamePackageDBs pkgs
-  where
-    checkSamePackageDBs :: [ElaboratedConfiguredPackage] -> PackageDBStackCWD
-    checkSamePackageDBs pkgs =
-      case ordNub (map elabBuildPackageDBStack pkgs) of
-        [packageDbs] -> packageDbs
-        [] -> []
-        _ ->
-          error $
-            "renderGhcEnvironmentFile: packages with "
-              ++ "different package db stacks"
-    -- This should not happen at the moment but will happen as soon
-    -- as we support projects where we build packages with different
-    -- compilers, at which point we have to consider how to adapt
-    -- this feature, e.g. write out multiple env files, one for each
-    -- compiler / project profile.
+-- selectGhcEnvironmentFilePackageDbs :: ElaboratedInstallPlan -> PackageDBStackCWD
+-- selectGhcEnvironmentFilePackageDbs elaboratedInstallPlan =
+--   -- If we have any inplace packages then their package db stack is the
+--   -- one we should use since it'll include the store + the local db but
+--   -- it's certainly possible to have no local inplace packages
+--   -- e.g. just "extra" packages coming from the store.
+--   case (inplacePackages, sourcePackages) of
+--     ([], pkgs) -> checkSamePackageDBs pkgs
+--     (pkgs, _) -> checkSamePackageDBs pkgs
+--   where
+--     checkSamePackageDBs :: [ElaboratedConfiguredPackage] -> PackageDBStackCWD
+--     checkSamePackageDBs pkgs =
+--       case ordNub (map elabBuildPackageDBStack pkgs) of
+--         [packageDbs] -> packageDbs
+--         [] -> []
+--         _ ->
+--           error $
+--             "renderGhcEnvironmentFile: packages with "
+--               ++ "different package db stacks"
+--     -- This should not happen at the moment but will happen as soon
+--     -- as we support projects where we build packages with different
+--     -- compilers, at which point we have to consider how to adapt
+--     -- this feature, e.g. write out multiple env files, one for each
+--     -- compiler / project profile.
 
-    inplacePackages :: [ElaboratedConfiguredPackage]
-    inplacePackages =
-      [ srcpkg
-      | srcpkg <- sourcePackages
-      , isInplaceBuildStyle (elabBuildStyle srcpkg)
-      ]
+--     inplacePackages :: [ElaboratedConfiguredPackage]
+--     inplacePackages =
+--       [ srcpkg
+--       | srcpkg <- sourcePackages
+--       , isInplaceBuildStyle (elabBuildStyle srcpkg)
+--       ]
 
-    sourcePackages :: [ElaboratedConfiguredPackage]
-    sourcePackages =
-      [ srcpkg
-      | pkg <- InstallPlan.toList elaboratedInstallPlan
-      , srcpkg <- maybeToList $ case pkg of
-          InstallPlan.Configured srcpkg -> Just srcpkg
-          InstallPlan.Installed srcpkg -> Just srcpkg
-          InstallPlan.PreExisting _ -> Nothing
-      ]
+--     sourcePackages :: [ElaboratedConfiguredPackage]
+--     sourcePackages =
+--       [ srcpkg
+--       | pkg <- InstallPlan.toList elaboratedInstallPlan
+--       , srcpkg <- maybeToList $ case pkg of
+--           InstallPlan.Configured srcpkg -> Just srcpkg
+--           InstallPlan.Installed srcpkg -> Just srcpkg
+--           InstallPlan.PreExisting _ -> Nothing
+--       ]
 
-relativePackageDBPaths :: FilePath -> PackageDBStackCWD -> PackageDBStackCWD
-relativePackageDBPaths relroot = map (relativePackageDBPath relroot)
+-- relativePackageDBPaths :: FilePath -> PackageDBStackCWD -> PackageDBStackCWD
+-- relativePackageDBPaths relroot = map (relativePackageDBPath relroot)
 
-relativePackageDBPath :: FilePath -> PackageDBCWD -> PackageDBCWD
-relativePackageDBPath relroot pkgdb =
-  case pkgdb of
-    GlobalPackageDB -> GlobalPackageDB
-    UserPackageDB -> UserPackageDB
-    SpecificPackageDB path -> SpecificPackageDB relpath
-      where
-        relpath = makeRelative (normalise relroot) path
+-- relativePackageDBPath :: FilePath -> PackageDBCWD -> PackageDBCWD
+-- relativePackageDBPath relroot pkgdb =
+--   case pkgdb of
+--     GlobalPackageDB -> GlobalPackageDB
+--     UserPackageDB -> UserPackageDB
+--     SpecificPackageDB path -> SpecificPackageDB relpath
+--       where
+--         relpath = makeRelative (normalise relroot) path

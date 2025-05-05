@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 -----------------------------------------------------------------------------
 
@@ -186,18 +187,18 @@ fromPlanPackage
 fromPlanPackage
   (Platform arch os)
   comp
-  (InstallPlan.Configured (ConfiguredPackage _ srcPkg flags _ deps))
+  (InstallPlan.Configured ConfiguredPackage{confPkgSource, confPkgFlags, confPkgDeps})
   (Just buildResult) =
     Just
       ( newBuildReport
           os
           arch
           comp
-          (packageId srcPkg)
-          flags
-          (map packageId (CD.nonSetupDeps deps))
+          (packageId confPkgSource)
+          confPkgFlags
+          (map packageId (CD.nonSetupDeps confPkgDeps))
           buildResult
-      , extractRepo srcPkg
+      , extractRepo confPkgSource
       )
     where
       extractRepo (SourcePackage{srcpkgSource = RepoTarballPackage repo _ _}) =

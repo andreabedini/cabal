@@ -135,11 +135,11 @@ import qualified Distribution.Client.CmdTest as CmdTest
 import qualified Distribution.Client.CmdUpdate as CmdUpdate
 
 import Distribution.Client.Check as Check (check)
-import Distribution.Client.Configure (configure, writeConfigFlags)
+-- import Distribution.Client.Configure (configure, writeConfigFlags)
 import Distribution.Client.Fetch (fetch)
 import Distribution.Client.Freeze (freeze)
 import Distribution.Client.GenBounds (genBounds)
-import Distribution.Client.Install (install)
+-- import Distribution.Client.Install (install)
 
 -- import Distribution.Client.Clean            (clean)
 
@@ -462,19 +462,19 @@ mainWorker args = do
           , newCmd CmdClean.cleanCommand CmdClean.cleanAction
           , newCmd CmdSdist.sdistCommand CmdSdist.sdistAction
           , newCmd CmdTarget.targetCommand CmdTarget.targetAction
-          , legacyCmd configureExCommand configureAction
-          , legacyCmd buildCommand buildAction
-          , legacyCmd replCommand replAction
-          , legacyCmd freezeCommand freezeAction
-          , legacyCmd haddockCommand haddockAction
-          , legacyCmd installCommand installAction
-          , legacyCmd runCommand runAction
-          , legacyCmd testCommand testAction
-          , legacyCmd benchmarkCommand benchmarkAction
-          , legacyCmd cleanCommand cleanAction
-          , legacyWrapperCmd copyCommand copyCommonFlags
-          , legacyWrapperCmd registerCommand registerCommonFlags
-          , legacyCmd reconfigureCommand reconfigureAction
+          -- , legacyCmd configureExCommand configureAction
+          -- , legacyCmd buildCommand buildAction
+          -- , legacyCmd replCommand replAction
+          -- , legacyCmd freezeCommand freezeAction
+          -- , legacyCmd haddockCommand haddockAction
+          -- -- , legacyCmd installCommand installAction
+          -- , legacyCmd runCommand runAction
+          -- , legacyCmd testCommand testAction
+          -- , legacyCmd benchmarkCommand benchmarkAction
+          -- , legacyCmd cleanCommand cleanAction
+          -- , legacyWrapperCmd copyCommand copyCommonFlags
+          -- , legacyWrapperCmd registerCommand registerCommonFlags
+          -- , legacyCmd reconfigureCommand reconfigureAction
           ]
 
 type Action = GlobalFlags -> IO ()
@@ -760,125 +760,125 @@ replAction replFlags extraArgs globalFlags = do
 
   either (const onNoPkgDesc) (const onPkgDesc) pkgDesc
 
-installAction
-  :: ( ConfigFlags
-     , ConfigExFlags
-     , InstallFlags
-     , HaddockFlags
-     , TestFlags
-     , BenchmarkFlags
-     )
-  -> [String]
-  -> Action
-installAction (configFlags, _, installFlags, _, _, _) _ globalFlags
-  | fromFlagOrDefault False (installOnly installFlags) = do
-      let common = configCommonFlags configFlags
-          verb = fromFlagOrDefault normal (setupVerbosity common)
-      config <- loadConfigOrSandboxConfig verb globalFlags
-      dist <- findSavedDistPref config (setupDistPref common)
-      let setupOpts = defaultSetupScriptOptions{useDistPref = dist}
-      setupWrapper
-        verb
-        setupOpts
-        Nothing
-        installCommand
-        (const common)
-        (const (return (mempty, mempty, mempty, mempty, mempty, mempty)))
-        (const [])
-installAction
-  ( configFlags
-    , configExFlags
-    , installFlags
-    , haddockFlags
-    , testFlags
-    , benchmarkFlags
-    )
-  extraArgs
-  globalFlags = do
-    let common = configCommonFlags configFlags
-        verb = fromFlagOrDefault normal $ setupVerbosity common
-    config <-
-      updateInstallDirs (configUserInstall configFlags)
-        <$> loadConfigOrSandboxConfig verb globalFlags
+-- installAction
+--   :: ( ConfigFlags
+--      , ConfigExFlags
+--      , InstallFlags
+--      , HaddockFlags
+--      , TestFlags
+--      , BenchmarkFlags
+--      )
+--   -> [String]
+--   -> Action
+-- installAction (configFlags, _, installFlags, _, _, _) _ globalFlags
+--   | fromFlagOrDefault False (installOnly installFlags) = do
+--       let common = configCommonFlags configFlags
+--           verb = fromFlagOrDefault normal (setupVerbosity common)
+--       config <- loadConfigOrSandboxConfig verb globalFlags
+--       dist <- findSavedDistPref config (setupDistPref common)
+--       let setupOpts = defaultSetupScriptOptions{useDistPref = dist}
+--       setupWrapper
+--         verb
+--         setupOpts
+--         Nothing
+--         installCommand
+--         (const common)
+--         (const (return (mempty, mempty, mempty, mempty, mempty, mempty)))
+--         (const [])
+-- installAction
+--   ( configFlags
+--     , configExFlags
+--     , installFlags
+--     , haddockFlags
+--     , testFlags
+--     , benchmarkFlags
+--     )
+--   extraArgs
+--   globalFlags = do
+--     let common = configCommonFlags configFlags
+--         verb = fromFlagOrDefault normal $ setupVerbosity common
+--     config <-
+--       updateInstallDirs (configUserInstall configFlags)
+--         <$> loadConfigOrSandboxConfig verb globalFlags
 
-    dist <- findSavedDistPref config $ setupDistPref common
+--     dist <- findSavedDistPref config $ setupDistPref common
 
-    do
-      targets <- readUserTargets verb extraArgs
+--     do
+--       targets <- readUserTargets verb extraArgs
 
-      let configFlags' =
-            maybeForceTests installFlags' $
-              savedConfigureFlags config
-                `mappend` configFlags
-                  { configCommonFlags =
-                      (configCommonFlags configFlags)
-                        { setupDistPref = toFlag dist
-                        }
-                  }
-          configExFlags' =
-            defaultConfigExFlags
-              `mappend` savedConfigureExFlags config
-              `mappend` configExFlags
-          installFlags' =
-            defaultInstallFlags
-              `mappend` savedInstallFlags config
-              `mappend` installFlags
-          haddockFlags' =
-            defaultHaddockFlags
-              `mappend` savedHaddockFlags config
-              `mappend` haddockFlags
-                { haddockCommonFlags =
-                    (haddockCommonFlags haddockFlags)
-                      { setupDistPref = toFlag dist
-                      }
-                }
-          testFlags' =
-            Cabal.defaultTestFlags
-              `mappend` savedTestFlags config
-              `mappend` testFlags
-                { testCommonFlags =
-                    (testCommonFlags testFlags)
-                      { setupDistPref = toFlag dist
-                      }
-                }
-          benchmarkFlags' =
-            Cabal.defaultBenchmarkFlags
-              `mappend` savedBenchmarkFlags config
-              `mappend` benchmarkFlags
-                { benchmarkCommonFlags =
-                    (benchmarkCommonFlags benchmarkFlags)
-                      { setupDistPref = toFlag dist
-                      }
-                }
-          globalFlags' = savedGlobalFlags config `mappend` globalFlags
-      (comp, platform, progdb) <- configCompilerAux' configFlags'
+--       let configFlags' =
+--             maybeForceTests installFlags' $
+--               savedConfigureFlags config
+--                 `mappend` configFlags
+--                   { configCommonFlags =
+--                       (configCommonFlags configFlags)
+--                         { setupDistPref = toFlag dist
+--                         }
+--                   }
+--           configExFlags' =
+--             defaultConfigExFlags
+--               `mappend` savedConfigureExFlags config
+--               `mappend` configExFlags
+--           installFlags' =
+--             defaultInstallFlags
+--               `mappend` savedInstallFlags config
+--               `mappend` installFlags
+--           haddockFlags' =
+--             defaultHaddockFlags
+--               `mappend` savedHaddockFlags config
+--               `mappend` haddockFlags
+--                 { haddockCommonFlags =
+--                     (haddockCommonFlags haddockFlags)
+--                       { setupDistPref = toFlag dist
+--                       }
+--                 }
+--           testFlags' =
+--             Cabal.defaultTestFlags
+--               `mappend` savedTestFlags config
+--               `mappend` testFlags
+--                 { testCommonFlags =
+--                     (testCommonFlags testFlags)
+--                       { setupDistPref = toFlag dist
+--                       }
+--                 }
+--           benchmarkFlags' =
+--             Cabal.defaultBenchmarkFlags
+--               `mappend` savedBenchmarkFlags config
+--               `mappend` benchmarkFlags
+--                 { benchmarkCommonFlags =
+--                     (benchmarkCommonFlags benchmarkFlags)
+--                       { setupDistPref = toFlag dist
+--                       }
+--                 }
+--           globalFlags' = savedGlobalFlags config `mappend` globalFlags
+--       (comp, platform, progdb) <- configCompilerAux' configFlags'
 
-      -- TODO: Redesign ProgramDB API to prevent such problems as #2241 in the
-      -- future.
-      progdb' <- configureAllKnownPrograms verb progdb
+--       -- TODO: Redesign ProgramDB API to prevent such problems as #2241 in the
+--       -- future.
+--       progdb' <- configureAllKnownPrograms verb progdb
 
-      withRepoContext verb globalFlags' $ \repoContext ->
-        install
-          verb
-          (interpretPackageDBStack Nothing (configPackageDB' configFlags'))
-          repoContext
-          comp
-          platform
-          progdb'
-          globalFlags'
-          configFlags'
-          configExFlags'
-          installFlags'
-          haddockFlags'
-          testFlags'
-          benchmarkFlags'
-          targets
-    where
-      -- '--run-tests' implies '--enable-tests'.
-      maybeForceTests installFlags' configFlags' =
-        if fromFlagOrDefault False (installRunTests installFlags')
-          then configFlags'{configTests = toFlag True}
-          else configFlags'
+--       withRepoContext verb globalFlags' $ \repoContext ->
+--         install
+--           verb
+--           (interpretPackageDBStack Nothing (configPackageDB' configFlags'))
+--           repoContext
+--           comp
+--           platform
+--           progdb'
+--           globalFlags'
+--           configFlags'
+--           configExFlags'
+--           installFlags'
+--           haddockFlags'
+--           testFlags'
+--           benchmarkFlags'
+--           targets
+--     where
+--       -- '--run-tests' implies '--enable-tests'.
+--       maybeForceTests installFlags' configFlags' =
+--         if fromFlagOrDefault False (installRunTests installFlags')
+--           then configFlags'{configTests = toFlag True}
+--           else configFlags'
 
 testAction
   :: (BuildFlags, TestFlags)

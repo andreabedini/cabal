@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 module Distribution.Client.Types.ConfiguredId
   ( InstalledPackageId
@@ -10,12 +11,14 @@ module Distribution.Client.Types.ConfiguredId
 import Distribution.Client.Compat.Prelude
 import Prelude ()
 
-import Distribution.InstalledPackageInfo (InstalledPackageInfo, installedComponentId, sourceComponentName)
 import Distribution.Package (Package (..))
 import Distribution.Types.AnnotatedId (AnnotatedId (..))
 import Distribution.Types.ComponentId (ComponentId)
 import Distribution.Types.ComponentName (ComponentName)
 import Distribution.Types.PackageId (PackageId)
+import Distribution.Client.ProjectPlanning.Stage (Stage, WithStage (..))
+import Distribution.Types.InstalledPackageInfo (InstalledPackageInfo)
+import Distribution.InstalledPackageInfo (sourceComponentName, installedComponentId)
 
 -------------------------------------------------------------------------------
 -- InstalledPackageId
@@ -46,16 +49,18 @@ type InstalledPackageId = ComponentId
 -- An already installed package of course is also "configured" (all its
 -- configuration parameters and dependencies have been specified).
 data ConfiguredId = ConfiguredId
-  { confSrcId :: PackageId
+  { confStage :: Stage
+  , confSrcId :: PackageId
   , confCompName :: Maybe ComponentName
   , confInstId :: ComponentId
   }
   deriving (Eq, Ord, Generic)
 
-annotatedIdToConfiguredId :: AnnotatedId ComponentId -> ConfiguredId
-annotatedIdToConfiguredId aid =
+annotatedIdToConfiguredId ::Stage -> AnnotatedId ComponentId -> ConfiguredId
+annotatedIdToConfiguredId stage aid =
   ConfiguredId
-    { confSrcId = ann_pid aid
+    { confStage = stage
+    , confSrcId = ann_pid aid
     , confCompName = Just (ann_cname aid)
     , confInstId = ann_id aid
     }
@@ -76,11 +81,12 @@ instance Package ConfiguredId where
 class HasConfiguredId a where
   configuredId :: a -> ConfiguredId
 
--- NB: This instance is slightly dangerous, in that you'll lose
--- information about the specific UnitId you depended on.
-instance HasConfiguredId InstalledPackageInfo where
-  configuredId ipkg =
+-- -- NB: This instance is slightly dangerous, in that you'll lose
+-- -- information about the specific UnitId you depended on.
+instance HasConfiguredId (WithStage InstalledPackageInfo) where
+  configuredId (WithStage stage ipkg) =
     ConfiguredId
+      stage
       (packageId ipkg)
       (Just (sourceComponentName ipkg))
       (installedComponentId ipkg)

@@ -85,7 +85,7 @@ module Distribution.Client.ProjectOrchestration
   , forgetTargetsDetail
 
     -- ** Adjusting the plan
-  , pruneInstallPlanToTargets
+  -- , pruneInstallPlanToTargets
   , TargetAction (..)
   , pruneInstallPlanToDependencies
   , CannotPruneDependencies (..)
@@ -115,9 +115,9 @@ import Distribution.Client.ProjectPlanOutput
 import Distribution.Client.ProjectPlanning hiding
   ( pruneInstallPlanToTargets
   )
-import qualified Distribution.Client.ProjectPlanning as ProjectPlanning
-  ( pruneInstallPlanToTargets
-  )
+-- import qualified Distribution.Client.ProjectPlanning as ProjectPlanning
+--   ( pruneInstallPlanToTargets
+--   )
 import Distribution.Client.ProjectPlanning.Types
 
 import Distribution.Client.DistDirLayout
@@ -134,9 +134,12 @@ import Distribution.Client.TargetSelector
   , reportTargetSelectorProblems
   )
 import Distribution.Client.Types
-  ( GenericReadyPackage (..)
+  ( DocsResult (..)
+  , GenericReadyPackage (..)
+  , PackageLocation (..)
   , PackageSpecifier (..)
   , SourcePackageDb (..)
+  , TestsResult (..)
   , UnresolvedSourcePackage
   , WriteGhcEnvironmentFilesPolicy (..)
   )
@@ -144,8 +147,17 @@ import Distribution.Solver.Types.PackageIndex
   ( lookupPackageName
   )
 
+import Distribution.Client.BuildReports.Anonymous (cabalInstallID)
+import qualified Distribution.Client.BuildReports.Anonymous as BuildReports
+import qualified Distribution.Client.BuildReports.Storage as BuildReports
+  ( storeLocal
+  )
+
 import Distribution.Client.HttpUtils
 import Distribution.Client.Setup hiding (packageName)
+import Distribution.Compiler
+  ( CompilerFlavor (GHC)
+  )
 import Distribution.Types.ComponentName
   ( componentNameString
   )
@@ -157,19 +169,19 @@ import Distribution.Types.UnqualComponentName
   , packageNameToUnqualComponentName
   )
 
-import Distribution.Solver.Types.OptionalStanza
 
 import Control.Exception (assert)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Distribution.Client.Errors
-import Distribution.Client.HookAccept (loadHookHasheshMap)
-
 import Distribution.Package
 import Distribution.Simple.Command (commandShowOptions)
 import Distribution.Simple.Compiler
   ( OptimisationLevel (..)
+  , compilerCompatVersion
+  , compilerId
+  , compilerInfo
   , showCompilerId
   )
 import Distribution.Simple.Configure (computeEffectiveProfiling)
@@ -179,7 +191,7 @@ import Distribution.Simple.Flag
   )
 import Distribution.Simple.LocalBuildInfo
   ( ComponentName (..)
-  , pkgComponents
+
   )
 import Distribution.Simple.PackageIndex (InstalledPackageIndex)
 import qualified Distribution.Simple.Setup as Setup
@@ -192,6 +204,9 @@ import Distribution.Simple.Utils
   , ordNub
   , warn
   )
+import Distribution.System
+  ( Platform (Platform)
+  )
 import Distribution.Types.Flag
   ( FlagAssignment
   , diffFlagAssignment
@@ -202,6 +217,9 @@ import Distribution.Utils.NubList
   )
 import Distribution.Utils.Path (makeSymbolicPath)
 import Distribution.Verbosity
+import Distribution.Version
+  ( mkVersion
+  )
 #ifdef MIN_VERSION_unix
 import           System.Posix.Signals (sigKILL, sigSEGV)
 
@@ -344,8 +362,6 @@ withInstallPlan
     , installedPackages
     }
   action = do
-    hookHashes <- loadHookHasheshMap (projectConfigConfigFile $ projectConfigShared projectConfig)
-
     -- Take the project configuration and make a plan for how to build
     -- everything in the project. This is independent of any specific targets
     -- the user has asked for.
@@ -353,7 +369,6 @@ withInstallPlan
     (elaboratedPlan, _, elaboratedShared, _, _) <-
       rebuildInstallPlan
         verbosity
-        hookHashes
         distDirLayout
         cabalDirLayout
         projectConfig
@@ -376,8 +391,6 @@ runProjectPreBuildPhase
     , installedPackages
     }
   selectPlanSubset = do
-    hookHashes <- loadHookHasheshMap (projectConfigConfigFile $ projectConfigShared projectConfig)
-
     -- Take the project configuration and make a plan for how to build
     -- everything in the project. This is independent of any specific targets
     -- the user has asked for.
@@ -385,7 +398,6 @@ runProjectPreBuildPhase
     (elaboratedPlan, _, elaboratedShared, _, _) <-
       rebuildInstallPlan
         verbosity
-        hookHashes
         distDirLayout
         cabalDirLayout
         projectConfig
@@ -474,7 +486,7 @@ runProjectPostBuildPhase _ ProjectBaseContext{buildSettings} _ _
 runProjectPostBuildPhase
   verbosity
   ProjectBaseContext{..}
-  ProjectBuildContext{..}
+  bc@ProjectBuildContext{..}
   buildOutcomes = do
     -- Update other build artefacts
     -- TODO: currently none, but could include:
@@ -503,8 +515,11 @@ runProjectPostBuildPhase
             writeGhcEnvFilesPolicy of
             AlwaysWriteGhcEnvironmentFiles -> True
             NeverWriteGhcEnvironmentFiles -> False
-            -- FIXME: whatever
-            WriteGhcEnvironmentFilesOnlyForGhc844AndNewer -> True
+            WriteGhcEnvironmentFilesOnlyForGhc844AndNewer ->
+              let compiler = pkgConfigCompiler elaboratedShared
+                  ghcCompatVersion = compilerCompatVersion GHC compiler
+               in maybe False (>= mkVersion [8, 4, 4]) ghcCompatVersion
+
     when shouldWriteGhcEnvironment $
       void $
         writePlanGhcEnvironment
@@ -514,7 +529,7 @@ runProjectPostBuildPhase
           postBuildStatus
 
     -- Write the build reports
-    -- writeBuildReports buildSettings bc elaboratedPlanToExecute buildOutcomes
+    writeBuildReports buildSettings bc elaboratedPlanToExecute buildOutcomes
 
     -- Finally if there were any build failures then report them and throw
     -- an exception to terminate the program
@@ -548,7 +563,7 @@ runProjectPostBuildPhase
 -- matched this target. Typically this is exactly one, but in general it is
 -- possible to for different selectors to match the same target. This extra
 -- information is primarily to help make helpful error messages.
-type TargetsMap = Map UnitId [(ComponentTarget, NonEmpty TargetSelector)]
+type TargetsMap = Map (WithStage UnitId) [(ComponentTarget, NonEmpty TargetSelector)]
 
 -- | Get all target selectors.
 allTargetSelectors :: TargetsMap -> [TargetSelector]
@@ -616,7 +631,7 @@ resolveTargets
       . map (\ts -> (,) ts <$> checkTarget ts)
     where
       mkTargetsMap
-        :: [(TargetSelector, [(UnitId, ComponentTarget)])]
+        :: [(TargetSelector, [(WithStage UnitId, ComponentTarget)])]
         -> TargetsMap
       mkTargetsMap targets =
         Map.map nubComponentTargets $
@@ -629,7 +644,7 @@ resolveTargets
 
       AvailableTargetIndexes{..} = availableTargetIndexes installPlan
 
-      checkTarget :: TargetSelector -> Either (TargetProblem err) [(UnitId, ComponentTarget)]
+      checkTarget :: TargetSelector -> Either (TargetProblem err) [(WithStage UnitId, ComponentTarget)]
 
       -- We can ask to build any whole package, project-local or a dependency
       checkTarget bt@(TargetPackage _ (ordNub -> [pkgid]) mkfilter)
@@ -733,7 +748,7 @@ data AvailableTargetIndexes = AvailableTargetIndexes
   , availableTargetsByPackageNameAndUnqualComponentName
       :: AvailableTargetsMap (PackageName, UnqualComponentName)
   }
-type AvailableTargetsMap k = Map k [AvailableTarget (UnitId, ComponentName)]
+type AvailableTargetsMap k = Map k [AvailableTarget (WithStage UnitId, ComponentName)]
 
 -- We define a bunch of indexes to help 'resolveTargets' with resolving
 -- 'TargetSelector's to specific 'UnitId's.
@@ -750,12 +765,12 @@ availableTargetIndexes installPlan = AvailableTargetIndexes{..}
     availableTargetsByPackageIdAndComponentName
       :: Map
           (PackageId, ComponentName)
-          [AvailableTarget (UnitId, ComponentName)]
+          [AvailableTarget (WithStage UnitId, ComponentName)]
     availableTargetsByPackageIdAndComponentName =
       availableTargets installPlan
 
     availableTargetsByPackageId
-      :: Map PackageId [AvailableTarget (UnitId, ComponentName)]
+      :: Map PackageId [AvailableTarget (WithStage UnitId, ComponentName)]
     availableTargetsByPackageId =
       Map.mapKeysWith
         (++)
@@ -814,7 +829,7 @@ availableTargetIndexes installPlan = AvailableTargetIndexes{..}
         | InstallPlan.Configured pkg <- InstallPlan.toList installPlan
         , case elabPkgOrComp pkg of
             ElabComponent _ -> False
-            ElabPackage _ -> null (pkgComponents (elabPkgDescription pkg))
+            -- ElabPackage _ -> null (pkgComponents (elabPkgDescription pkg))
         ]
 
 -- TODO: [research required] what if the solution has multiple
@@ -830,7 +845,7 @@ filterTargetsKindWith
   -> [AvailableTarget k]
   -> [AvailableTarget k]
 filterTargetsKindWith p ts =
-  [ t | t@(AvailableTarget _ cname _ _) <- ts, p (componentKind cname)
+  [ t | t@(AvailableTarget _stage _ cname _ _) <- ts, p (componentKind cname)
   ]
 
 selectBuildableTargets :: [AvailableTarget k] -> [k]
@@ -841,7 +856,7 @@ zipBuildableTargetsWith
   -> [AvailableTarget k]
   -> [(k, AvailableTarget k)]
 zipBuildableTargetsWith p ts =
-  [(k, t) | t@(AvailableTarget _ _ (TargetBuildable k req) _) <- ts, p req]
+  [(k, t) | t@(AvailableTarget _stage _ _ (TargetBuildable k req) _) <- ts, p req]
 
 selectBuildableTargetsWith
   :: (TargetRequested -> Bool)
@@ -892,19 +907,19 @@ selectComponentTargetBasic
       TargetBuildable targetKey _ ->
         Right targetKey
 
--- | Wrapper around 'ProjectPlanning.pruneInstallPlanToTargets' that adjusts
--- for the extra unneeded info in the 'TargetsMap'.
-pruneInstallPlanToTargets
-  :: TargetAction
-  -> TargetsMap
-  -> ElaboratedInstallPlan
-  -> ElaboratedInstallPlan
-pruneInstallPlanToTargets targetActionType targetsMap elaboratedPlan =
-  assert (Map.size targetsMap > 0) $
-    ProjectPlanning.pruneInstallPlanToTargets
-      targetActionType
-      (Map.map (map fst) targetsMap)
-      elaboratedPlan
+-- -- | Wrapper around 'ProjectPlanning.pruneInstallPlanToTargets' that adjusts
+-- -- for the extra unneeded info in the 'TargetsMap'.
+-- pruneInstallPlanToTargets
+--   :: TargetAction
+--   -> TargetsMap
+--   -> ElaboratedInstallPlan
+--   -> ElaboratedInstallPlan
+-- pruneInstallPlanToTargets targetActionType targetsMap elaboratedPlan =
+--   assert (Map.size targetsMap > 0) $
+--     ProjectPlanning.pruneInstallPlanToTargets
+--       targetActionType
+--       (Map.map (map fst) targetsMap)
+--       elaboratedPlan
 
 -- | Utility used by repl and run to check if the targets spans multiple
 -- components, since those commands do not support multiple components.
@@ -961,9 +976,9 @@ printPlan
     where
       pkgs = InstallPlan.executionOrder elaboratedPlan
 
-      ifVerbose s
-        | verbosity >= verbose = s
-        | otherwise = ""
+      -- ifVerbose s
+      --   | verbosity >= verbose = s
+      --   | otherwise = ""
 
       ifNormal s
         | verbosity >= verbose = ""
@@ -985,7 +1000,7 @@ printPlan
                 BuildInplaceOnly InMemory -> "(interactive)"
                 _ -> ""
             , case elabPkgOrComp elab of
-                ElabPackage pkg -> showTargets elab ++ ifVerbose (showStanzas (pkgStanzasEnabled pkg))
+                -- ElabPackage pkg -> showTargets elab ++ ifVerbose (showStanzas (pkgStanzasEnabled pkg))
                 ElabComponent comp ->
                   "(" ++ showComp elab comp ++ ")"
             , showFlagAssignment (nonDefaultFlags elab)
@@ -1012,22 +1027,21 @@ printPlan
       nonDefaultFlags elab =
         elabFlagAssignment elab `diffFlagAssignment` elabFlagDefaults elab
 
-      showTargets :: ElaboratedConfiguredPackage -> String
-      showTargets elab
-        | null (elabBuildTargets elab) = ""
-        | otherwise =
-            "("
-              ++ intercalate
-                ", "
-                [ showComponentTarget (packageId elab) t
-                | t <- elabBuildTargets elab
-                ]
-              ++ ")"
+      -- showTargets :: ElaboratedConfiguredPackage -> String
+      -- showTargets elab
+      --   | null (elabBuildTargets elab) = ""
+      --   | otherwise =
+      --       "("
+      --         ++ intercalate
+      --           ", "
+      --           [ showComponentTarget (packageId elab) t
+      --           | t <- elabBuildTargets elab
+      --           ]
+      --         ++ ")"
 
       showConfigureFlags :: ElaboratedConfiguredPackage -> String
       showConfigureFlags elab =
-        let Toolchain{toolchainProgramDb} = getStage (pkgConfigToolchains elaboratedShared) (elabStage elab)
-            commonFlags =
+        let commonFlags =
               setupHsCommonFlags
                 verbosity
                 Nothing -- omit working directory
@@ -1066,7 +1080,7 @@ printPlan
          in -- Not necessary to "escape" it, it's just for user output
             unwords . ("" :) $
               commandShowOptions
-                (Setup.configureCommand toolchainProgramDb)
+                (Setup.configureCommand (pkgConfigCompilerProgs elaboratedShared))
                 partialConfigureFlags
 
       showBuildStatus :: BuildStatus -> String
@@ -1098,8 +1112,7 @@ printPlan
       showBuildProfile =
         "Build profile: "
           ++ unwords
-            [ "-w " ++ (showCompilerId . toolchainCompiler $ getStage (pkgConfigToolchains elaboratedShared) Host)
-            , "-W " ++ (showCompilerId . toolchainCompiler $ getStage (pkgConfigToolchains elaboratedShared) Build)
+            [ "-w " ++ (showCompilerId . pkgConfigCompiler) elaboratedShared
             , "-O"
                 ++ ( case globalOptimization <> localOptimization of -- if local is not set, read global
                       Setup.Flag NoOptimisation -> "0"
@@ -1110,53 +1123,53 @@ printPlan
             ]
           ++ "\n"
 
--- writeBuildReports :: BuildTimeSettings -> ProjectBuildContext -> ElaboratedInstallPlan -> BuildOutcomes -> IO ()
--- writeBuildReports settings buildContext plan buildOutcomes = do
---   let plat@(Platform arch os) = pkgConfigPlatform . elaboratedShared $ buildContext
---       comp = pkgConfigCompiler . elaboratedShared $ buildContext
---       getRepo (RepoTarballPackage r _ _) = Just r
---       getRepo _ = Nothing
---       fromPlanPackage (InstallPlan.Configured pkg) (Just result) =
---         let installOutcome = case result of
---               Left bf -> case buildFailureReason bf of
---                 GracefulFailure _ -> BuildReports.PlanningFailed
---                 DependentFailed p -> BuildReports.DependencyFailed p
---                 DownloadFailed _ -> BuildReports.DownloadFailed
---                 UnpackFailed _ -> BuildReports.UnpackFailed
---                 ConfigureFailed _ -> BuildReports.ConfigureFailed
---                 BuildFailed _ -> BuildReports.BuildFailed
---                 TestsFailed _ -> BuildReports.TestsFailed
---                 InstallFailed _ -> BuildReports.InstallFailed
---                 ReplFailed _ -> BuildReports.InstallOk
---                 HaddocksFailed _ -> BuildReports.InstallOk
---                 BenchFailed _ -> BuildReports.InstallOk
---               Right _br -> BuildReports.InstallOk
+writeBuildReports :: BuildTimeSettings -> ProjectBuildContext -> ElaboratedInstallPlan -> BuildOutcomes -> IO ()
+writeBuildReports settings buildContext plan buildOutcomes = do
+  let plat@(Platform arch os) = pkgConfigPlatform . elaboratedShared $ buildContext
+      comp = pkgConfigCompiler . elaboratedShared $ buildContext
+      getRepo (RepoTarballPackage r _ _) = Just r
+      getRepo _ = Nothing
+      fromPlanPackage (InstallPlan.Configured pkg) (Just result) =
+        let installOutcome = case result of
+              Left bf -> case buildFailureReason bf of
+                GracefulFailure _ -> BuildReports.PlanningFailed
+                DependentFailed p -> BuildReports.DependencyFailed p
+                DownloadFailed _ -> BuildReports.DownloadFailed
+                UnpackFailed _ -> BuildReports.UnpackFailed
+                ConfigureFailed _ -> BuildReports.ConfigureFailed
+                BuildFailed _ -> BuildReports.BuildFailed
+                TestsFailed _ -> BuildReports.TestsFailed
+                InstallFailed _ -> BuildReports.InstallFailed
+                ReplFailed _ -> BuildReports.InstallOk
+                HaddocksFailed _ -> BuildReports.InstallOk
+                BenchFailed _ -> BuildReports.InstallOk
+              Right _br -> BuildReports.InstallOk
 
---             docsOutcome = case result of
---               Left bf -> case buildFailureReason bf of
---                 HaddocksFailed _ -> BuildReports.Failed
---                 _ -> BuildReports.NotTried
---               Right br -> case buildResultDocs br of
---                 DocsNotTried -> BuildReports.NotTried
---                 DocsFailed -> BuildReports.Failed
---                 DocsOk -> BuildReports.Ok
+            docsOutcome = case result of
+              Left bf -> case buildFailureReason bf of
+                HaddocksFailed _ -> BuildReports.Failed
+                _ -> BuildReports.NotTried
+              Right br -> case buildResultDocs br of
+                DocsNotTried -> BuildReports.NotTried
+                DocsFailed -> BuildReports.Failed
+                DocsOk -> BuildReports.Ok
 
---             testsOutcome = case result of
---               Left bf -> case buildFailureReason bf of
---                 TestsFailed _ -> BuildReports.Failed
---                 _ -> BuildReports.NotTried
---               Right br -> case buildResultTests br of
---                 TestsNotTried -> BuildReports.NotTried
---                 TestsOk -> BuildReports.Ok
---          in Just $ (BuildReports.BuildReport (packageId pkg) os arch (compilerId comp) cabalInstallID (elabFlagAssignment pkg) (map (packageId . fst) $ elabLibDependencies pkg) installOutcome docsOutcome testsOutcome, getRepo . elabPkgSourceLocation $ pkg) -- TODO handle failure log files?
---       fromPlanPackage _ _ = Nothing
---       buildReports = mapMaybe (\x -> fromPlanPackage x (InstallPlan.lookupBuildOutcome x buildOutcomes)) $ InstallPlan.toList plan
+            testsOutcome = case result of
+              Left bf -> case buildFailureReason bf of
+                TestsFailed _ -> BuildReports.Failed
+                _ -> BuildReports.NotTried
+              Right br -> case buildResultTests br of
+                TestsNotTried -> BuildReports.NotTried
+                TestsOk -> BuildReports.Ok
+         in Just $ (BuildReports.BuildReport (packageId pkg) os arch (compilerId comp) cabalInstallID (elabFlagAssignment pkg) (map (packageId . fst) $ elabLibDependencies pkg) installOutcome docsOutcome testsOutcome, getRepo . elabPkgSourceLocation $ pkg) -- TODO handle failure log files?
+      fromPlanPackage _ _ = Nothing
+      buildReports = mapMaybe (\x -> fromPlanPackage x (InstallPlan.lookupBuildOutcome x buildOutcomes)) $ InstallPlan.toList plan
 
---   BuildReports.storeLocal
---     (compilerInfo comp)
---     (buildSettingSummaryFile settings)
---     buildReports
---     plat
+  BuildReports.storeLocal
+    (compilerInfo comp)
+    (buildSettingSummaryFile settings)
+    buildReports
+    plat
 
 -- Note this doesn't handle the anonymous build reports set by buildSettingBuildReports but those appear to not be used or missed from v1
 -- The usage pattern appears to be that rather than rely on flags to cabal to send build logs to the right place and package them with reports, etc, it is easier to simply capture its output to an appropriate handle.

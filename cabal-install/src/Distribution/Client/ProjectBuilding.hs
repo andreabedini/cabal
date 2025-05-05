@@ -58,7 +58,6 @@ import Distribution.Client.GlobalFlags (RepoContext)
 import Distribution.Client.InstallPlan
   ( GenericInstallPlan
   , GenericPlanPackage
-  , IsUnit
   )
 import qualified Distribution.Client.InstallPlan as InstallPlan
 import Distribution.Client.JobControl
@@ -259,21 +258,24 @@ rebuildTargetsDryRun distDirLayout@DistDirLayout{..} shared =
 -- visiting function is passed the results for all the immediate package
 -- dependencies. This can be used to propagate information from dependencies.
 foldMInstallPlanDepOrder
-  :: forall m ipkg srcpkg b
-   . (Monad m, IsUnit ipkg, IsUnit srcpkg)
+  :: forall m ipkg srcpkg b key
+   . ( Monad m
+     , IsNode ipkg, Key ipkg ~ key
+     , IsNode srcpkg, Key srcpkg ~ key
+     )
   => ( GenericPlanPackage ipkg srcpkg
        -> [b]
        -> m b
      )
   -> GenericInstallPlan ipkg srcpkg
-  -> m (Map UnitId b)
+  -> m (Map key b)
 foldMInstallPlanDepOrder visit =
   go Map.empty . InstallPlan.reverseTopologicalOrder
   where
     go
-      :: Map UnitId b
+      :: Map key b
       -> [GenericPlanPackage ipkg srcpkg]
-      -> m (Map UnitId b)
+      -> m (Map key b)
     go !results [] = return results
     go !results (pkg : pkgs) = do
       -- we go in the right order so the results map has entries for all deps
@@ -298,7 +300,7 @@ improveInstallPlanWithUpToDatePackages pkgsBuildStatus =
   where
     canPackageBeImproved :: ElaboratedConfiguredPackage -> Bool
     canPackageBeImproved pkg =
-      case Map.lookup (installedUnitId pkg) pkgsBuildStatus of
+      case Map.lookup (nodeKey pkg) pkgsBuildStatus of
         Just BuildStatusUpToDate{} -> True
         Just _ -> False
         Nothing ->
@@ -384,9 +386,7 @@ rebuildTargets
                 $ \pkg ->
                   -- TODO: review exception handling
                   handle (\(e :: BuildFailure) -> return (Left e)) $ fmap Right $ do
-                    let uid = installedUnitId pkg
-                        pkgBuildStatus = Map.findWithDefault (error "rebuildTargets") uid pkgsBuildStatus
-
+                    let pkgBuildStatus = Map.findWithDefault (error "rebuildTargets") (nodeKey pkg) pkgsBuildStatus
                     rebuildTarget
                       verbosity
                       distDirLayout
@@ -455,17 +455,12 @@ rebuildTargets
       offlineError :: BuildOutcomes
       offlineError = Map.fromList . map makeBuildOutcome $ packagesToDownload
         where
-          makeBuildOutcome :: ElaboratedConfiguredPackage -> (UnitId, BuildOutcome)
-          makeBuildOutcome
-            ElaboratedConfiguredPackage
-              { elabUnitId
-              , elabPkgSourceId = PackageIdentifier{pkgName, pkgVersion}
-              } =
-              ( elabUnitId
+          makeBuildOutcome elab =
+              ( WithStage (elabStage elab) (elabUnitId elab)
               , Left
                   ( BuildFailure
                       { buildFailureLogFile = Nothing
-                      , buildFailureReason = GracefulFailure $ makeError pkgName pkgVersion
+                      , buildFailureReason = GracefulFailure $ makeError (pkgName (elabPkgSourceId elab)) (pkgVersion (elabPkgSourceId elab))
                       }
                   )
               )
@@ -651,10 +646,8 @@ asyncDownloadPackages verbosity withRepoCtx installPlan pkgsBuildStatus body
     pkgsToDownload =
       ordNub $
         [ elabPkgSourceLocation elab
-        | InstallPlan.Configured elab <-
-            InstallPlan.reverseTopologicalOrder installPlan
-        , let uid = installedUnitId elab
-              pkgBuildStatus = Map.findWithDefault (error "asyncDownloadPackages") uid pkgsBuildStatus
+        | InstallPlan.Configured elab <- InstallPlan.reverseTopologicalOrder installPlan
+        , let pkgBuildStatus = Map.findWithDefault (error "asyncDownloadPackages") (nodeKey elab) pkgsBuildStatus
         , BuildStatusDownload <- [pkgBuildStatus]
         ]
 

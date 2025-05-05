@@ -46,6 +46,7 @@ import Distribution.Verbosity
   )
 import Text.PrettyPrint
 import qualified Text.PrettyPrint as Pretty
+import Distribution.Client.ProjectPlanning.Types (WithStage(..))
 
 -------------------------------------------------------------------------------
 -- Command
@@ -219,7 +220,7 @@ printTargetForms verbosity targetStrings targets elaboratedPlan =
       sort $
         catMaybes
           [ targetForm ct <$> pkg
-          | (u :: UnitId, xs) <- Map.toAscList targets
+          | (WithStage _stage (u :: UnitId), xs) <- Map.toAscList targets
           , let pkg = safeHead $ filter ((== u) . elabUnitId) localPkgs
           , (ct :: ComponentTarget, _) <- xs
           ]
