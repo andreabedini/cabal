@@ -136,6 +136,7 @@ import qualified Data.Map as Map
 import qualified Data.Monoid as Mon
 import System.FilePath ((</>))
 import Text.PrettyPrint (hsep, parens, text)
+import qualified Distribution.Compat.Graph as Graph
 
 -- | The combination of an elaborated install plan plus a
 -- 'ElaboratedSharedConfig' contains all the details necessary to be able
@@ -536,7 +537,7 @@ elabConfiguredName verbosity elab
               Just (CLibName LMainLibName) -> ""
               Just cname -> prettyShow cname ++ " from "
       )
-        ++ prettyShow (packageId elab)
+        ++ prettyShow (Graph.nodeKey elab)
   | otherwise =
       prettyShow (elabUnitId elab)
 
