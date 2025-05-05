@@ -5,6 +5,7 @@ module Distribution.Client.ProjectPlanning.Stage
   ( WithStage(..)
   , Stage(..)
   , HasStage(..)
+  , Staged(..)
   ) where
 
 import Distribution.Client.Compat.Prelude
@@ -13,7 +14,7 @@ import Prelude ()
 import Distribution.Compat.Graph (IsNode (..))
 import Distribution.Package (HasUnitId(..), Package(..))
 import Distribution.Client.Types.ConfiguredId (HasConfiguredId(..))
-import Distribution.Solver.Types.Stage (Stage(..))
+import Distribution.Solver.Types.Stage (Stage(..), Staged(..))
 import Text.PrettyPrint (colon)
 
   -- FIXME: blaaah
