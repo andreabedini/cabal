@@ -200,10 +200,10 @@ depends = nodeNeighbors
 -- NB: Expanded constraint synonym here to avoid undecidable
 -- instance errors in GHC 7.8 and earlier.
 instance
-  (IsNode ipkg, IsNode srcpkg, Key ipkg ~ UnitId, Key srcpkg ~ UnitId)
+  (IsNode ipkg, IsNode srcpkg, Key ipkg ~ Key srcpkg)
   => IsNode (GenericPlanPackage ipkg srcpkg)
   where
-  type Key (GenericPlanPackage ipkg srcpkg) = UnitId
+  type Key (GenericPlanPackage ipkg srcpkg) = Key ipkg
   nodeKey (PreExisting ipkg) = nodeKey ipkg
   nodeKey (Configured spkg) = nodeKey spkg
   nodeKey (Installed spkg) = nodeKey spkg
@@ -371,13 +371,13 @@ toList = Foldable.toList . planGraph
 
 toMap
   :: GenericInstallPlan ipkg srcpkg
-  -> Map UnitId (GenericPlanPackage ipkg srcpkg)
+  -> Map (Key ipkg) (GenericPlanPackage ipkg srcpkg)
 toMap = Graph.toMap . planGraph
 
-keys :: GenericInstallPlan ipkg srcpkg -> [UnitId]
+keys :: GenericInstallPlan ipkg srcpkg -> [Key ipkg]
 keys = Graph.keys . planGraph
 
-keysSet :: GenericInstallPlan ipkg srcpkg -> Set UnitId
+keysSet :: GenericInstallPlan ipkg srcpkg -> Set (Key ipkg)
 keysSet = Graph.keysSet . planGraph
 
 -- | Remove packages from the install plan. This will result in an
@@ -454,7 +454,7 @@ lookup plan pkgid = Graph.lookup pkgid (planGraph plan)
 -- Note that the package must exist in the plan or it is an error.
 directDeps
   :: GenericInstallPlan ipkg srcpkg
-  -> UnitId
+  -> Key ipkg
   -> [GenericPlanPackage ipkg srcpkg]
 directDeps plan pkgid =
   case Graph.neighbors (planGraph plan) pkgid of
@@ -466,7 +466,7 @@ directDeps plan pkgid =
 -- Note that the package must exist in the plan or it is an error.
 revDirectDeps
   :: GenericInstallPlan ipkg srcpkg
-  -> UnitId
+  -> Key ipkg
   -> [GenericPlanPackage ipkg srcpkg]
 revDirectDeps plan pkgid =
   case Graph.revNeighbors (planGraph plan) pkgid of
@@ -489,7 +489,7 @@ reverseTopologicalOrder plan = Graph.revTopSort (planGraph plan)
 -- the given packages.
 dependencyClosure
   :: GenericInstallPlan ipkg srcpkg
-  -> [UnitId]
+  -> [Key ipkg]
   -> [GenericPlanPackage ipkg srcpkg]
 dependencyClosure plan =
   fromMaybe []
@@ -499,7 +499,7 @@ dependencyClosure plan =
 -- given packages.
 reverseDependencyClosure
   :: GenericInstallPlan ipkg srcpkg
-  -> [UnitId]
+  -> [Key ipkg]
   -> [GenericPlanPackage ipkg srcpkg]
 reverseDependencyClosure plan =
   fromMaybe []
