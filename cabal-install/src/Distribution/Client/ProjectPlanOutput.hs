@@ -181,30 +181,11 @@ encodePlanAsJson distDirLayout elaboratedInstallPlan elaboratedSharedConfig =
                   -- TODO: install dirs?
                   []
              )
-          ++ case elabPkgOrComp elab of
-            ElabPackage pkg ->
-              let components =
-                    J.object $
-                      [ comp2str c
-                        J..= J.object
-                          ( [ "depends" J..= map (jdisplay . confInstId) (map fst ldeps)
-                            , "exe-depends" J..= map (jdisplay . confInstId) edeps
-                            ]
-                              ++ bin_file c
-                          )
-                      | (c, (ldeps, edeps)) <-
-                          ComponentDeps.toList $
-                            ComponentDeps.zip
-                              (pkgLibDependencies pkg)
-                              (pkgExeDependencies pkg)
-                      ]
-               in ["components" J..= components]
-            ElabComponent comp ->
-              [ "depends" J..= map (jdisplay . confInstId) (map fst $ elabLibDependencies elab)
-              , "exe-depends" J..= map jdisplay (elabExeDependencies elab)
-              , "component-name" J..= J.String (comp2str (compSolverName comp))
-              ]
-                ++ bin_file (compSolverName comp)
+          ++ let comp = elabComp elab in [ "depends" J..= map (jdisplay . confInstId) (map fst $ elabLibDependencies elab)
+          , "exe-depends" J..= map jdisplay (elabExeDependencies elab)
+          , "component-name" J..= J.String (comp2str (compSolverName comp))
+          ]
+            ++ bin_file (compSolverName comp)
       where
         -- \| Only add build-info file location if the Setup.hs CLI
         -- is recent enough to be able to generate build info files.

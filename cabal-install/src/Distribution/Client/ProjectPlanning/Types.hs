@@ -30,7 +30,6 @@ module Distribution.Client.ProjectPlanning.Types
   , elabPlanPackageName
   , elabConfiguredName
   , elabComponentName
-  , ElaboratedPackageOrComponent (..)
   , ElaboratedComponent (..)
   , ElaboratedPackage (..)
   , pkgOrderDependencies
@@ -106,7 +105,6 @@ import Distribution.Simple.Setup
   , ReplOptions
   , TestShowDetails
   )
-import Distribution.Simple.Utils (ordNub)
 import Distribution.Solver.Types.ComponentDeps (ComponentDeps)
 import qualified Distribution.Solver.Types.ComponentDeps as CD
 import Distribution.Solver.Types.OptionalStanza
@@ -335,7 +333,7 @@ data ElaboratedConfiguredPackage = ElaboratedConfiguredPackage
   , -- pkgSourceDir ? -- currently passed in later because they can use temp locations
     -- pkgBuildDir  ? -- but could in principle still have it here, with optional instr to use temp loc
 
-    elabPkgOrComp :: ElaboratedPackageOrComponent
+    elabComp :: ElaboratedComponent
   -- ^ Component/package specific information
   }
   deriving (Eq, Show, Generic)
@@ -367,50 +365,10 @@ normaliseConfiguredPackage ElaboratedSharedConfig{pkgConfigCompilerProgs} pkg =
 -- | The package/component contains/is a library and so must be registered
 elabRequiresRegistration :: ElaboratedConfiguredPackage -> Bool
 elabRequiresRegistration elab =
-  case elabPkgOrComp elab of
-    ElabComponent comp ->
-      case compComponentName comp of
-        Just cn -> is_lib cn && build_target
-        _ -> False
-    ElabPackage pkg ->
-      -- Tricky! Not only do we have to test if the user selected
-      -- a library as a build target, we also have to test if
-      -- the library was TRANSITIVELY depended upon, since we will
-      -- also require a register in this case.
-      --
-      -- NB: It would have been far nicer to just unconditionally
-      -- register in all cases, but some Custom Setups will fall
-      -- over if you try to do that, ESPECIALLY if there actually is
-      -- a library but they hadn't built it.
-      --
-      -- However, as the case of `cpphs-1.20.8` has shown in
-      -- #5379, in cases when a monolithic package gets
-      -- installed due to its executable components
-      -- (i.e. exe:cpphs) into the store we *have* to register
-      -- if there's a buildable public library (i.e. lib:cpphs)
-      -- that was built and installed into the same store folder
-      -- as otherwise this will cause build failures once a
-      -- target actually depends on lib:cpphs.
-      build_target
-        || ( elabBuildStyle elab == BuildAndInstall
-              && Cabal.hasPublicLib (elabPkgDescription elab)
-           )
-        -- the next sub-condition below is currently redundant
-        -- (see discussion in #5604 for more details), but it's
-        -- being kept intentionally here as a safeguard because if
-        -- internal libraries ever start working with
-        -- non-per-component builds this condition won't be
-        -- redundant anymore.
-        || any (depends_on_lib pkg) (elabBuildTargets elab)
+  let comp = elabComp elab in case compComponentName comp of
+    Just cn -> is_lib cn && build_target
+    _ -> False
   where
-    depends_on_lib pkg (ComponentTarget cn _) =
-      not
-        ( null
-            ( CD.select
-                (== CD.componentNameToComponent cn)
-                (pkgDependsOnSelfLib pkg)
-            )
-        )
     build_target =
       if not (null (elabBuildTargets elab))
         then any is_lib_target (elabBuildTargets elab)
@@ -501,31 +459,18 @@ instance IsNode ElaboratedConfiguredPackage where
 instance Binary ElaboratedConfiguredPackage
 instance Structured ElaboratedConfiguredPackage
 
-data ElaboratedPackageOrComponent
-  = ElabPackage ElaboratedPackage
-  | ElabComponent ElaboratedComponent
-  deriving (Eq, Show, Generic)
-
-instance Binary ElaboratedPackageOrComponent
-instance Structured ElaboratedPackageOrComponent
 
 elabComponentName :: ElaboratedConfiguredPackage -> Maybe ComponentName
-elabComponentName elab =
-  case elabPkgOrComp elab of
-    ElabPackage _ -> Just $ CLibName LMainLibName -- there could be more, but default this
-    ElabComponent comp -> compComponentName comp
+elabComponentName elab = compComponentName (elabComp elab)
 
 -- | A user-friendly descriptor for an 'ElaboratedConfiguredPackage'.
 elabConfiguredName :: Verbosity -> ElaboratedConfiguredPackage -> String
 elabConfiguredName verbosity elab
   | verbosity <= normal =
-      ( case elabPkgOrComp elab of
-          ElabPackage _ -> ""
-          ElabComponent comp ->
-            case compComponentName comp of
-              Nothing -> "setup from "
-              Just (CLibName LMainLibName) -> ""
-              Just cname -> prettyShow cname ++ " from "
+      ( case compComponentName (elabComp elab) of
+          Nothing -> "setup from "
+          Just (CLibName LMainLibName) -> ""
+          Just cname -> prettyShow cname ++ " from "
       )
         ++ prettyShow (packageId elab)
   | otherwise =
@@ -537,9 +482,7 @@ elabDistDirParams shared elab =
     { distParamUnitId = installedUnitId elab
     , distParamComponentId = elabComponentId elab
     , distParamPackageId = elabPkgSourceId elab
-    , distParamComponentName = case elabPkgOrComp elab of
-        ElabComponent comp -> compComponentName comp
-        ElabPackage _ -> Nothing
+    , distParamComponentName = compComponentName (elabComp elab)
     , distParamCompilerId = compilerId (pkgConfigCompiler shared)
     , distParamPlatform = pkgConfigPlatform shared
     , distParamOptimization = LBC.withOptimization $ elabBuildOptions elab
@@ -555,74 +498,45 @@ elabDistDirParams shared elab =
 --
 -- NB: this method DOES include setup deps.
 elabOrderDependencies :: ElaboratedConfiguredPackage -> [UnitId]
-elabOrderDependencies elab =
-  case elabPkgOrComp elab of
-    -- Important not to have duplicates: otherwise InstallPlan gets
-    -- confused.
-    ElabPackage pkg -> ordNub (CD.flatDeps (pkgOrderDependencies pkg))
-    ElabComponent comp -> compOrderDependencies comp
+elabOrderDependencies = compOrderDependencies . elabComp
 
 -- | Like 'elabOrderDependencies', but only returns dependencies on
 -- libraries.
 elabOrderLibDependencies :: ElaboratedConfiguredPackage -> [UnitId]
-elabOrderLibDependencies elab =
-  case elabPkgOrComp elab of
-    ElabPackage pkg ->
-      map (newSimpleUnitId . confInstId) $
-        ordNub $
-          CD.flatDeps (map fst <$> pkgLibDependencies pkg)
-    ElabComponent comp -> compOrderLibDependencies comp
+elabOrderLibDependencies = compOrderLibDependencies . elabComp
 
 -- | The library dependencies (i.e., the libraries we depend on, NOT
 -- the dependencies of the library), NOT including setup dependencies.
 -- These are passed to the @Setup@ script via @--dependency@ or @--promised-dependency@.
 elabLibDependencies :: ElaboratedConfiguredPackage -> [(ConfiguredId, Bool)]
-elabLibDependencies elab =
-  case elabPkgOrComp elab of
-    ElabPackage pkg -> ordNub (CD.nonSetupDeps (pkgLibDependencies pkg))
-    ElabComponent comp -> compLibDependencies comp
+elabLibDependencies = compLibDependencies . elabComp
 
 -- | Like 'elabOrderDependencies', but only returns dependencies on
 -- executables.  (This coincides with 'elabExeDependencies'.)
 elabOrderExeDependencies :: ElaboratedConfiguredPackage -> [UnitId]
-elabOrderExeDependencies =
-  map newSimpleUnitId . elabExeDependencies
+elabOrderExeDependencies = map newSimpleUnitId . elabExeDependencies
 
 -- | The executable dependencies (i.e., the executables we depend on);
 -- these are the executables we must add to the PATH before we invoke
 -- the setup script.
 elabExeDependencies :: ElaboratedConfiguredPackage -> [ComponentId]
-elabExeDependencies elab = map confInstId $
-  case elabPkgOrComp elab of
-    ElabPackage pkg -> CD.nonSetupDeps (pkgExeDependencies pkg)
-    ElabComponent comp -> compExeDependencies comp
+elabExeDependencies = map confInstId . compExeDependencies . elabComp
 
 -- | This returns the paths of all the executables we depend on; we
 -- must add these paths to PATH before invoking the setup script.
 -- (This is usually what you want, not 'elabExeDependencies', if you
 -- actually want to build something.)
 elabExeDependencyPaths :: ElaboratedConfiguredPackage -> [FilePath]
-elabExeDependencyPaths elab =
-  case elabPkgOrComp elab of
-    ElabPackage pkg -> map snd $ CD.nonSetupDeps (pkgExeDependencyPaths pkg)
-    ElabComponent comp -> map snd (compExeDependencyPaths comp)
+elabExeDependencyPaths = map snd . compExeDependencyPaths . elabComp
 
 -- | The setup dependencies (the library dependencies of the setup executable;
 -- note that it is not legal for setup scripts to have executable
 -- dependencies at the moment.)
 elabSetupDependencies :: ElaboratedConfiguredPackage -> [(ConfiguredId, Bool)]
-elabSetupDependencies elab =
-  case elabPkgOrComp elab of
-    ElabPackage pkg -> CD.setupDeps (pkgLibDependencies pkg)
-    -- TODO: Custom setups not supported for components yet.  When
-    -- they are, need to do this differently
-    ElabComponent _ -> []
+elabSetupDependencies _ = [] -- TODO
 
 elabPkgConfigDependencies :: ElaboratedConfiguredPackage -> [(PkgconfigName, Maybe PkgconfigVersion)]
-elabPkgConfigDependencies ElaboratedConfiguredPackage{elabPkgOrComp = ElabPackage pkg} =
-  pkgPkgConfigDependencies pkg
-elabPkgConfigDependencies ElaboratedConfiguredPackage{elabPkgOrComp = ElabComponent comp} =
-  compPkgConfigDependencies comp
+elabPkgConfigDependencies = compPkgConfigDependencies . elabComp
 
 -- | The cache files of all our inplace dependencies which,
 -- when updated, require us to rebuild.  See #4202 for

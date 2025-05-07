@@ -17,8 +17,6 @@ import Control.Monad.IO.Class
 import Distribution.Client.ProjectPlanning.Types
 import Distribution.Client.RebuildMonad
 
-import Distribution.Solver.Types.OptionalStanza
-
 import Distribution.Simple.Glob (matchDirFileGlobWithDie)
 import Distribution.Simple.PreProcess
 
@@ -26,7 +24,6 @@ import Distribution.Types.Benchmark
 import Distribution.Types.BenchmarkInterface
 import Distribution.Types.BuildInfo
 import Distribution.Types.Component
-import Distribution.Types.ComponentRequestedSpec (ComponentRequestedSpec)
 import Distribution.Types.Executable
 import Distribution.Types.ForeignLib
 import Distribution.Types.Library
@@ -44,21 +41,7 @@ import Prelude ()
 import System.FilePath
 
 needElaboratedConfiguredPackage :: ElaboratedConfiguredPackage -> Rebuild ()
-needElaboratedConfiguredPackage elab =
-  case elabPkgOrComp elab of
-    ElabComponent ecomp -> needElaboratedComponent elab ecomp
-    ElabPackage epkg -> needElaboratedPackage elab epkg
-
-needElaboratedPackage :: ElaboratedConfiguredPackage -> ElaboratedPackage -> Rebuild ()
-needElaboratedPackage elab epkg =
-  traverse_ (needComponent pkg_descr) (enabledComponents pkg_descr enabled)
-  where
-    pkg_descr :: PackageDescription
-    pkg_descr = elabPkgDescription elab
-    enabled_stanzas :: OptionalStanzaSet
-    enabled_stanzas = pkgStanzasEnabled epkg
-    enabled :: ComponentRequestedSpec
-    enabled = enableStanzas enabled_stanzas
+needElaboratedConfiguredPackage elab = needElaboratedComponent elab (elabComp elab)
 
 needElaboratedComponent :: ElaboratedConfiguredPackage -> ElaboratedComponent -> Rebuild ()
 needElaboratedComponent elab ecomp =

@@ -179,17 +179,8 @@ listbinAction flags args globalFlags = do
       -> UnqualComponentName
       -> ElaboratedConfiguredPackage
       -> [FilePath]
-    elaboratedPackage distDirLayout elaboratedSharedConfig selectedComponent elab = case elabPkgOrComp elab of
-      ElabPackage pkg ->
-        [ bin
-        | (c, _) <-
-            CD.toList $
-              CD.zip
-                (pkgLibDependencies pkg)
-                (pkgExeDependencies pkg)
-        , bin <- bin_file c
-        ]
-      ElabComponent comp -> bin_file (compSolverName comp)
+    elaboratedPackage distDirLayout elaboratedSharedConfig selectedComponent elab =
+      bin_file (compSolverName (elabComp elab))
       where
         dist_dir = distBuildDirectory distDirLayout (elabDistDirParams elaboratedSharedConfig elab)
 

@@ -54,8 +54,8 @@ import Distribution.Client.Setup
   , filterReplFlags
   , filterTestFlags
   )
-import Distribution.Client.SetupWrapper
-import Distribution.Client.SourceFiles
+import Distribution.Client.SetupWrapper (SetupScriptOptions (..), setupWrapper)
+import Distribution.Client.SourceFiles (needElaboratedConfiguredPackage)
 import Distribution.Client.SrcDist (allPackageSourceFiles)
 import qualified Distribution.Client.Tar as Tar
 import Distribution.Client.Types hiding
@@ -768,18 +768,10 @@ buildAndInstallUnpackedPackage
       pkgid = packageId rpkg
 
       dispname :: String
-      dispname = case elabPkgOrComp pkg of
-        -- Packages built altogether, instead of per component
-        ElabPackage ElaboratedPackage{pkgWhyNotPerComponent} ->
-          prettyShow pkgid
-            ++ " (all, legacy fallback: "
-            ++ unwords (map whyNotPerComponent $ NE.toList pkgWhyNotPerComponent)
-            ++ ")"
-        -- Packages built per component
-        ElabComponent comp ->
+      dispname =
           prettyShow pkgid
             ++ " ("
-            ++ maybe "custom" prettyShow (compComponentName comp)
+            ++ maybe "custom" prettyShow (compComponentName (elabComp pkg))
             ++ ")"
 
       noticeProgress :: ProgressPhase -> IO ()

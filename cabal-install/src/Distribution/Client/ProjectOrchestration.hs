@@ -172,7 +172,6 @@ import Distribution.Types.UnqualComponentName
   )
 
 import Distribution.PackageDescription.Configuration
-import Distribution.Solver.Types.OptionalStanza
 import Distribution.Types.Component
 
 import Control.Exception (assert)
@@ -831,12 +830,7 @@ availableTargetIndexes installPlan = AvailableTargetIndexes{..}
 
     availableTargetsByPackageId
       :: Map PackageId [AvailableTarget (UnitId, ComponentName)]
-    availableTargetsByPackageId =
-      Map.mapKeysWith
-        (++)
-        (\(pkgid, _cname) -> pkgid)
-        availableTargetsByPackageIdAndComponentName
-        `Map.union` availableTargetsEmptyPackages
+    availableTargetsByPackageId = mempty -- TODO Maybe?
 
     availableTargetsByPackageName
       :: Map PackageName [AvailableTarget (UnitId, ComponentName)]
@@ -875,22 +869,6 @@ availableTargetIndexes installPlan = AvailableTargetIndexes{..}
         unqualComponentName pkgname =
           fromMaybe (packageNameToUnqualComponentName pkgname)
             . componentNameString
-
-    -- Add in all the empty packages. These do not appear in the
-    -- availableTargetsByComponent map, since that only contains
-    -- components, so packages with no components are invisible from
-    -- that perspective.  The empty packages need to be there for
-    -- proper error reporting, so users can select the empty package
-    -- and then we can report that it is empty, otherwise we falsely
-    -- report there is no such package at all.
-    availableTargetsEmptyPackages =
-      Map.fromList
-        [ (packageId pkg, [])
-        | InstallPlan.Configured pkg <- InstallPlan.toList installPlan
-        , case elabPkgOrComp pkg of
-            ElabComponent _ -> False
-            ElabPackage _ -> null (pkgComponents (elabPkgDescription pkg))
-        ]
 
 -- | Create available target indexes from source packages.
 --
@@ -1116,10 +1094,6 @@ printPlan
     where
       pkgs = InstallPlan.executionOrder elaboratedPlan
 
-      ifVerbose s
-        | verbosity >= verbose = s
-        | otherwise = ""
-
       ifNormal s
         | verbosity >= verbose = ""
         | otherwise = s
@@ -1139,10 +1113,7 @@ printPlan
             , case elabBuildStyle elab of
                 BuildInplaceOnly InMemory -> "(interactive)"
                 _ -> ""
-            , case elabPkgOrComp elab of
-                ElabPackage pkg -> showTargets elab ++ ifVerbose (showStanzas (pkgStanzasEnabled pkg))
-                ElabComponent comp ->
-                  "(" ++ showComp elab comp ++ ")"
+            , "(" ++ showComp elab (elabComp elab) ++ ")"
             , showFlagAssignment (nonDefaultFlags elab)
             , showConfigureFlags elab
             , let buildStatus = pkgsBuildStatus Map.! installedUnitId elab
@@ -1166,18 +1137,6 @@ printPlan
       nonDefaultFlags :: ElaboratedConfiguredPackage -> FlagAssignment
       nonDefaultFlags elab =
         elabFlagAssignment elab `diffFlagAssignment` elabFlagDefaults elab
-
-      showTargets :: ElaboratedConfiguredPackage -> String
-      showTargets elab
-        | null (elabBuildTargets elab) = ""
-        | otherwise =
-            "("
-              ++ intercalate
-                ", "
-                [ showComponentTarget (packageId elab) t
-                | t <- elabBuildTargets elab
-                ]
-              ++ ")"
 
       showConfigureFlags :: ElaboratedConfiguredPackage -> String
       showConfigureFlags elab =
