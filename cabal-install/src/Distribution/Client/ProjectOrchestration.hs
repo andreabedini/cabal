@@ -158,7 +158,6 @@ import Distribution.Types.UnqualComponentName
   , packageNameToUnqualComponentName
   )
 
-import Distribution.Solver.Types.OptionalStanza
 
 import Control.Exception (assert)
 import qualified Data.List.NonEmpty as NE
@@ -180,7 +179,6 @@ import Distribution.Simple.Flag
   )
 import Distribution.Simple.LocalBuildInfo
   ( ComponentName (..)
-  , pkgComponents
   )
 import Distribution.Simple.PackageIndex (InstalledPackageIndex)
 import qualified Distribution.Simple.Setup as Setup
@@ -205,7 +203,6 @@ import Distribution.Utils.Path (makeSymbolicPath)
 import Distribution.Verbosity
 #ifdef MIN_VERSION_unix
 import           System.Posix.Signals (sigKILL, sigSEGV)
-
 #endif
 
 -- | Tracks what command is being executed, because we need to hide this somewhere
@@ -757,12 +754,7 @@ availableTargetIndexes installPlan = AvailableTargetIndexes{..}
 
     availableTargetsByPackageId
       :: Map PackageId [AvailableTarget (UnitId, ComponentName)]
-    availableTargetsByPackageId =
-      Map.mapKeysWith
-        (++)
-        (\(pkgid, _cname) -> pkgid)
-        availableTargetsByPackageIdAndComponentName
-        `Map.union` availableTargetsEmptyPackages
+    availableTargetsByPackageId = mempty -- TODO Maybe?
 
     availableTargetsByPackageName
       :: Map PackageName [AvailableTarget (UnitId, ComponentName)]
@@ -801,22 +793,6 @@ availableTargetIndexes installPlan = AvailableTargetIndexes{..}
         unqualComponentName pkgname =
           fromMaybe (packageNameToUnqualComponentName pkgname)
             . componentNameString
-
-    -- Add in all the empty packages. These do not appear in the
-    -- availableTargetsByComponent map, since that only contains
-    -- components, so packages with no components are invisible from
-    -- that perspective.  The empty packages need to be there for
-    -- proper error reporting, so users can select the empty package
-    -- and then we can report that it is empty, otherwise we falsely
-    -- report there is no such package at all.
-    availableTargetsEmptyPackages =
-      Map.fromList
-        [ (packageId pkg, [])
-        | InstallPlan.Configured pkg <- InstallPlan.toList installPlan
-        , case elabPkgOrComp pkg of
-            ElabComponent _ -> False
-            ElabPackage _ -> null (pkgComponents (elabPkgDescription pkg))
-        ]
 
 -- TODO: [research required] what if the solution has multiple
 --      versions of this package?
@@ -962,10 +938,6 @@ printPlan
     where
       pkgs = InstallPlan.executionOrder elaboratedPlan
 
-      ifVerbose s
-        | verbosity >= verbose = s
-        | otherwise = ""
-
       ifNormal s
         | verbosity >= verbose = ""
         | otherwise = s
@@ -985,13 +957,10 @@ printPlan
             , case elabBuildStyle elab of
                 BuildInplaceOnly InMemory -> "(interactive)"
                 _ -> ""
-            , case elabPkgOrComp elab of
-                ElabPackage pkg -> showTargets elab ++ ifVerbose (showStanzas (pkgStanzasEnabled pkg))
-                ElabComponent comp ->
-                  "(" ++ showComp comp ++ ")"
+            , "(" ++ showComp (elabComp elab) ++ ")"
             , showFlagAssignment (nonDefaultFlags elab)
             , showConfigureFlags elab
-            , let buildStatus = pkgsBuildStatus Map.! installedUnitId elab
+            , let buildStatus = pkgsBuildStatus Map.! Graph.nodeKey elab
                in "(" ++ showBuildStatus buildStatus ++ ")"
             ]
 
@@ -1012,18 +981,6 @@ printPlan
       nonDefaultFlags :: ElaboratedConfiguredPackage -> FlagAssignment
       nonDefaultFlags elab =
         elabFlagAssignment elab `diffFlagAssignment` elabFlagDefaults elab
-
-      showTargets :: ElaboratedConfiguredPackage -> String
-      showTargets elab
-        | null (elabBuildTargets elab) = ""
-        | otherwise =
-            "("
-              ++ intercalate
-                ", "
-                [ showComponentTarget (packageId elab) t
-                | t <- elabBuildTargets elab
-                ]
-              ++ ")"
 
       showConfigureFlags :: ElaboratedConfiguredPackage -> String
       showConfigureFlags elab =

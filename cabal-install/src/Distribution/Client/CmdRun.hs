@@ -57,8 +57,7 @@ import Distribution.Client.ProjectPlanning
   , binDirectoryFor
   )
 import Distribution.Client.ProjectPlanning.Types
-  ( ElaboratedPackageOrComponent (..)
-  , dataDirsEnvironmentForPlan
+  ( dataDirsEnvironmentForPlan
   , elabExeDependencyPaths
   )
 
@@ -82,9 +81,6 @@ import Distribution.Client.Utils
   , occursOnlyOrBefore
   )
 
-import Distribution.Simple.BuildToolDepends
-  ( getAllInternalToolDependencies
-  )
 import Distribution.Simple.Command
   ( CommandUI (..)
   , usageAlternatives
@@ -114,13 +110,6 @@ import Distribution.Simple.Utils
 
 import Distribution.Types.ComponentName
   ( componentNameRaw
-  )
-import Distribution.Types.Executable as PD
-  ( buildInfo
-  , exeName
-  )
-import qualified Distribution.Types.PackageDescription as PD
-  ( executables
   )
 import Distribution.Types.UnitId
   ( UnitId
@@ -322,14 +311,14 @@ runAction flags@NixStyleFlags{..} targetAndArgs globalFlags =
       -- We add them back in here to ensure that any "build-tool-depends" of
       -- the current executable is available in PATH at runtime.
       internalToolDepsOfThisExe
-        | ElabPackage{} <- elabPkgOrComp pkg
-        , let pkg_descr = elabPkgDescription pkg
-        , thisExe : _ <- filter ((== exeName) . unUnqualComponentName . PD.exeName) $ PD.executables pkg_descr
-        , let thisExeBI = PD.buildInfo thisExe =
-            [ binDirectoryFor (distDirLayout baseCtx) (elaboratedShared buildCtx) pkg depExeNm
-            | depExe <- getAllInternalToolDependencies pkg_descr thisExeBI
-            , let depExeNm = unUnqualComponentName depExe
-            ]
+        -- | ElabPackage{} <- elabPkgOrComp pkg
+        -- , let pkg_descr = elabPkgDescription pkg
+        -- , thisExe : _ <- filter ((== exeName) . unUnqualComponentName . PD.exeName) $ PD.executables pkg_descr
+        -- , let thisExeBI = PD.buildInfo thisExe =
+        --     [ binDirectoryFor (distDirLayout baseCtx) (elaboratedShared buildCtx) pkg depExeNm
+        --     | depExe <- getAllInternalToolDependencies pkg_descr thisExeBI
+        --     , let depExeNm = unUnqualComponentName depExe
+        --     ]
         | otherwise =
             []
       extraPath =
