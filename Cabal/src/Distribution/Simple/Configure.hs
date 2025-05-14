@@ -66,7 +66,6 @@ import Distribution.Compat.Prelude
 import Prelude ()
 
 import Distribution.Backpack.Configure
-import Distribution.Backpack.ConfiguredComponent (newPackageDepsBehaviour)
 import Distribution.Backpack.DescribeUnitId
 import Distribution.Backpack.Id
 import Distribution.Backpack.PreExistingComponent
@@ -1711,7 +1710,6 @@ configureDependencies
 
     when
       ( not (null internalPkgDeps)
-          && not (newPackageDepsBehaviour pkg_descr)
       )
       $ dieWithException verbosity
       $ LibraryWithinSamePackage internalPkgDeps

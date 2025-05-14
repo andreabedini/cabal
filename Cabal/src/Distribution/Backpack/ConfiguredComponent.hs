@@ -9,8 +9,6 @@ module Distribution.Backpack.ConfiguredComponent
   , dispConfiguredComponent
   , ConfiguredComponentMap
   , extendConfiguredComponentMap
-  -- TODO: Should go somewhere else
-  , newPackageDepsBehaviour
   ) where
 
 import Distribution.Compat.Prelude hiding ((<>))
@@ -18,7 +16,6 @@ import Prelude ()
 
 import Distribution.Backpack.Id
 
-import Distribution.CabalSpecVersion
 import Distribution.Package
 import Distribution.PackageDescription
 import Distribution.Simple.BuildToolDepends
@@ -176,8 +173,7 @@ toConfiguredComponent
   -> LogProgress ConfiguredComponent
 toConfiguredComponent pkg_descr this_cid lib_dep_map exe_dep_map component = do
   lib_deps <-
-    if newPackageDepsBehaviour pkg_descr
-      then fmap concat $
+    fmap concat $
         forM (targetBuildDepends bi) $
           \(Dependency name _ sublibs) -> do
             case Map.lookup name lib_dep_map of
@@ -198,7 +194,6 @@ toConfiguredComponent pkg_descr this_cid lib_dep_map exe_dep_map component = do
                               <+> text "from"
                               <+> pretty name
                         Just v -> return v
-      else return old_style_lib_deps
   mkConfiguredComponent
     pkg_descr
     this_cid
@@ -207,20 +202,6 @@ toConfiguredComponent pkg_descr this_cid lib_dep_map exe_dep_map component = do
     component
   where
     bi = componentBuildInfo component
-    -- lib_dep_map contains a mix of internal and external deps.
-    -- We want all the public libraries (dep_cn == CLibName)
-    -- of all external deps (dep /= pn).  Note that this
-    -- excludes the public library of the current package:
-    -- this is not supported by old-style deps behavior
-    -- because it would imply a cyclic dependency for the
-    -- library itself.
-    old_style_lib_deps =
-      [ e
-      | (pn, comp_map) <- Map.toList lib_dep_map
-      , pn /= packageName pkg_descr
-      , (cn, e) <- Map.toList comp_map
-      , cn == CLibName LMainLibName
-      ]
     -- We have to nub here, because 'getAllToolDependencies' may return
     -- duplicates (see #4986).  (NB: This is not needed for lib_deps,
     -- since those elaborate into includes, for which there explicitly
@@ -335,15 +316,3 @@ toConfiguredComponents
             m
             component
         return (extendConfiguredComponentMap cc m, cc)
-
-newPackageDepsBehaviourMinVersion :: CabalSpecVersion
-newPackageDepsBehaviourMinVersion = CabalSpecV1_8
-
--- In older cabal versions, there was only one set of package dependencies for
--- the whole package. In this version, we can have separate dependencies per
--- target, but we only enable this behaviour if the minimum cabal version
--- specified is >= a certain minimum. Otherwise, for compatibility we use the
--- old behaviour.
-newPackageDepsBehaviour :: PackageDescription -> Bool
-newPackageDepsBehaviour pkg =
-  specVersion pkg >= newPackageDepsBehaviourMinVersion
