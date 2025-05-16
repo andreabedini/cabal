@@ -326,10 +326,10 @@ data HttpTransport = HttpTransport
   { getHttp
       :: Verbosity
       -> URI
-      -> Maybe ETag
+      -> Maybe ETagPath
       -> FilePath
       -> [Header]
-      -> IO (HttpCode, Maybe ETag)
+      -> IO (HttpCode, Maybe ETagPath)
   -- ^ GET a URI, with an optional ETag (to do a conditional fetch),
   -- write the resource to the given file and return the HTTP status code,
   -- and optional ETag.
@@ -372,7 +372,7 @@ data HttpTransport = HttpTransport
 -- TODO: why does postHttp return a redirect, but postHttpFile return errors?
 
 type HttpCode = Int
-type ETag = String
+type ETagPath = FilePath
 
 noPostYet
   :: Verbosity
@@ -465,11 +465,10 @@ curlTransport :: ConfiguredProgram -> HttpTransport
 curlTransport prog =
   HttpTransport gethttp posthttp posthttpfile puthttpfile True False
   where
-    gethttp verbosity uri etag destPath reqHeaders = do
+    gethttp verbosity uri etagPath destPath reqHeaders = do
       withTempFile
-        "curl-headers.txt"
+        "etag.txt"
         $ \tmpFile tmpHandle -> do
-          hClose tmpHandle
           let args =
                 [ show uri
                 , "--output"
@@ -481,12 +480,10 @@ curlTransport prog =
                 , userAgent
                 , "--silent"
                 , "--show-error"
-                , "--dump-header"
-                , tmpFile
                 ]
                   ++ concat
-                    [ ["--header", "If-None-Match: " ++ t]
-                    | t <- maybeToList etag
+                    [ ["--etag-compare", t, "--etag-save", tmpFile]
+                    | t <- maybeToList etagPath
                     ]
                   ++ concat
                     [ ["--header", show name ++ ": " ++ value]
@@ -500,10 +497,10 @@ curlTransport prog =
                 uri
                 (programInvocation prog args)
 
-          withFile tmpFile ReadMode $ \hnd -> do
-            headers <- hGetContents hnd
-            (code, _err, etag') <- parseResponse verbosity uri resp headers
-            evaluate $ force (code, etag')
+          (code, _err) <- parseResponse verbosity uri resp
+          etag' <- readFile tmpFile
+          hClose tmpHandle
+          evaluate $ force (code, Just etag')
 
     posthttp = noPostYet
 
@@ -564,7 +561,7 @@ curlTransport prog =
             auth
             uri
             (programInvocation prog args)
-      (code, err, _etag) <- parseResponse verbosity uri resp ""
+      (code, err) <- parseResponse verbosity uri resp
       return (code, err)
 
     puthttpfile verbosity uri path auth headers = do
@@ -594,13 +591,13 @@ curlTransport prog =
             auth
             uri
             (programInvocation prog args)
-      (code, err, _etag) <- parseResponse verbosity uri resp ""
+      (code, err) <- parseResponse verbosity uri resp 
       return (code, err)
 
     -- on success these curl invocations produces an output like "200"
     -- and on failure it has the server error response first
-    parseResponse :: Verbosity -> URI -> String -> String -> IO (Int, String, Maybe ETag)
-    parseResponse verbosity uri resp headers =
+    parseResponse :: Verbosity -> URI -> String -> IO (Int, String)
+    parseResponse verbosity uri resp =
       let codeerr =
             case reverse (lines resp) of
               (codeLine : rerrLines) ->
@@ -612,17 +609,9 @@ curlTransport prog =
               [] -> Nothing
 
           mkErrstr = unlines . reverse . dropWhile (all isSpace)
-
-          mb_etag :: Maybe ETag
-          mb_etag =
-            listToMaybe $
-              reverse
-                [ etag
-                | [name, etag] <- map words (lines headers)
-                , isETag name
-                ]
+         
        in case codeerr of
-            Just (i, err) -> return (i, err, mb_etag)
+            Just (i, err) -> return (i, err)
             _ -> statusParseFail verbosity uri resp
 
 wgetTransport :: ConfiguredProgram -> HttpTransport
@@ -764,7 +753,7 @@ wgetTransport prog =
               , "HTTP/" `isPrefixOf` protocol
               , code <- maybeToList (readMaybe codestr)
               ]
-          mb_etag :: Maybe ETag
+          mb_etag :: Maybe ETagPath
           mb_etag =
             listToMaybe
               [ etag
@@ -806,7 +795,7 @@ powershellTransport prog =
             ]
       parseResponse resp
       where
-        parseResponse :: String -> IO (HttpCode, Maybe ETag)
+        parseResponse :: String -> IO (HttpCode, Maybe ETagPath)
         parseResponse x =
           case lines $ trim x of
             (code : etagv : _) -> fmap (\c -> (c, Just etagv)) $ parseCode code x
