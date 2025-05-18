@@ -1729,10 +1729,11 @@ elaborateInstallPlan
           why_not_per_component g =
             cuz_buildtype ++ cuz_spec ++ cuz_length ++ cuz_flag
             where
-              -- Custom and Hooks are not implemented. Implementing
-              -- per-component builds with Custom would require us to create a
-              -- new 'ElabSetup' type, and teach all of the code paths how to
-              -- handle it.
+              -- We have to disable per-component at this point in time, only
+              -- Simple and Configure build types are supported.  Custom and
+              -- Hooks are not implemented.  Implementing per-component builds
+              -- with Custom would require us to create a new 'ElabSetup'
+              -- type, and teach all of the code paths how to handle it.
               -- Once you've implemented this, swap it for the code below.
               cuz_buildtype =
                 case bt of
