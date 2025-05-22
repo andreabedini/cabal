@@ -323,13 +323,75 @@ data SetupScriptOptions = SetupScriptOptions
   -- support, and thus we can skip running configure for other components.
   }
 
-defaultSetupScriptOptions :: SetupScriptOptions
-defaultSetupScriptOptions =
-  SetupScriptOptions
+-- | Variant of 'SetupScriptOptions' that requires 'useCompiler' and 'usePlatform'.
+data SetupScriptOptionsComp = SetupScriptOptionsComp
+  { useCabalVersion :: VersionRange
+  , useCabalSpecVersion :: Maybe Version
+  , useCompiler :: Compiler -- Changed from Maybe Compiler
+  , usePlatform :: Platform -- Changed from Maybe Platform
+  , usePackageDB :: PackageDBStackCWD
+  , usePackageIndex :: Maybe InstalledPackageIndex
+  , useProgramDb :: ProgramDb
+  , useDistPref :: SymbolicPath Pkg (Dir Dist)
+  , useLoggingHandle :: Maybe Handle
+  , useWorkingDir :: Maybe (SymbolicPath CWD (Dir Pkg))
+  , useExtraPathEnv :: [FilePath]
+  , useExtraEnvOverrides :: [(String, Maybe FilePath)]
+  , forceExternalSetupMethod :: Bool
+  , useDependencies :: [(ComponentId, PackageId)]
+  , useDependenciesExclusive :: Bool
+  , useVersionMacros :: Bool
+  , useWin32CleanHack :: Bool
+  , setupCacheLock :: Maybe Lock
+  , isInteractive :: Bool
+  }
+
+-- | Variant of 'SetupScriptOptions' that omits 'useCompiler' and 'usePlatform'.
+data SetupScriptOptionsNoComp = SetupScriptOptionsNoComp
+  { useCabalVersion :: VersionRange
+  , useCabalSpecVersion :: Maybe Version
+  -- useCompiler field omitted
+  -- usePlatform field omitted
+  , usePackageDB :: PackageDBStackCWD
+  , usePackageIndex :: Maybe InstalledPackageIndex
+  , useProgramDb :: ProgramDb
+  , useDistPref :: SymbolicPath Pkg (Dir Dist)
+  , useLoggingHandle :: Maybe Handle
+  , useWorkingDir :: Maybe (SymbolicPath CWD (Dir Pkg))
+  , useExtraPathEnv :: [FilePath]
+  , useExtraEnvOverrides :: [(String, Maybe FilePath)]
+  , forceExternalSetupMethod :: Bool
+  , useDependencies :: [(ComponentId, PackageId)]
+  , useDependenciesExclusive :: Bool
+  , useVersionMacros :: Bool
+  , useWin32CleanHack :: Bool
+  , setupCacheLock :: Maybe Lock
+  , isInteractive :: Bool
+  }
+
+-- | Variant of 'Setup' that uses 'SetupScriptOptionsComp'.
+data SetupComp = SetupComp
+  { setupMethod :: SetupMethod
+  , setupScriptOptions :: SetupScriptOptionsComp -- Changed type
+  , setupVersion :: Version
+  , setupBuildType :: BuildType
+  , setupPackage :: PackageDescription
+  }
+
+-- | Variant of 'Setup' that uses 'SetupScriptOptionsNoComp'.
+data SetupNoComp = SetupNoComp
+  { setupMethod :: SetupMethod
+  , setupScriptOptions :: SetupScriptOptionsNoComp -- Changed type
+  , setupVersion :: Version
+  , setupBuildType :: BuildType
+  , setupPackage :: PackageDescription
+  }
+
+defaultSetupScriptOptionsNoComp :: SetupScriptOptionsNoComp
+defaultSetupScriptOptionsNoComp =
+  SetupScriptOptionsNoComp
     { useCabalVersion = anyVersion
     , useCabalSpecVersion = Nothing
-    , useCompiler = Nothing
-    , usePlatform = Nothing
     , usePackageDB = [GlobalPackageDB, UserPackageDB]
     , usePackageIndex = Nothing
     , useDependencies = []
@@ -951,30 +1013,73 @@ getExternalSetupMethod verbosity options pkg bt = do
             latestVersion = version
 
     configureCompiler
-      :: SetupScriptOptions
-      -> IO (Compiler, ProgramDb, SetupScriptOptions)
-    configureCompiler options' = do
-      (comp, progdb) <- case useCompiler options' of
-        Just comp -> return (comp, useProgramDb options')
-        Nothing -> do
-          (comp, _, progdb) <-
-            configCompilerEx
-              (Just GHC)
-              Nothing
-              Nothing
-              (useProgramDb options')
-              verbosity
-          return (comp, progdb)
-      -- Whenever we need to call configureCompiler, we also need to access the
-      -- package index, so let's cache it in SetupScriptOptions.
-      index <- maybeGetInstalledPackages options' comp progdb
+      :: SetupScriptOptionsNoComp
+      -> IO (Compiler, ProgramDb, SetupScriptOptionsComp)
+    configureCompiler optionsNoComp = do
+      -- Determine compiler and program DB
+      (comp, _, progdbConfigured) <-
+        configCompilerEx
+          (Just GHC) -- Assuming GHC, as per original 'Nothing' branch
+          Nothing    -- No specific version
+          Nothing    -- No specific path
+          (useProgramDb optionsNoComp) -- Initial ProgramDb from input
+          verbosity
+      
+      -- Determine platform
+      let plat = buildPlatform
+
+      -- Get installed package index
+      -- Note: maybeGetInstalledPackages takes SetupScriptOptions, but its relevant fields
+      -- for this call (usePackageDB, usePackageIndex) are available in SetupScriptOptionsNoComp.
+      -- We pass a temporary SetupScriptOptions with Nothing for compiler/platform 
+      -- as maybeGetInstalledPackages will use the explicitly passed comp and progdb.
+      let tempOptionsForIndex = SetupScriptOptions
+            { useCabalVersion = useCabalVersion optionsNoComp
+            , useCabalSpecVersion = useCabalSpecVersion optionsNoComp
+            , useCompiler = Nothing -- Not used by maybeGetInstalledPackages when comp is explicit
+            , usePlatform = Nothing -- Not used by maybeGetInstalledPackages
+            , usePackageDB = usePackageDB optionsNoComp
+            , usePackageIndex = usePackageIndex optionsNoComp -- Pass through existing index if any
+            , useProgramDb = progdbConfigured -- Use the configured one
+            , useDistPref = useDistPref optionsNoComp
+            , useLoggingHandle = useLoggingHandle optionsNoComp
+            , useWorkingDir = useWorkingDir optionsNoComp
+            , useExtraPathEnv = useExtraPathEnv optionsNoComp
+            , useExtraEnvOverrides = useExtraEnvOverrides optionsNoComp
+            , forceExternalSetupMethod = forceExternalSetupMethod optionsNoComp
+            , useDependencies = useDependencies optionsNoComp
+            , useDependenciesExclusive = useDependenciesExclusive optionsNoComp
+            , useVersionMacros = useVersionMacros optionsNoComp
+            , useWin32CleanHack = useWin32CleanHack optionsNoComp
+            , setupCacheLock = setupCacheLock optionsNoComp
+            , isInteractive = isInteractive optionsNoComp
+            }
+      index <- maybeGetInstalledPackages tempOptionsForIndex comp progdbConfigured
+
+      -- Construct and return SetupScriptOptionsComp
       return
         ( comp
-        , progdb
-        , options'
-            { useCompiler = Just comp
+        , progdbConfigured
+        , SetupScriptOptionsComp
+            { useCabalVersion = useCabalVersion optionsNoComp
+            , useCabalSpecVersion = useCabalSpecVersion optionsNoComp
+            , useCompiler = comp
+            , usePlatform = plat
+            , usePackageDB = usePackageDB optionsNoComp
             , usePackageIndex = Just index
-            , useProgramDb = progdb
+            , useProgramDb = progdbConfigured
+            , useDistPref = useDistPref optionsNoComp
+            , useLoggingHandle = useLoggingHandle optionsNoComp
+            , useWorkingDir = useWorkingDir optionsNoComp
+            , useExtraPathEnv = useExtraPathEnv optionsNoComp
+            , useExtraEnvOverrides = useExtraEnvOverrides optionsNoComp
+            , forceExternalSetupMethod = forceExternalSetupMethod optionsNoComp
+            , useDependencies = useDependencies optionsNoComp
+            , useDependenciesExclusive = useDependenciesExclusive optionsNoComp
+            , useVersionMacros = useVersionMacros optionsNoComp
+            , useWin32CleanHack = useWin32CleanHack optionsNoComp
+            , setupCacheLock = setupCacheLock optionsNoComp
+            , isInteractive = isInteractive optionsNoComp
             }
         )
 
