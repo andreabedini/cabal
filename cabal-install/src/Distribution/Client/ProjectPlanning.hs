@@ -1935,7 +1935,7 @@ elaborateInstallPlan
                       BuildInplaceOnly{} ->
                         mkComponentId $
                           prettyShow pkgid
-                            ++ "-inplace"
+                            ++ prettyShow (elabStage elab0)
                             ++ ( case Cabal.componentNameString cname of
                                   Nothing -> ""
                                   Just s -> "-" ++ prettyShow s
@@ -2113,7 +2113,7 @@ elaborateInstallPlan
         -> LogProgress ElaboratedConfiguredPackage
       elaborateSolverToPackage
         pkgWhyNotPerComponent
-        pkg@SolverPackage {solverPkgSource = SourcePackage {srcpkgPackageId}}
+        pkg@SolverPackage {solverPkgSource = SourcePackage {srcpkgPackageId}, solverPkgStage}
         compGraph
         comps = do
           -- Knot tying: the final elab includes the
@@ -2161,7 +2161,7 @@ elaborateInstallPlan
 
             pkgInstalledId
               | shouldBuildInplaceOnly pkg =
-                  mkComponentId (prettyShow srcpkgPackageId ++ "-inplace")
+                  mkComponentId (prettyShow srcpkgPackageId ++ "-" ++ prettyShow solverPkgStage)
               | otherwise =
                   assert (isJust elabPkgSourceHash) $
                     hashedInstalledPackageId
