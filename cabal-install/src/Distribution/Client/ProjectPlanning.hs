@@ -3056,10 +3056,12 @@ availableTargets installPlan =
   let rs =
         [ (pkgid, cname, fake, target)
         | pkg <- InstallPlan.toList installPlan
-        , (pkgid, cname, fake, target) <- case pkg of
+        , (stage, pkgid, cname, fake, target) <- case pkg of
             InstallPlan.PreExisting ipkg -> availableInstalledTargets ipkg
             InstallPlan.Installed elab -> availableSourceTargets elab
             InstallPlan.Configured elab -> availableSourceTargets elab
+          -- Only host stage can be explicitly requested by the user
+        , stage == Host
         ]
    in Map.union
         ( Map.fromListWith
@@ -3083,7 +3085,8 @@ availableTargets installPlan =
 
 availableInstalledTargets
   :: WithStage IPI.InstalledPackageInfo
-  -> [ ( PackageId
+  -> [ ( Stage
+       , PackageId
        , ComponentName
        , Bool
        , AvailableTarget (WithStage UnitId, ComponentName)
@@ -3095,11 +3098,12 @@ availableInstalledTargets (WithStage stage ipkg) =
       status = TargetBuildable (WithStage stage unitid, cname) TargetRequestedByDefault
       target = AvailableTarget (packageId ipkg) cname status False
       fake = False
-   in [(packageId ipkg, cname, fake, target)]
+   in [(stage, IPI.sourcePackageId ipkg, cname, fake, target)]
 
 availableSourceTargets
   :: ElaboratedConfiguredPackage
-  -> [ ( PackageId
+  -> [ ( Stage
+       , PackageId
        , ComponentName
        , Bool
        , AvailableTarget (WithStage UnitId, ComponentName)
@@ -3136,7 +3140,7 @@ availableSourceTargets elab =
   -- map (thus eliminating the duplicates) and then we overlay that map with
   -- the normal buildable targets. (This is done above in 'availableTargets'.)
   --
-  [ (packageId elab, cname, fake, target)
+  [ (elabStage elab, elabPkgSourceId elab, cname, fake, target)
   | component <- pkgComponents (elabPkgDescription elab)
   , let cname = componentName component
         status = componentAvailableTargetStatus component
