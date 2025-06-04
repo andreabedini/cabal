@@ -342,7 +342,7 @@ def make_distribution_archive(cabal_path):
     return archivename
 
 def fetch_from_plan(plan : FetchPlan, output_dir : Path):
-  output_dir.resolve()
+  output_dir = output_dir.resolve()
   output_dir.mkdir(parents=True, exist_ok=True)
 
   for path in plan:
