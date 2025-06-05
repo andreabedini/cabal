@@ -156,6 +156,7 @@ import Distribution.Types.ComponentName
 import Distribution.Types.UnqualComponentName
   ( UnqualComponentName
   , packageNameToUnqualComponentName
+  , unUnqualComponentName
   )
 
 import Distribution.Solver.Types.OptionalStanza
@@ -192,6 +193,8 @@ import Distribution.Simple.Utils
   , noticeNoWrap
   , ordNub
   , warn
+  , installExecutableFile
+  , infoNoWrap
   )
 import Distribution.Types.Flag
   ( FlagAssignment
@@ -201,7 +204,7 @@ import Distribution.Types.Flag
 import Distribution.Utils.NubList
   ( fromNubList
   )
-import Distribution.Utils.Path (makeSymbolicPath)
+import Distribution.Utils.Path (makeSymbolicPath, (</>))
 import Distribution.Verbosity
 #ifdef MIN_VERSION_unix
 import           System.Posix.Signals (sigKILL, sigSEGV)
@@ -474,8 +477,8 @@ runProjectPostBuildPhase _ ProjectBaseContext{buildSettings} _ _
       return ()
 runProjectPostBuildPhase
   verbosity
-  ProjectBaseContext{..}
-  ProjectBuildContext{..}
+  baseCtx@ProjectBaseContext{..}
+  buildCtx@ProjectBuildContext{..}
   buildOutcomes = do
     -- Update other build artefacts
     -- TODO: currently none, but could include:
@@ -492,6 +495,8 @@ runProjectPostBuildPhase
         pkgsBuildStatus
         buildOutcomes
 
+    installExecutables verbosity baseCtx buildCtx postBuildStatus
+      
     -- Write the .ghc.environment file (if allowed by the env file write policy).
     let writeGhcEnvFilesPolicy =
           projectConfigWriteGhcEnvironmentFilesPolicy . projectConfigShared $
@@ -520,6 +525,31 @@ runProjectPostBuildPhase
     -- Finally if there were any build failures then report them and throw
     -- an exception to terminate the program
     dieOnBuildFailures verbosity currentCommand elaboratedPlanToExecute buildOutcomes
+
+installExecutables :: Verbosity -> ProjectBaseContext -> ProjectBuildContext -> PostBuildProjectStatus -> IO ()
+installExecutables
+  verbosity
+  ProjectBaseContext {distDirLayout}
+  ProjectBuildContext {elaboratedPlanOriginal, elaboratedShared, targetsMap}
+  postBuildStatus =
+    unless (null srcdst) $ do
+      infoNoWrap verbosity $ "Copying executables to " <> bindir
+      -- Create the bin directory if it does not exist
+      createDirectoryIfMissingVerbose verbosity True bindir
+      -- Install the executables
+      for_ srcdst $ \(exe, src) -> do
+        installExecutableFile verbosity src (bindir </> exe)
+  where
+    bindir = distBinDirectory distDirLayout
+    srcdst = [ (exe, dir </> exe)
+             | (pkg, targets) <- Map.toList targetsMap
+             , stageOf pkg == Host
+             , pkg `Set.member` packagesDefinitelyUpToDate postBuildStatus
+             , Just (InstallPlan.Configured elab) <- [InstallPlan.lookup elaboratedPlanOriginal pkg]
+             , (ComponentTarget (CExeName cname) _subtarget, _targetSelectors) <- targets
+             , let exe = unUnqualComponentName cname
+             , let dir = binDirectoryFor distDirLayout elaboratedShared elab exe
+             ]
 
 -- Note that it is a deliberate design choice that the 'buildTargets' is
 -- not passed to phase 1, and the various bits of input config is not
