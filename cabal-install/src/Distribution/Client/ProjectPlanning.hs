@@ -234,6 +234,7 @@ import Distribution.Client.Errors
 import Distribution.Solver.Types.ProjectConfigPath
 import System.FilePath
 import qualified Text.PrettyPrint as Disp
+import GHC.Stack (HasCallStack)
 
 -- | Check that an 'ElaboratedConfiguredPackage' actually makes
 -- sense under some 'ElaboratedSharedConfig'.
@@ -1535,7 +1536,8 @@ planPackages
 -- In theory should be able to make an elaborated install plan with a policy
 -- matching that of the classic @cabal install --user@ or @--global@
 elaborateInstallPlan
-  :: Verbosity
+  :: HasCallStack
+  => Verbosity
   -> Map FilePath HookAccept
   -> Staged Toolchain
   -> Staged (Maybe PkgConfigDb)
@@ -1613,7 +1615,8 @@ elaborateInstallPlan
       -- NB: We don't INSTANTIATE packages at this point.  That's
       -- a post-pass.  This makes it simpler to compute dependencies.
       elaborateSolverToComponents
-        :: (SolverId -> [ElaboratedPlanPackage])
+        :: HasCallStack
+        => (SolverId -> [ElaboratedPlanPackage])
         -> SolverPackage UnresolvedPkgLoc
         -> LogProgress [ElaboratedConfiguredPackage]
       elaborateSolverToComponents mapDep spkg@(SolverPackage _ _ _ _ _ deps0 exe_deps0) =
@@ -1752,7 +1755,8 @@ elaborateInstallPlan
                     ++ " not implemented yet"
 
           buildComponent
-            :: ( ConfiguredComponentMap
+            :: HasCallStack
+            => ( ConfiguredComponentMap
                , LinkedComponentMap
                , Map ComponentId FilePath
                )
@@ -2659,7 +2663,8 @@ extractElabBuildStyle _ = BuildAndInstall
 --    we don't instantiate the same thing multiple times.
 --
 instantiateInstallPlan
-  :: StoreDirLayout
+  :: HasCallStack
+  => StoreDirLayout
   -> Staged InstallDirs.InstallDirTemplates
   -> ElaboratedSharedConfig
   -> ElaboratedInstallPlan
@@ -3190,7 +3195,8 @@ data TargetAction
 -- will prune differently depending on what is already installed (to
 -- implement "sticky" test suite enabling behavior).
 pruneInstallPlanToTargets
-  :: TargetAction
+  :: HasCallStack
+  => TargetAction
   -> Map UnitId [ComponentTarget]
   -> ElaboratedInstallPlan
   -> ElaboratedInstallPlan
@@ -3286,7 +3292,8 @@ setRootTargets targetAction perPkgTargetsMap =
 --   are used only by unneeded optional stanzas. These pruned deps are only
 --   used for the dependency closure and are not persisted in this pass.
 pruneInstallPlanPass1
-  :: [ElaboratedPlanPackage]
+  :: HasCallStack
+  => [ElaboratedPlanPackage]
   -> [ElaboratedPlanPackage]
 pruneInstallPlanPass1 pkgs
   -- if there are repl targets, we need to do a bit more work
@@ -3646,7 +3653,8 @@ mapConfiguredPackage _ (InstallPlan.PreExisting pkg) =
 --
 -- This is not always possible.
 pruneInstallPlanToDependencies
-  :: Set UnitId
+  :: HasCallStack
+  => Set UnitId
   -> ElaboratedInstallPlan
   -> Either
       CannotPruneDependencies
