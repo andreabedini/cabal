@@ -2245,6 +2245,11 @@ elaborateInstallPlan
               } =
           elaboratedPackage
           where
+            compilers = fmap toolchainCompiler toolchains
+            platforms = fmap toolchainPlatform toolchains
+            programDbs = fmap toolchainProgramDb toolchains
+            packageDbs = fmap toolchainPackageDBs toolchains
+
             elaboratedPackage = ElaboratedConfiguredPackage{..}
 
             -- These get filled in later
@@ -2258,9 +2263,9 @@ elaborateInstallPlan
             elabPkgSourceId = srcpkgPackageId
 
             elabStage = solverPkgStage
-            elabCompiler = toolchainCompiler (getStage toolchains solverPkgStage)
-            elabPlatform = toolchainPlatform (getStage toolchains solverPkgStage)
-            elabProgramDb = toolchainProgramDb (getStage toolchains solverPkgStage)
+            elabCompiler = getStage compilers elabStage
+            elabPlatform = getStage platforms elabStage
+            elabProgramDb = getStage programDbs elabStage
 
             elabPkgDescription = case PD.finalizePD
               solverPkgFlags
@@ -2330,9 +2335,9 @@ elaborateInstallPlan
                 then BuildInplaceOnly OnDisk
                 else BuildAndInstall
 
-            elabPackageDbs = Cabal.interpretPackageDbFlags False (projectConfigPackageDBs (projectConfigToolchain sharedPackageConfig))
-            elabBuildPackageDBStack = buildAndRegisterDbs
-            elabRegisterPackageDBStack = buildAndRegisterDbs
+            elabPackageDbs = getStage packageDbs elabStage
+            elabBuildPackageDBStack = buildAndRegisterDbs elabStage
+            elabRegisterPackageDBStack = buildAndRegisterDbs elabStage
 
             elabSetupScriptStyle = packageSetupScriptStyle elabPkgDescription
             elabSetupScriptCliVersion =
@@ -2341,19 +2346,21 @@ elaborateInstallPlan
                 elabPkgDescription
                 libDepGraph
                 solverPkgLibDeps
-            elabSetupPackageDBStack = buildAndRegisterDbs
+            elabSetupPackageDBStack = buildAndRegisterDbs (prevStage elabStage)
 
-            inplacePackageDbs = corePackageDbs ++ [distPackageDB (compilerId elabCompiler)]
+            -- Same as corePackageDbs but with the addition of the in-place packagedb.
+            inplacePackageDbs stage = corePackageDbs stage ++ [SpecificPackageDB (distDirectory </> "packagedb" </> prettyShow stage </> prettyShow (compilerId (getStage compilers stage)))]
 
-            corePackageDbs = Cabal.interpretPackageDbFlags False (projectConfigPackageDBs (projectConfigToolchain sharedPackageConfig)) ++  [storePackageDB storeDirLayout elabCompiler]
+            -- The project packagedbs (typically the global packagedb but others can be added) followed by the store.
+            corePackageDbs stage = getStage packageDbs stage ++ [storePackageDB storeDirLayout (getStage compilers stage)]
+            
+            elabInplaceBuildPackageDBStack = inplacePackageDbs elabStage
+            elabInplaceRegisterPackageDBStack = inplacePackageDbs elabStage
+            elabInplaceSetupPackageDBStack = inplacePackageDbs (prevStage elabStage)
 
-            elabInplaceBuildPackageDBStack = inplacePackageDbs
-            elabInplaceRegisterPackageDBStack = inplacePackageDbs
-            elabInplaceSetupPackageDBStack = inplacePackageDbs
-
-            buildAndRegisterDbs
-              | shouldBuildInplaceOnly pkg = inplacePackageDbs
-              | otherwise = corePackageDbs
+            buildAndRegisterDbs stage
+              | shouldBuildInplaceOnly pkg = inplacePackageDbs stage
+              | otherwise = corePackageDbs stage
 
             elabPkgDescriptionOverride = srcpkgDescrOverride
 
