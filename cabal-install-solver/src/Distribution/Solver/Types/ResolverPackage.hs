@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 module Distribution.Solver.Types.ResolverPackage
     ( ResolverPackage(..)
+    , solverQPN
     , resolverPackageLibDeps
     , resolverPackageExeDeps
     , dumpResolverPackage
@@ -13,6 +14,7 @@ import Prelude ()
 import Distribution.Solver.Types.InstSolverPackage
 import Distribution.Solver.Types.SolverId
 import Distribution.Solver.Types.SolverPackage
+import Distribution.Solver.Types.PackagePath (QPN)
 import qualified Distribution.Solver.Types.ComponentDeps as CD
 
 import Distribution.Compat.Graph (IsNode(..))
@@ -35,6 +37,10 @@ instance Structured loc => Structured (ResolverPackage loc)
 instance Package (ResolverPackage loc) where
   packageId (PreExisting ipkg)     = packageId ipkg
   packageId (Configured  spkg)     = packageId spkg
+
+solverQPN :: ResolverPackage loc -> QPN
+solverQPN (PreExisting ipkg) = instSolverQPN ipkg
+solverQPN (Configured spkg)  = solverPkgQPN spkg
 
 resolverPackageLibDeps :: ResolverPackage loc -> CD.ComponentDeps [SolverId]
 resolverPackageLibDeps (PreExisting ipkg) = instSolverPkgLibDeps ipkg
