@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 module Distribution.Solver.Types.ResolverPackage
     ( ResolverPackage(..)
+    , solverId
     , solverQPN
     , resolverPackageLibDeps
     , resolverPackageExeDeps
@@ -38,6 +39,10 @@ instance Package (ResolverPackage loc) where
   packageId (PreExisting ipkg)     = packageId ipkg
   packageId (Configured  spkg)     = packageId spkg
 
+solverId :: ResolverPackage loc -> SolverId
+solverId (PreExisting ipkg) = PreExistingId (instSolverStage ipkg) (packageId ipkg) (installedUnitId ipkg)
+solverId (Configured spkg)  = PlannedId (solverPkgStage spkg) (packageId spkg)
+
 solverQPN :: ResolverPackage loc -> QPN
 solverQPN (PreExisting ipkg) = instSolverQPN ipkg
 solverQPN (Configured spkg)  = solverPkgQPN spkg
@@ -52,8 +57,7 @@ resolverPackageExeDeps (Configured spkg) = solverPkgExeDeps spkg
 
 instance IsNode (ResolverPackage loc) where
   type Key (ResolverPackage loc) = SolverId
-  nodeKey (PreExisting ipkg) = PreExistingId (instSolverStage ipkg) (packageId ipkg) (installedUnitId ipkg)
-  nodeKey (Configured spkg) = PlannedId (solverPkgStage spkg) (packageId spkg)
+  nodeKey = solverId
 
   -- Use dependencies for ALL components
   nodeNeighbors pkg =
