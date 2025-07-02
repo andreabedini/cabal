@@ -1,11 +1,13 @@
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE FlexibleInstances #-}
 module Distribution.Solver.Types.Progress
     ( Progress(..)
     , foldProgress
+    , fail
     ) where
 
 import Prelude ()
-import Distribution.Solver.Compat.Prelude hiding (fail)
+import Distribution.Solver.Compat.Prelude
 
 -- | A type to represent the unfolding of an expensive long running
 -- calculation that may fail. We may get intermediate steps before the final
@@ -25,14 +27,17 @@ data Progress step fail done = Step step (Progress step fail done)
 --
 foldProgress :: (step -> a -> a) -> (fail -> a) -> (done -> a)
              -> Progress step fail done -> a
-foldProgress step fail done = fold
-  where fold (Step s p) = step s (fold p)
-        fold (Fail f)   = fail f
-        fold (Done r)   = done r
+foldProgress step_ fail_ done_ = fold
+  where fold (Step s p) = step_ s (fold p)
+        fold (Fail f)   = fail_ f
+        fold (Done r)   = done_ r
 
 instance Monad (Progress step fail) where
   return   = pure
   p >>= f  = foldProgress Step Fail f p
+
+instance MonadFail (Progress step String) where
+  fail = Fail
 
 instance Applicative (Progress step fail) where
   pure a  = Done a
