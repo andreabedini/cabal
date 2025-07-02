@@ -3,6 +3,7 @@
 module Distribution.Solver.Types.Progress
     ( Progress(..)
     , foldProgress
+    , step
     , fail
     ) where
 
@@ -17,6 +18,9 @@ data Progress step fail done = Step step (Progress step fail done)
                              | Fail fail
                              | Done done
   deriving (Functor)
+
+step :: step -> Progress step fail ()
+step s = Step s (Done ())
 
 -- | Consume a 'Progress' calculation. Much like 'foldr' for lists but with two
 -- base cases, one for a final result and one for failure.
