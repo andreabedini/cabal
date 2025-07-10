@@ -721,10 +721,10 @@ instance Parsec UserConstraint where
             | otherwise = P.unexpected $ "constraint scope: " ++ unPackageName pn
 
           withColon :: PackageName -> m UserConstraintQualifier
-          withColon pn =
-            UserQualified (UserQualSetup pn)
-              <$ P.string "setup."
-              <*> parsec
+          withColon pn = P.choice
+            [ UserQualified (UserQualSetup pn) <$> (P.string "setup." *>  parsec)
+            , UserQualified . UserQualExe pn <$> (P.string "exe:" *> parsec) <*> (P.char '.' *> parsec)
+            ]
 
 -- >>> eitherParsec "foo > 1.2.3.4" :: Either String UserConstraint
 -- Right (UserConstraintX (UserConstraintScope Nothing (UserQualified UserQualToplevel (PackageName "foo"))) (PackagePropertyVersion (LaterVersion (mkVersion [1,2,3,4]))))
