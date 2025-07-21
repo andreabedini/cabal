@@ -560,7 +560,6 @@ convertLegacyGlobalConfig
     , savedConfigureExFlags = configExFlags
     , savedUserInstallDirs = _
     , savedGlobalInstallDirs = _
-    , savedUploadFlags = _
     , savedReportFlags = _
     , savedHaddockFlags = haddockFlags
     , savedTestFlags = testFlags
