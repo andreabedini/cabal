@@ -100,7 +100,6 @@ library
         Distribution.Client.BuildReports.Storage
         Distribution.Client.BuildReports.Types
         Distribution.Client.BuildReports.Upload
-        Distribution.Client.Check
         Distribution.Client.CmdBench
         Distribution.Client.CmdBuild
         Distribution.Client.CmdClean
@@ -113,7 +112,6 @@ library
         Distribution.Client.CmdInstall
         Distribution.Client.CmdInstall.ClientInstallFlags
         Distribution.Client.CmdInstall.ClientInstallTargetSelector
-        Distribution.Client.CmdLegacy
         Distribution.Client.CmdListBin
         Distribution.Client.CmdPath
         Distribution.Client.CmdOutdated
@@ -123,7 +121,6 @@ library
         Distribution.Client.CmdTarget
         Distribution.Client.CmdTest
         Distribution.Client.CmdUpdate
-        Distribution.Client.CmdGenBounds
         Distribution.Client.Compat.Directory
         Distribution.Client.Compat.ExecutablePath
         Distribution.Client.Compat.Orphans
@@ -131,19 +128,14 @@ library
         Distribution.Client.Compat.Semaphore
         Distribution.Client.Compat.Tar
         Distribution.Client.Config
-        Distribution.Client.Configure
         Distribution.Client.Dependency
         Distribution.Client.Dependency.Types
         Distribution.Client.DistDirLayout
         Distribution.Client.Errors
         Distribution.Client.Errors.Parser
-        Distribution.Client.Fetch
         Distribution.Client.FetchUtils
         Distribution.Client.FileMonitor
-        Distribution.Client.Freeze
         Distribution.Client.GZipUtils
-        Distribution.Client.GenBounds
-        Distribution.Client.Get
         Distribution.Client.Glob
         Distribution.Client.GlobalFlags
         Distribution.Client.Haddock
@@ -166,15 +158,12 @@ library
         Distribution.Client.Init.Simple
         Distribution.Client.Init.Types
         Distribution.Client.Init.Utils
-        Distribution.Client.Install
         Distribution.Client.InstallPlan
         Distribution.Client.InstallSymlink
         Distribution.Client.JobControl
-        Distribution.Client.List
         Distribution.Client.Main
         Distribution.Client.Manpage
         Distribution.Client.ManpageFlags
-        Distribution.Client.Nix
         Distribution.Client.NixStyleOptions
         Distribution.Client.PackageHash
         Distribution.Client.ParseUtils
@@ -195,9 +184,7 @@ library
         Distribution.Client.ProjectPlanning.SetupPolicy
         Distribution.Client.ProjectPlanning.Types
         Distribution.Client.RebuildMonad
-        Distribution.Client.Reconfigure
         Distribution.Client.ReplFlags
-        Distribution.Client.Run
         Distribution.Client.Sandbox
         Distribution.Client.Sandbox.PackageEnvironment
         Distribution.Client.SavedFlags
@@ -231,7 +218,6 @@ library
         Distribution.Client.Types.SourcePackageDb
         Distribution.Client.Types.SourceRepo
         Distribution.Client.Types.WriteGhcEnvironmentFilesPolicy
-        Distribution.Client.Upload
         Distribution.Client.Utils
         Distribution.Client.Utils.Json
         Distribution.Client.Utils.Newtypes

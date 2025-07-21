@@ -79,7 +79,6 @@ import Distribution.Client.Setup
   , GlobalFlags (..)
   , InstallFlags (..)
   , ReportFlags (..)
-  , UploadFlags (..)
   , configureExOptions
   , defaultConfigExFlags
   , defaultGlobalFlags
@@ -88,7 +87,6 @@ import Distribution.Client.Setup
   , initOptions
   , installOptions
   , reportCommand
-  , uploadCommand
   )
 import Distribution.Client.Types
   ( AllowNewer (..)
@@ -100,11 +98,6 @@ import Distribution.Client.Types
   , emptyRemoteRepo
   , isRelaxDeps
   , unRepoName
-  )
-import Distribution.Client.Types.Credentials
-  ( Password (..)
-  , Token (..)
-  , Username (..)
   )
 import Distribution.Utils.NubList
   ( NubList
@@ -151,14 +144,14 @@ import Distribution.Deprecated.ParseUtils
   , showPWarning
   , simpleField
   , simpleFieldParsec
-  , spaceListField
+  
   , syntaxError
   , warning
   )
 import qualified Distribution.Deprecated.ParseUtils as ParseUtils
   ( Field (..)
   )
-import Distribution.Parsec (ParsecParser, parsecFilePath, parsecOptCommaList, parsecToken)
+import Distribution.Parsec (ParsecParser, parsecFilePath, parsecOptCommaList)
 import Distribution.Simple.Command
   ( CommandUI (commandOptions)
   , OptionField
@@ -266,7 +259,6 @@ data SavedConfig = SavedConfig
   , savedConfigureExFlags :: ConfigExFlags
   , savedUserInstallDirs :: InstallDirs (Flag PathTemplate)
   , savedGlobalInstallDirs :: InstallDirs (Flag PathTemplate)
-  , savedUploadFlags :: UploadFlags
   , savedReportFlags :: ReportFlags
   , savedHaddockFlags :: HaddockFlags
   , savedTestFlags :: TestFlags
@@ -291,7 +283,6 @@ instance Semigroup SavedConfig where
       , savedConfigureExFlags = combinedSavedConfigureExFlags
       , savedUserInstallDirs = combinedSavedUserInstallDirs
       , savedGlobalInstallDirs = combinedSavedGlobalInstallDirs
-      , savedUploadFlags = combinedSavedUploadFlags
       , savedReportFlags = combinedSavedReportFlags
       , savedHaddockFlags = combinedSavedHaddockFlags
       , savedTestFlags = combinedSavedTestFlags
@@ -590,19 +581,6 @@ instance Semigroup SavedConfig where
       combinedSavedGlobalInstallDirs =
         savedGlobalInstallDirs a
           `mappend` savedGlobalInstallDirs b
-
-      combinedSavedUploadFlags =
-        UploadFlags
-          { uploadCandidate = combine uploadCandidate
-          , uploadDoc = combine uploadDoc
-          , uploadToken = combine uploadToken
-          , uploadUsername = combine uploadUsername
-          , uploadPassword = combine uploadPassword
-          , uploadPasswordCmd = combine uploadPasswordCmd
-          , uploadVerbosity = combine uploadVerbosity
-          }
-        where
-          combine = combine' savedUploadFlags
 
       combinedSavedReportFlags =
         ReportFlags
@@ -1130,7 +1108,6 @@ commentSavedConfig = do
                 }
           , savedUserInstallDirs = fmap toFlag userInstallDirs
           , savedGlobalInstallDirs = fmap toFlag globalInstallDirs
-          , savedUploadFlags = commandDefaultFlags uploadCommand
           , savedReportFlags = commandDefaultFlags reportCommand
           , savedHaddockFlags = defaultHaddockFlags
           , savedTestFlags = defaultTestFlags
@@ -1292,11 +1269,6 @@ configFieldDescriptions src =
       []
       []
     ++ toSavedConfig
-      liftUploadFlag
-      (commandOptions uploadCommand ParseArgs)
-      ["verbose", "check", "documentation", "publish"]
-      []
-    ++ toSavedConfig
       liftReportFlag
       (commandOptions reportCommand ParseArgs)
       ["verbose", "token", "username", "password"]
@@ -1392,34 +1364,6 @@ deprecatedFieldDescriptions =
         (optionalFlag parsecFilePath)
         globalCacheDir
         (\d cfg -> cfg{globalCacheDir = d})
-  , liftUploadFlag $
-      simpleFieldParsec
-        "hackage-token"
-        (Disp.text . fromFlagOrDefault "" . fmap unToken)
-        (optionalFlag (fmap Token parsecToken))
-        uploadToken
-        (\d cfg -> cfg{uploadToken = d})
-  , liftUploadFlag $
-      simpleFieldParsec
-        "hackage-username"
-        (Disp.text . fromFlagOrDefault "" . fmap unUsername)
-        (optionalFlag (fmap Username parsecToken))
-        uploadUsername
-        (\d cfg -> cfg{uploadUsername = d})
-  , liftUploadFlag $
-      simpleFieldParsec
-        "hackage-password"
-        (Disp.text . fromFlagOrDefault "" . fmap unPassword)
-        (optionalFlag (fmap Password parsecToken))
-        uploadPassword
-        (\d cfg -> cfg{uploadPassword = d})
-  , liftUploadFlag $
-      spaceListField
-        "hackage-password-command"
-        Disp.text
-        parseTokenQ
-        (fromFlagOrDefault [] . uploadPasswordCmd)
-        (\d cfg -> cfg{uploadPasswordCmd = Flag d})
   ]
     ++ map
       (modifyFieldName ("user-" ++) . liftUserInstallDirs)
@@ -1479,12 +1423,6 @@ liftClientInstallFlag =
   liftField
     savedClientInstallFlags
     (\flags conf -> conf{savedClientInstallFlags = flags})
-
-liftUploadFlag :: FieldDescr UploadFlags -> FieldDescr SavedConfig
-liftUploadFlag =
-  liftField
-    savedUploadFlags
-    (\flags conf -> conf{savedUploadFlags = flags})
 
 liftReportFlag :: FieldDescr ReportFlags -> FieldDescr SavedConfig
 liftReportFlag =

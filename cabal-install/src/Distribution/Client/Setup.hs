@@ -55,27 +55,12 @@ module Distribution.Client.Setup
   , haddockOptions
   , defaultSolver
   , defaultMaxBackjumps
-  , listCommand
-  , ListFlags (..)
-  , listNeedsCompiler
   , UpdateFlags (..)
   , defaultUpdateFlags
   , infoCommand
   , InfoFlags (..)
-  , fetchCommand
-  , FetchFlags (..)
   , freezeCommand
   , FreezeFlags (..)
-  , genBoundsCommand
-  , getCommand
-  , unpackCommand
-  , GetFlags (..)
-  , checkCommand
-  , CheckFlags (..)
-  , formatCommand
-  , uploadCommand
-  , UploadFlags (..)
-  , IsCandidate (..)
   , reportCommand
   , ReportFlags (..)
   , runCommand
@@ -111,9 +96,6 @@ import Distribution.Client.BuildReports.Types
 import Distribution.Client.Dependency.Types
   ( PreSolver (..)
   )
-import Distribution.Client.IndexUtils.ActiveRepos
-  ( ActiveRepos
-  )
 import Distribution.Client.IndexUtils.IndexState
   ( TotalIndexState
   , headTotalIndexState
@@ -124,8 +106,6 @@ import Distribution.Client.Targets
   ( UserConstraint
   , readUserConstraint
   )
-import Distribution.Deprecated.ParseUtils (parseSpaceList, parseTokenQ)
-import Distribution.Deprecated.ReadP (readP_to_E)
 import Distribution.Utils.NubList
   ( NubList
   , fromNubList
@@ -148,9 +128,8 @@ import Distribution.PackageDescription
   ( BuildType (..)
   , Dependency
   , LibraryName (..)
-  , RepoKind (..)
+  
   )
-import Distribution.PackageDescription.Check (CheckExplanationIDString)
 import Distribution.Parsec
   ( parsecCommaList
   )
@@ -203,7 +182,7 @@ import Distribution.Simple.Setup
   , TestFlags
   , boolOpt
   , boolOpt'
-  , falseArg
+  
   , optionVerbosity
   , readPackageDbList
   , showPackageDbList
@@ -1393,140 +1372,6 @@ filterBenchmarkFlags flags cabalLibVersion =
         filterCommonFlags (benchmarkCommonFlags flags) cabalLibVersion
     }
 
--- ------------------------------------------------------------
-
--- * Fetch command
-
--- ------------------------------------------------------------
-
-data FetchFlags = FetchFlags
-  { --    fetchOutput    :: Flag FilePath,
-    fetchDeps :: Flag Bool
-  , fetchDryRun :: Flag Bool
-  , fetchSolver :: Flag PreSolver
-  , fetchMaxBackjumps :: Flag Int
-  , fetchReorderGoals :: Flag ReorderGoals
-  , fetchCountConflicts :: Flag CountConflicts
-  , fetchFineGrainedConflicts :: Flag FineGrainedConflicts
-  , fetchMinimizeConflictSet :: Flag MinimizeConflictSet
-  , fetchIndependentGoals :: Flag IndependentGoals
-  , fetchPreferOldest :: Flag PreferOldest
-  , fetchShadowPkgs :: Flag ShadowPkgs
-  , fetchStrongFlags :: Flag StrongFlags
-  , fetchAllowBootLibInstalls :: Flag AllowBootLibInstalls
-  , fetchOnlyConstrained :: Flag OnlyConstrained
-  , fetchTests :: Flag Bool
-  , fetchBenchmarks :: Flag Bool
-  , fetchVerbosity :: Flag Verbosity
-  }
-
-defaultFetchFlags :: FetchFlags
-defaultFetchFlags =
-  FetchFlags
-    { --  fetchOutput    = mempty,
-      fetchDeps = toFlag True
-    , fetchDryRun = toFlag False
-    , fetchSolver = Flag defaultSolver
-    , fetchMaxBackjumps = Flag defaultMaxBackjumps
-    , fetchReorderGoals = Flag (ReorderGoals False)
-    , fetchCountConflicts = Flag (CountConflicts True)
-    , fetchFineGrainedConflicts = Flag (FineGrainedConflicts True)
-    , fetchMinimizeConflictSet = Flag (MinimizeConflictSet False)
-    , fetchIndependentGoals = Flag (IndependentGoals False)
-    , fetchPreferOldest = Flag (PreferOldest False)
-    , fetchShadowPkgs = Flag (ShadowPkgs False)
-    , fetchStrongFlags = Flag (StrongFlags False)
-    , fetchAllowBootLibInstalls = Flag (AllowBootLibInstalls False)
-    , fetchOnlyConstrained = Flag OnlyConstrainedNone
-    , fetchTests = toFlag False
-    , fetchBenchmarks = toFlag False
-    , fetchVerbosity = toFlag normal
-    }
-
-fetchCommand :: CommandUI FetchFlags
-fetchCommand =
-  CommandUI
-    { commandName = "fetch"
-    , commandSynopsis = "Downloads packages for later installation."
-    , commandUsage =
-        usageAlternatives
-          "fetch"
-          [ "[FLAGS] PACKAGES"
-          ]
-    , commandDescription = Just $ \_ ->
-        "Note that it currently is not possible to fetch the dependencies for a\n"
-          ++ "package in the current directory.\n"
-    , commandNotes = Nothing
-    , commandDefaultFlags = defaultFetchFlags
-    , commandOptions = \showOrParseArgs ->
-        [ optionVerbosity fetchVerbosity (\v flags -> flags{fetchVerbosity = v})
-        , --     , option "o" ["output"]
-          --         "Put the package(s) somewhere specific rather than the usual cache."
-          --         fetchOutput (\v flags -> flags { fetchOutput = v })
-          --         (reqArgFlag "PATH")
-
-          option
-            []
-            ["dependencies", "deps"]
-            "Resolve and fetch dependencies (default)"
-            fetchDeps
-            (\v flags -> flags{fetchDeps = v})
-            trueArg
-        , option
-            []
-            ["no-dependencies", "no-deps"]
-            "Ignore dependencies"
-            fetchDeps
-            (\v flags -> flags{fetchDeps = v})
-            falseArg
-        , option
-            []
-            ["dry-run"]
-            "Do not install anything, only print what would be installed."
-            fetchDryRun
-            (\v flags -> flags{fetchDryRun = v})
-            trueArg
-        , option
-            ""
-            ["tests"]
-            "dependency checking and compilation for test suites listed in the package description file."
-            fetchTests
-            (\v flags -> flags{fetchTests = v})
-            (boolOpt [] [])
-        , option
-            ""
-            ["benchmarks"]
-            "dependency checking and compilation for benchmarks listed in the package description file."
-            fetchBenchmarks
-            (\v flags -> flags{fetchBenchmarks = v})
-            (boolOpt [] [])
-        ]
-          ++ optionSolver fetchSolver (\v flags -> flags{fetchSolver = v})
-          : optionSolverFlags
-            showOrParseArgs
-            fetchMaxBackjumps
-            (\v flags -> flags{fetchMaxBackjumps = v})
-            fetchReorderGoals
-            (\v flags -> flags{fetchReorderGoals = v})
-            fetchCountConflicts
-            (\v flags -> flags{fetchCountConflicts = v})
-            fetchFineGrainedConflicts
-            (\v flags -> flags{fetchFineGrainedConflicts = v})
-            fetchMinimizeConflictSet
-            (\v flags -> flags{fetchMinimizeConflictSet = v})
-            fetchIndependentGoals
-            (\v flags -> flags{fetchIndependentGoals = v})
-            fetchPreferOldest
-            (\v flags -> flags{fetchPreferOldest = v})
-            fetchShadowPkgs
-            (\v flags -> flags{fetchShadowPkgs = v})
-            fetchStrongFlags
-            (\v flags -> flags{fetchStrongFlags = v})
-            fetchAllowBootLibInstalls
-            (\v flags -> flags{fetchAllowBootLibInstalls = v})
-            fetchOnlyConstrained
-            (\v flags -> flags{fetchOnlyConstrained = v})
-    }
 
 -- ------------------------------------------------------------
 
@@ -1652,81 +1497,6 @@ freezeCommand =
 
 -- ------------------------------------------------------------
 
--- * 'gen-bounds' command
-
--- ------------------------------------------------------------
-
-genBoundsCommand :: CommandUI FreezeFlags
-genBoundsCommand =
-  CommandUI
-    { commandName = "gen-bounds"
-    , commandSynopsis = "Generate dependency bounds."
-    , commandDescription = Just $ \_ ->
-        wrapText $
-          "Generates bounds for all dependencies that do not currently have them. "
-            ++ "Generated bounds are printed to stdout.  "
-            ++ "You can then paste them into your .cabal file.\n"
-            ++ "\n"
-    , commandNotes = Nothing
-    , commandUsage = usageFlags "gen-bounds"
-    , commandDefaultFlags = defaultFreezeFlags
-    , commandOptions = \_ ->
-        [ optionVerbosity freezeVerbosity (\v flags -> flags{freezeVerbosity = v})
-        ]
-    }
-
--- ------------------------------------------------------------
--- Check command
--- ------------------------------------------------------------
-
-data CheckFlags = CheckFlags
-  { checkVerbosity :: Flag Verbosity
-  , checkIgnore :: [CheckExplanationIDString]
-  }
-  deriving (Show)
-
-defaultCheckFlags :: CheckFlags
-defaultCheckFlags =
-  CheckFlags
-    { checkVerbosity = Flag normal
-    , checkIgnore = []
-    }
-
-checkCommand :: CommandUI CheckFlags
-checkCommand =
-  CommandUI
-    { commandName = "check"
-    , commandSynopsis = "Check the package for common mistakes."
-    , commandDescription = Just $ \_ ->
-        wrapText $
-          "Expects a .cabal package file in the current directory.\n"
-            ++ "\n"
-            ++ "Some checks correspond to the requirements to packages on Hackage. "
-            ++ "If no `Error` is reported, Hackage should accept the "
-            ++ "package. If errors are present, `check` exits with 1 and Hackage "
-            ++ "will refuse the package.\n"
-    , commandNotes = Nothing
-    , commandUsage = usageFlags "check"
-    , commandDefaultFlags = defaultCheckFlags
-    , commandOptions = checkOptions'
-    }
-
-checkOptions' :: ShowOrParseArgs -> [OptionField CheckFlags]
-checkOptions' _showOrParseArgs =
-  [ optionVerbosity
-      checkVerbosity
-      (\v flags -> flags{checkVerbosity = v})
-  , option
-      ['i']
-      ["ignore"]
-      "ignore a specific warning (e.g. --ignore=missing-upper-bounds)"
-      checkIgnore
-      (\v c -> c{checkIgnore = v ++ checkIgnore c})
-      (reqArg' "WARNING" (: []) (const []))
-  ]
-
--- ------------------------------------------------------------
-
 -- * Update command
 
 -- ------------------------------------------------------------
@@ -1755,18 +1525,6 @@ cleanCommand =
   Cabal.cleanCommand
     { commandUsage = \pname ->
         "Usage: " ++ pname ++ " v1-clean [FLAGS]\n"
-    }
-
-formatCommand :: CommandUI (Flag Verbosity)
-formatCommand =
-  CommandUI
-    { commandName = "format"
-    , commandSynopsis = "Reformat the .cabal file using the standard style."
-    , commandDescription = Nothing
-    , commandNotes = Nothing
-    , commandUsage = usageAlternatives "format" ["[FILE]"]
-    , commandDefaultFlags = toFlag normal
-    , commandOptions = \_ -> []
     }
 
 manpageCommand :: CommandUI ManpageFlags
@@ -1894,276 +1652,6 @@ instance Monoid ReportFlags where
   mappend = (<>)
 
 instance Semigroup ReportFlags where
-  (<>) = gmappend
-
--- ------------------------------------------------------------
-
--- * Get flags
-
--- ------------------------------------------------------------
-
-data GetFlags = GetFlags
-  { getDestDir :: Flag FilePath
-  , getOnlyPkgDescr :: Flag Bool
-  , getPristine :: Flag Bool
-  , getIndexState :: Flag TotalIndexState
-  , getActiveRepos :: Flag ActiveRepos
-  , getSourceRepository :: Flag (Maybe RepoKind)
-  , getVerbosity :: Flag Verbosity
-  }
-  deriving (Generic)
-
-defaultGetFlags :: GetFlags
-defaultGetFlags =
-  GetFlags
-    { getDestDir = mempty
-    , getOnlyPkgDescr = mempty
-    , getPristine = mempty
-    , getIndexState = mempty
-    , getActiveRepos = mempty
-    , getSourceRepository = mempty
-    , getVerbosity = toFlag normal
-    }
-
-getCommand :: CommandUI GetFlags
-getCommand =
-  CommandUI
-    { commandName = "get"
-    , commandSynopsis = "Download/Extract a package's source code (repository)."
-    , commandDescription = Just $ \_ -> wrapText $ unlines descriptionOfGetCommand
-    , commandNotes = Just $ \pname -> unlines $ notesOfGetCommand "get" pname
-    , commandUsage = usagePackages "get"
-    , commandDefaultFlags = defaultGetFlags
-    , commandOptions = \_ ->
-        [ optionVerbosity getVerbosity (\v flags -> flags{getVerbosity = v})
-        , option
-            "d"
-            ["destdir"]
-            "Where to place the package source, defaults to the current directory."
-            getDestDir
-            (\v flags -> flags{getDestDir = v})
-            (reqArgFlag "PATH")
-        , option
-            "s"
-            ["source-repository"]
-            "Copy the package's source repository (ie git clone, darcs get, etc as appropriate)."
-            getSourceRepository
-            (\v flags -> flags{getSourceRepository = v})
-            ( optArg
-                "[head|this|...]"
-                ( parsecToReadE
-                    (const "invalid source-repository")
-                    (fmap (toFlag . Just) parsec)
-                )
-                ("", Flag Nothing)
-                (map (fmap show) . flagToList)
-            )
-        , option
-            []
-            ["index-state"]
-            ( "Use source package index state as it existed at a previous time. "
-                ++ "Accepts unix-timestamps (e.g. '@1474732068'), ISO8601 UTC timestamps "
-                ++ "(e.g. '2016-09-24T17:47:48Z'), or 'HEAD' (default: 'HEAD'). "
-                ++ "This determines which package versions are available as well as "
-                ++ ".cabal file revision is selected (unless --pristine is used)."
-            )
-            getIndexState
-            (\v flags -> flags{getIndexState = v})
-            ( reqArg
-                "STATE"
-                ( parsecToReadE
-                    ( const $
-                        "index-state must be a  "
-                          ++ "unix-timestamps (e.g. '@1474732068'), "
-                          ++ "a ISO8601 UTC timestamp "
-                          ++ "(e.g. '2016-09-24T17:47:48Z'), or 'HEAD'"
-                    )
-                    (toFlag `fmap` parsec)
-                )
-                (flagToList . fmap prettyShow)
-            )
-        , option
-            []
-            ["only-package-description"]
-            "Unpack only the package description file."
-            getOnlyPkgDescr
-            (\v flags -> flags{getOnlyPkgDescr = v})
-            trueArg
-        , option
-            []
-            ["package-description-only"]
-            "A synonym for --only-package-description."
-            getOnlyPkgDescr
-            (\v flags -> flags{getOnlyPkgDescr = v})
-            trueArg
-        , option
-            []
-            ["pristine"]
-            ( "Unpack the original pristine tarball, rather than updating the "
-                ++ ".cabal file with the latest revision from the package archive."
-            )
-            getPristine
-            (\v flags -> flags{getPristine = v})
-            trueArg
-        ]
-    }
-
--- | List of lines describing command @get@.
-descriptionOfGetCommand :: [String]
-descriptionOfGetCommand =
-  [ "Creates a local copy of a package's source code. By default it gets the source"
-  , "tarball and unpacks it in a local subdirectory. Alternatively, with -s it will"
-  , "get the code from the source repository specified by the package."
-  ]
-
--- | Notes for the command @get@.
-notesOfGetCommand
-  :: String
-  -- ^ Either @"get"@ or @"unpack"@.
-  -> String
-  -- ^ E.g. @"cabal"@.
-  -> [String]
-  -- ^ List of lines.
-notesOfGetCommand cmd pname =
-  [ "Examples:"
-  , "  " ++ unwords [pname, cmd, "hlint"]
-  , "    Download the latest stable version of hlint;"
-  , "  " ++ unwords [pname, cmd, "lens --source-repository=head"]
-  , "    Download the source repository of lens (i.e. git clone from github)."
-  ]
-
--- 'cabal unpack' is a deprecated alias for 'cabal get'.
-unpackCommand :: CommandUI GetFlags
-unpackCommand =
-  getCommand
-    { commandName = "unpack"
-    , commandSynopsis = synopsis
-    , commandNotes = Just $ \pname ->
-        unlines $
-          notesOfGetCommand "unpack" pname
-    , commandUsage = usagePackages "unpack"
-    }
-  where
-    synopsis = "Deprecated alias for 'get'."
-
-instance Monoid GetFlags where
-  mempty = gmempty
-  mappend = (<>)
-
-instance Semigroup GetFlags where
-  (<>) = gmappend
-
--- ------------------------------------------------------------
-
--- * List flags
-
--- ------------------------------------------------------------
-
-data ListFlags = ListFlags
-  { listInstalled :: Flag Bool
-  , listSimpleOutput :: Flag Bool
-  , listCaseInsensitive :: Flag Bool
-  , listVerbosity :: Flag Verbosity
-  , listPackageDBs :: [Maybe PackageDB]
-  , listHcPath :: Flag FilePath
-  }
-  deriving (Generic)
-
-defaultListFlags :: ListFlags
-defaultListFlags =
-  ListFlags
-    { listInstalled = Flag False
-    , listSimpleOutput = Flag False
-    , listCaseInsensitive = Flag True
-    , listVerbosity = toFlag normal
-    , listPackageDBs = []
-    , listHcPath = mempty
-    }
-
-listCommand :: CommandUI ListFlags
-listCommand =
-  CommandUI
-    { commandName = "list"
-    , commandSynopsis = "List packages matching a search string."
-    , commandDescription = Just $ \_ ->
-        wrapText $
-          "List all packages, or all packages matching one of the search"
-            ++ " strings.\n"
-            ++ "\n"
-            ++ "Use the package database specified with --package-db. "
-            ++ "If not specified, use the user package database.\n"
-    , commandNotes = Just $ \pname ->
-        "Examples:\n"
-          ++ "  "
-          ++ pname
-          ++ " list pandoc\n"
-          ++ "    Will find pandoc, pandoc-citeproc, pandoc-lens, ...\n"
-    , commandUsage =
-        usageAlternatives
-          "list"
-          [ "[FLAGS]"
-          , "[FLAGS] STRINGS"
-          ]
-    , commandDefaultFlags = defaultListFlags
-    , commandOptions = const listOptions
-    }
-
-listOptions :: [OptionField ListFlags]
-listOptions =
-  [ optionVerbosity listVerbosity (\v flags -> flags{listVerbosity = v})
-  , option
-      []
-      ["installed"]
-      "Only print installed packages"
-      listInstalled
-      (\v flags -> flags{listInstalled = v})
-      trueArg
-  , option
-      []
-      ["simple-output"]
-      "Print in a easy-to-parse format"
-      listSimpleOutput
-      (\v flags -> flags{listSimpleOutput = v})
-      trueArg
-  , option
-      ['i']
-      ["ignore-case"]
-      "Ignore case distinctions"
-      listCaseInsensitive
-      (\v flags -> flags{listCaseInsensitive = v})
-      (boolOpt' (['i'], ["ignore-case"]) (['I'], ["strict-case"]))
-  , option
-      ""
-      ["package-db"]
-      ( "Append the given package database to the list of package"
-          ++ " databases used (to satisfy dependencies and register into)."
-          ++ " May be a specific file, 'global' or 'user'. The initial list"
-          ++ " is ['global'], ['global', 'user'],"
-          ++ " depending on context. Use 'clear' to reset the list to empty."
-          ++ " See the user guide for details."
-      )
-      listPackageDBs
-      (\v flags -> flags{listPackageDBs = v})
-      (reqArg' "DB" readPackageDbList showPackageDbList)
-  , option
-      "w"
-      ["with-compiler"]
-      "give the path to a particular compiler"
-      listHcPath
-      (\v flags -> flags{listHcPath = v})
-      (reqArgFlag "PATH")
-  ]
-
-listNeedsCompiler :: ListFlags -> Bool
-listNeedsCompiler f =
-  flagElim False (const True) (listHcPath f)
-    || fromFlagOrDefault False (listInstalled f)
-
-instance Monoid ListFlags where
-  mempty = gmempty
-  mappend = (<>)
-
-instance Semigroup ListFlags where
   (<>) = gmappend
 
 -- ------------------------------------------------------------
@@ -2861,131 +2349,6 @@ instance Monoid InstallFlags where
   mappend = (<>)
 
 instance Semigroup InstallFlags where
-  (<>) = gmappend
-
--- ------------------------------------------------------------
-
--- * Upload flags
-
--- ------------------------------------------------------------
-
--- | Is this a candidate package or a package to be published?
-data IsCandidate = IsCandidate | IsPublished
-  deriving (Eq)
-
-data UploadFlags = UploadFlags
-  { uploadCandidate :: Flag IsCandidate
-  , uploadDoc :: Flag Bool
-  , uploadToken :: Flag Token
-  , uploadUsername :: Flag Username
-  , uploadPassword :: Flag Password
-  , uploadPasswordCmd :: Flag [String]
-  , uploadVerbosity :: Flag Verbosity
-  }
-  deriving (Generic)
-
-defaultUploadFlags :: UploadFlags
-defaultUploadFlags =
-  UploadFlags
-    { uploadCandidate = toFlag IsCandidate
-    , uploadDoc = toFlag False
-    , uploadToken = mempty
-    , uploadUsername = mempty
-    , uploadPassword = mempty
-    , uploadPasswordCmd = mempty
-    , uploadVerbosity = toFlag normal
-    }
-
-uploadCommand :: CommandUI UploadFlags
-uploadCommand =
-  CommandUI
-    { commandName = "upload"
-    , commandSynopsis = "Uploads source packages or documentation to Hackage."
-    , commandDescription = Nothing
-    , commandNotes = Just $ \_ ->
-        "You can store your Hackage login in the ~/.config/cabal/config file\n"
-          ++ "(the %APPDATA%\\cabal\\config file on Windows)\n"
-          ++ relevantConfigValuesText ["token", "username", "password", "password-command"]
-    , commandUsage = \pname ->
-        "Usage: " ++ pname ++ " upload [FLAGS] TARFILES\n"
-    , commandDefaultFlags = defaultUploadFlags
-    , commandOptions = \_ ->
-        [ optionVerbosity
-            uploadVerbosity
-            (\v flags -> flags{uploadVerbosity = v})
-        , option
-            []
-            ["publish"]
-            "Publish the package instead of uploading it as a candidate."
-            uploadCandidate
-            (\v flags -> flags{uploadCandidate = v})
-            (noArg (Flag IsPublished))
-        , option
-            ['d']
-            ["documentation"]
-            ( "Upload documentation instead of a source package. "
-                ++ "By default, this uploads documentation for a package candidate. "
-                ++ "To upload documentation for "
-                ++ "a published package, combine with --publish."
-            )
-            uploadDoc
-            (\v flags -> flags{uploadDoc = v})
-            trueArg
-        , option
-            ['t']
-            ["token"]
-            "Hackage authentication token."
-            uploadToken
-            (\v flags -> flags{uploadToken = v})
-            ( reqArg'
-                "TOKEN"
-                (toFlag . Token)
-                (flagToList . fmap unToken)
-            )
-        , option
-            ['u']
-            ["username"]
-            "Hackage username."
-            uploadUsername
-            (\v flags -> flags{uploadUsername = v})
-            ( reqArg'
-                "USERNAME"
-                (toFlag . Username)
-                (flagToList . fmap unUsername)
-            )
-        , option
-            ['p']
-            ["password"]
-            "Hackage password."
-            uploadPassword
-            (\v flags -> flags{uploadPassword = v})
-            ( reqArg'
-                "PASSWORD"
-                (toFlag . Password)
-                (flagToList . fmap unPassword)
-            )
-        , option
-            ['P']
-            ["password-command"]
-            "Command to get Hackage password."
-            uploadPasswordCmd
-            (\v flags -> flags{uploadPasswordCmd = v})
-            ( reqArg
-                "COMMAND"
-                ( readP_to_E
-                    ("Cannot parse command: " ++)
-                    (Flag <$> parseSpaceList parseTokenQ)
-                )
-                (flagElim [] (pure . unwords . fmap show))
-            )
-        ]
-    }
-
-instance Monoid UploadFlags where
-  mempty = gmempty
-  mappend = (<>)
-
-instance Semigroup UploadFlags where
   (<>) = gmappend
 
 -- ------------------------------------------------------------
@@ -3727,10 +3090,6 @@ optionSolverFlags
         )
     ]
 
-usagePackages :: String -> String -> String
-usagePackages name pname =
-  "Usage: " ++ pname ++ " " ++ name ++ " [PACKAGES]\n"
-
 usageFlags :: String -> String -> String
 usageFlags name pname =
   "Usage: " ++ pname ++ " " ++ name ++ " [FLAGS]\n"
@@ -3753,13 +3112,3 @@ showLocalRepo = prettyShow
 readLocalRepo :: String -> Maybe LocalRepo
 readLocalRepo = simpleParsec
 
--- ------------------------------------------------------------
-
--- * Helpers for Documentation
-
--- ------------------------------------------------------------
-
-relevantConfigValuesText :: [String] -> String
-relevantConfigValuesText vs =
-  "Relevant global configuration keys:\n"
-    ++ concat ["  " ++ v ++ "\n" | v <- vs]
