@@ -1034,11 +1034,19 @@ valid loc graph =
     ps -> internalError loc ('\n' : unlines (map showPlanProblem ps))
 
 data PlanProblem ipkg srcpkg
-  = PackageMissingDeps (GenericPlanPackage ipkg srcpkg) [GraphKey ipkg srcpkg]
-  | PackageCycle [GenericPlanPackage ipkg srcpkg]
+  = PackageMissingDeps
+      (GenericPlanPackage ipkg srcpkg)
+      -- ^ The package that is missing dependencies
+      [GraphKey ipkg srcpkg]
+      -- ^ The missing dependencies
+  | PackageCycle
+      [GenericPlanPackage ipkg srcpkg]
+      -- ^ The packages involved in a dependency cycle
   | PackageStateInvalid
       (GenericPlanPackage ipkg srcpkg)
+      -- ^ The package that is in an invalid state
       (GenericPlanPackage ipkg srcpkg)
+      -- ^ The package that it depends on which is in an invalid state
 
 showPlanProblem
   :: ( IsGraph ipkg srcpkg
@@ -1073,7 +1081,19 @@ problems
   => Graph (GenericPlanPackage ipkg srcpkg)
   -> [PlanProblem ipkg srcpkg]
 problems graph =
-  [ PackageMissingDeps
+  concat
+    [ checkForMissingDeps graph
+    , checkForCycles graph
+    --, checkForDependencyInconsistencies graph
+    , checkForPackageStateInconsistencies graph
+    ]
+
+checkForMissingDeps
+  :: IsGraph ipkg srcpkg
+  => Graph (GenericPlanPackage ipkg srcpkg)
+  -> [PlanProblem ipkg srcpkg]
+checkForMissingDeps graph =
+ [ PackageMissingDeps
     pkg
     ( mapMaybe
         (fmap nodeKey . flip Graph.lookup graph)
@@ -1081,23 +1101,43 @@ problems graph =
     )
   | (pkg, missingDeps) <- Graph.broken graph
   ]
-    ++ [ PackageCycle cycleGroup
-       | cycleGroup <- Graph.cycles graph
-       ]
-    {-
-      ++ [ PackageInconsistency name inconsistencies
-         | (name, inconsistencies) <-
-           dependencyInconsistencies indepGoals graph ]
-         --TODO: consider re-enabling this one, see SolverInstallPlan
-    -}
-    ++ [ PackageStateInvalid pkg pkg'
-       | pkg <- Foldable.toList graph
-       , Just pkg' <-
-          map
-            (flip Graph.lookup graph)
-            (nodeNeighbors pkg)
-       , not (stateDependencyRelation pkg pkg')
-       ]
+
+checkForCycles
+  :: IsGraph ipkg srcpkg
+  => Graph (GenericPlanPackage ipkg srcpkg)
+  -> [PlanProblem ipkg srcpkg]
+checkForCycles graph =
+  [ PackageCycle cycleGroup | cycleGroup <- Graph.cycles graph ]
+
+--TODO: consider re-enabling this one, see SolverInstallPlan
+--
+-- checkForDependencyInconsistencies
+--   :: ( IsGraph ipkg srcpkg
+--       , Pretty (GraphKey ipkg srcpkg)
+--       , Key srcpkg ~ PlanProblem ipkg srcpkg
+--       , Key ipkg ~ GraphKey ipkg srcpkg
+--     )
+--   => Graph (GenericPlanPackage ipkg srcpkg)
+--   -> [PlanProblem ipkg srcpkg]
+-- checkForDependencyInconsistencies graph =
+--   [ PackageInconsistency name inconsistencies
+--   | (name, inconsistencies) <-
+--     dependencyInconsistencies indepGoals graph
+--   ]
+
+checkForPackageStateInconsistencies
+  :: IsGraph ipkg srcpkg
+  => Graph (GenericPlanPackage ipkg srcpkg)
+  -> [PlanProblem ipkg srcpkg]
+checkForPackageStateInconsistencies graph =
+  [ PackageStateInvalid pkg pkg'
+    | pkg <- Foldable.toList graph
+    , Just pkg' <-
+        map
+          (flip Graph.lookup graph)
+          (nodeNeighbors pkg)
+    , not (stateDependencyRelation pkg pkg')
+  ]
 
 -- | The states of packages have that depend on each other must respect
 -- this relation. That is for very case where package @a@ depends on
