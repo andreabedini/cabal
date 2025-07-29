@@ -1,5 +1,4 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -282,6 +281,9 @@ import System.IO
   , stdout
   )
 import System.Process (createProcess, env, proc, waitForProcess)
+import Options.Applicative hiding (info)
+import qualified Options.Applicative as Options
+import Distribution.Client.Cmd hiding (main)
 
 -- | Entry point
 --
@@ -340,36 +342,47 @@ warnIfAssertionsAreEnabled =
 mainWorker :: [String] -> IO ()
 mainWorker args = do
   topHandler (isUserException (Proxy @(VerboseException CabalInstallException))) $ do
-    command <- commandsRunWithFallback (globalCommand commands) commands delegateToExternal args
-    case command of
-      CommandHelp help -> printGlobalHelp help
-      CommandList opts -> printOptionsList opts
-      CommandErrors errs -> printErrors errs
-      CommandReadyToGo (globalFlags, commandParse) ->
-        case commandParse of
-          _
-            | fromFlagOrDefault False (globalVersion globalFlags) ->
-                printVersion
-            | fromFlagOrDefault False (globalNumericVersion globalFlags) ->
-                printNumericVersion
-          CommandHelp help -> printCommandHelp help
-          CommandList opts -> printOptionsList opts
-          CommandErrors errs -> do
-            -- Check whether cabal is called from a script, like #!/path/to/cabal.
-            case args of
-              [] -> printErrors errs
-              script : scriptArgs ->
-                CmdRun.validScript script >>= \case
-                  False -> printErrors errs
-                  True -> do
-                    -- In main operation (not help, version etc.) print warning if assertions are on.
-                    warnIfAssertionsAreEnabled
-                    CmdRun.handleShebang script scriptArgs
-          CommandReadyToGo action -> do
-            -- In main operation (not help, version etc.) print warning if assertions are on.
-            warnIfAssertionsAreEnabled
-            action globalFlags
+    o <- handleParseResult (execParserPure (prefs prefMods) opts args)
+    print o
+    -- command <- commandsRunWithFallback (globalCommand commands) commands delegateToExternal args
+    -- case command of
+    --   CommandHelp help -> printGlobalHelp help
+    --   CommandList opts -> printOptionsList opts
+    --   CommandErrors errs -> printErrors errs
+    --   CommandReadyToGo (globalFlags, commandParse) ->
+    --     case commandParse of
+    --       _
+    --         | fromFlagOrDefault False (globalVersion globalFlags) ->
+    --             printVersion
+    --         | fromFlagOrDefault False (globalNumericVersion globalFlags) ->
+    --             printNumericVersion
+    --       CommandHelp help -> printCommandHelp help
+    --       CommandList opts -> printOptionsList opts
+    --       CommandErrors errs -> do
+    --         -- Check whether cabal is called from a script, like #!/path/to/cabal.
+    --         case args of
+    --           [] -> printErrors errs
+    --           script : scriptArgs ->
+    --             CmdRun.validScript script >>= \case
+    --               False -> printErrors errs
+    --               True -> do
+    --                 -- In main operation (not help, version etc.) print warning if assertions are on.
+    --                 warnIfAssertionsAreEnabled
+    --                 CmdRun.handleShebang script scriptArgs
+    --       CommandReadyToGo action -> do
+    --         -- In main operation (not help, version etc.) print warning if assertions are on.
+    --         warnIfAssertionsAreEnabled
+    --         action globalFlags
   where
+    prefMods = noBacktrack <> showHelpOnEmpty <> showHelpOnError <> helpLongEquals
+    
+    opts =
+      Options.info
+        (parser <**> helper)
+        briefDesc
+
+    parser = fromCommandUI buildCommand
+
     delegateToExternal
       :: [Command Action]
       -> String
@@ -430,7 +443,10 @@ mainWorker args = do
           | cabalGitInfo == cabalInstallGitInfo = "(in-tree)"
           | otherwise = cabalGitInfo
 
+    commands :: [Command Action]
     commands = map commandFromSpec commandSpecs
+
+    commandSpecs :: [CommandSpec Action]
     commandSpecs =
       [ regularCmd listCommand listAction
       , regularCmd infoCommand infoAction

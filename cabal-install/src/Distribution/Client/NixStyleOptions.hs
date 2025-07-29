@@ -50,7 +50,7 @@ data NixStyleFlags a = NixStyleFlags
   , benchmarkFlags :: BenchmarkFlags
   , projectFlags :: ProjectFlags
   , extraFlags :: a
-  }
+  } deriving Show
 
 nixStyleOptions
   :: (ShowOrParseArgs -> [OptionField a])
