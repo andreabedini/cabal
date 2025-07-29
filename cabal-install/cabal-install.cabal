@@ -101,6 +101,7 @@ library
         Distribution.Client.BuildReports.Types
         Distribution.Client.BuildReports.Upload
         Distribution.Client.Check
+        Distribution.Client.Cmd
         Distribution.Client.CmdBench
         Distribution.Client.CmdBuild
         Distribution.Client.CmdClean
@@ -271,6 +272,7 @@ library
       , regex-posix >= 0.96.0.0 && <0.97
       , safe-exceptions >= 0.1.7.0 && < 0.2
       , semaphore-compat >= 1.0.0 && < 1.1
+      , optparse-applicative
 
     if flag(native-dns)
       if os(windows)

@@ -3,6 +3,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DeriveFunctor #-}
 
 -----------------------------------------------------------------------------
 
@@ -611,16 +612,22 @@ data CommandParse flags
   | CommandList [String]
   | CommandErrors [String]
   | CommandReadyToGo flags
-instance Functor CommandParse where
-  fmap _ (CommandHelp help) = CommandHelp help
-  fmap _ (CommandList opts) = CommandList opts
-  fmap _ (CommandErrors errs) = CommandErrors errs
-  fmap f (CommandReadyToGo flags) = CommandReadyToGo (f flags)
+  deriving (Functor)
 
 data CommandType = NormalCommand | HiddenCommand
-data Command action
-  = Command String String ([String] -> CommandParse action) CommandType
 
+data Command action
+  = Command 
+    String
+    -- ^ The name of the command.
+    String
+    -- ^ A short description of the command.
+    ([String] -> CommandParse action)
+    -- ^ A function that parses a list of command-line arguments
+    -- and produces a 'CommandParse' result for the given action.
+    CommandType
+  -- ^ The type/category of the command (e.g., normal, hidden, etc.).
+  
 -- | Mark command as hidden. Hidden commands don't show up in the 'progname
 -- help' or 'progname --help' output.
 hiddenCommand :: Command action -> Command action
