@@ -50,6 +50,9 @@ import Distribution.Simple.Utils
   , warn
   , wrapText
   )
+import Distribution.Utils.LogProgress
+  ( runLogProgress
+  )
 import Distribution.Verbosity
   ( normal
   )
@@ -133,11 +136,12 @@ benchAction flags targetStrings globalFlags = do
             Nothing
             targetSelectors
 
-      let elaboratedPlan' =
+      elaboratedPlan' <- runLogProgress verbosity $
             pruneInstallPlanToTargets
               TargetActionBench
               targets
               elaboratedPlan
+      
       return (elaboratedPlan', targets)
 
   printPlan verbosity baseCtx buildCtx

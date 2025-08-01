@@ -992,31 +992,32 @@ rebuildInstallPlan
               defaultInstallDirs <- liftIO $ userInstallDirTemplates (toolchainCompiler t)
               return $ fmap Cabal.fromFlag $ (fmap Flag defaultInstallDirs) <> (projectConfigInstallDirs projectConfigShared)
 
-          (elaboratedPlan, elaboratedShared) <-
-            liftIO
-              . runLogProgress verbosity
-              $ elaborateInstallPlan
-                verbosity
-                toolchains
-                pkgConfigDB
-                distDirLayout
-                cabalStoreDirLayout
-                solverPlan
-                localPackages
-                sourcePackageHashes
-                installDirs
-                projectConfigShared
-                projectConfigAllPackages
-                projectConfigLocalPackages
-                (getMapMappend projectConfigSpecificPackage)
-          let instantiatedPlan =
-                instantiateInstallPlan
-                  cabalStoreDirLayout
-                  installDirs
-                  elaboratedShared
-                  elaboratedPlan
-          liftIO $ debugNoWrap verbosity (showElaboratedInstallPlan instantiatedPlan)
-          return (instantiatedPlan, elaboratedShared)
+          liftIO $ runLogProgress verbosity $ do
+            (elaboratedPlan, elaboratedShared) <- elaborateInstallPlan
+              verbosity
+              toolchains
+              pkgConfigDB
+              distDirLayout
+              cabalStoreDirLayout
+              solverPlan
+              localPackages
+              sourcePackageHashes
+              installDirs
+              projectConfigShared
+              projectConfigAllPackages
+              projectConfigLocalPackages
+              (getMapMappend projectConfigSpecificPackage)
+            
+            instantiatedPlan <-
+                  instantiateInstallPlan
+                    cabalStoreDirLayout
+                    installDirs
+                    elaboratedShared
+                    elaboratedPlan
+
+            infoProgress $ text "Elaborated install plan:" $$ text (showElaboratedInstallPlan instantiatedPlan)
+
+            return (instantiatedPlan, elaboratedShared)
           where
             withRepoCtx :: (RepoContext -> IO a) -> IO a
             withRepoCtx =
@@ -2847,10 +2848,9 @@ instantiateInstallPlan
   -> Staged InstallDirs.InstallDirTemplates
   -> ElaboratedSharedConfig
   -> ElaboratedInstallPlan
-  -> ElaboratedInstallPlan
-instantiateInstallPlan storeDirLayout defaultInstallDirs elaboratedShared plan =
-  InstallPlan.new
-    (Graph.fromDistinctList (Map.elems ready_map))
+  -> LogProgress ElaboratedInstallPlan
+instantiateInstallPlan storeDirLayout defaultInstallDirs elaboratedShared plan = do
+  InstallPlan.new (Map.elems ready_map)
   where
     pkgs = InstallPlan.toList plan
     
@@ -3412,10 +3412,9 @@ pruneInstallPlanToTargets
   => TargetAction
   -> Map (Graph.Key ElaboratedPlanPackage) [ComponentTarget]
   -> ElaboratedInstallPlan
-  -> ElaboratedInstallPlan
+  -> LogProgress ElaboratedInstallPlan
 pruneInstallPlanToTargets targetActionType perPkgTargetsMap elaboratedPlan =
   InstallPlan.new
-    . Graph.fromDistinctList
     -- We have to do the pruning in two passes
     . pruneInstallPlanPass2
     . pruneInstallPlanPass1
@@ -3864,15 +3863,14 @@ pruneInstallPlanToDependencies
   -> ElaboratedInstallPlan
   -> Either
       CannotPruneDependencies
-      ElaboratedInstallPlan
+      (Graph.Graph ElaboratedPlanPackage)
 pruneInstallPlanToDependencies pkgTargets installPlan =
   assert
     ( all
         (isJust . InstallPlan.lookup installPlan)
         (Set.toList pkgTargets)
     )
-    $ fmap InstallPlan.new
-      . checkBrokenDeps
+    $ checkBrokenDeps
       . Graph.fromDistinctList
       . filter (\pkg -> Graph.nodeKey pkg `Set.notMember` pkgTargets)
       . InstallPlan.toList

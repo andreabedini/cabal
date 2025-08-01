@@ -76,6 +76,7 @@ import Distribution.Verbosity
 
 import Distribution.Client.Errors
 import qualified System.Exit (exitSuccess)
+import Distribution.Utils.LogProgress (runLogProgress)
 
 newtype ClientHaddockFlags = ClientHaddockFlags {openInBrowser :: Flag Bool}
 
@@ -189,11 +190,12 @@ haddockAction relFlags targetStrings globalFlags = do
             Nothing
             targetSelectors
 
-      let elaboratedPlan' =
+      elaboratedPlan' <- runLogProgress verbosity $
             pruneInstallPlanToTargets
               TargetActionHaddock
               targets
               elaboratedPlan
+      
       return (elaboratedPlan', targets)
 
   printPlan verbosity baseCtx buildCtx
