@@ -144,6 +144,7 @@ import System.FilePath
   , isValid
   , (</>)
   )
+import Distribution.Utils.LogProgress (runLogProgress)
 
 runCommand :: CommandUI (NixStyleFlags ())
 runCommand =
@@ -247,11 +248,12 @@ runAction flags targetAndArgs globalFlags =
             )
             targets
 
-        let elaboratedPlan' =
+        elaboratedPlan' <- runLogProgress verbosity $
               pruneInstallPlanToTargets
                 TargetActionBuild
                 targets
                 elaboratedPlan
+
         return (elaboratedPlan', targets)
 
     (selectedUnitId, selectedComponent) <-

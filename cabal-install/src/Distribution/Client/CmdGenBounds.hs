@@ -18,7 +18,6 @@ import Control.Monad (mapM_)
 import Distribution.Client.Errors
 
 import Distribution.Client.ProjectPlanning hiding (pruneInstallPlanToTargets)
-import Distribution.Client.ProjectPlanning.Types
 import Distribution.Client.Types.ConfiguredId (confInstId)
 import Distribution.Client.Utils hiding (pvpize)
 import Distribution.InstalledPackageInfo (InstalledPackageInfo, installedComponentId)
@@ -28,6 +27,7 @@ import Distribution.Simple.Utils
 import Distribution.Version
 
 import Distribution.Client.Setup (GlobalFlags (..))
+import Distribution.Utils.LogProgress (runLogProgress)
 
 -- Project orchestration imports
 
@@ -43,6 +43,7 @@ import Distribution.Simple.Command
 import Distribution.Types.Component
 import Distribution.Verbosity
 import qualified Distribution.Compat.Graph as Graph
+
 
 -- | The data type for gen-bounds command flags
 data GenBoundsFlags = GenBoundsFlags {}
@@ -115,7 +116,7 @@ genBoundsAction flags targetStrings globalFlags =
           targetSelectors
 
     -- Step 3: Prune the install plan to the targets.
-    let elaboratedPlan' =
+    elaboratedPlan' <- runLogProgress verbosity $
           pruneInstallPlanToTargets
             TargetActionBuild
             targets

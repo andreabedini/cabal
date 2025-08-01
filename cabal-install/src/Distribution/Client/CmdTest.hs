@@ -70,6 +70,7 @@ import Distribution.Client.Errors
 import GHC.Environment
   ( getFullArgs
   )
+import Distribution.Utils.LogProgress (runLogProgress)
 
 testCommand :: CommandUI (NixStyleFlags ())
 testCommand =
@@ -151,11 +152,13 @@ testAction flags@NixStyleFlags{..} targetStrings globalFlags = do
             Nothing
             targetSelectors
 
-      let elaboratedPlan' =
+      elaboratedPlan' <-
+        runLogProgress verbosity $
             pruneInstallPlanToTargets
               TargetActionTest
               targets
               elaboratedPlan
+      
       return (elaboratedPlan', targets)
 
   printPlan verbosity baseCtx buildCtx

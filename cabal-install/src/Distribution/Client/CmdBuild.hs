@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 -- | cabal-install CLI command: build
 module Distribution.Client.CmdBuild
   ( -- * The @build@ CLI and action
@@ -55,6 +56,8 @@ import Distribution.Simple.Utils
 import Distribution.Verbosity
   ( normal
   )
+import Distribution.Utils.LogProgress (runLogProgress)
+import qualified Distribution.Client.InstallPlan as InstallPlan
 
 buildCommand :: CommandUI (NixStyleFlags BuildFlags)
 buildCommand =
@@ -161,18 +164,20 @@ buildAction flags@NixStyleFlags{extraFlags = buildFlags} targetStrings globalFla
               Nothing
               targetSelectors
 
-        let elaboratedPlan' =
-              pruneInstallPlanToTargets
-                targetAction
-                targets
-                elaboratedPlan
+        elaboratedPlan' <- runLogProgress verbosity $
+          pruneInstallPlanToTargets
+            targetAction
+            targets
+            elaboratedPlan
+        
         elaboratedPlan'' <-
           if buildSettingOnlyDeps (buildSettings baseCtx)
             then
-              either (reportCannotPruneDependencies verbosity) return $
-                pruneInstallPlanToDependencies
-                  (Map.keysSet targets)
-                  elaboratedPlan'
+              case pruneInstallPlanToDependencies (Map.keysSet targets) elaboratedPlan' of
+                Left err ->
+                  reportCannotPruneDependencies verbosity err
+                Right elaboratedPlan'' ->
+                  runLogProgress verbosity $ InstallPlan.new' elaboratedPlan''
             else return elaboratedPlan'
 
         return (elaboratedPlan'', targets)
