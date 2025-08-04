@@ -1907,7 +1907,7 @@ elaborateInstallPlan
                     compExeDependencyPaths :: [(WithStage ConfiguredId, FilePath)]
                     compExeDependencyPaths =
                       -- External
-                      [ (WithStage solverPkgStage confId, path)
+                      [ (WithStage (stageOf pkg) confId, path)
                       | pkg <- external_exe_dep_pkgs
                       , let confId = configuredId pkg
                       , confSrcId confId /= pkgid
@@ -1963,7 +1963,6 @@ elaborateInstallPlan
 
                     cc = cc0{cc_ann_id = fmap (const cid) (cc_ann_id cc0)}
                 
-                infoProgress $ hang (text "configured component:") 4 (dispConfiguredComponent cc)
 
                 -- 4. Perform mix-in linking
                 let lookup_uid def_uid =
@@ -1985,7 +1984,6 @@ elaborateInstallPlan
                     cc
                     -- ^ configured component
 
-                infoProgress $ hang (text "linked component:") 4 (dispLinkedComponent lc)
                 -- NB: elab is setup to be the correct form for an
                 -- indefinite library, or a definite library with no holes.
                 -- We will modify it in 'instantiateInstallPlan' to handle
@@ -3965,7 +3963,7 @@ setupHsScriptOptions
       , useDependencies =
           [ (confInstId cid, confSrcId cid)
           -- TODO: we should filter for dependencies on libraries but that should be implicit in elabSetupLibDependencies
-          | (WithStage _ cid, _promised) <- elabSetupLibDependencies elab
+          | (WithStage _ cid) <- elabSetupLibDependencies elab
           ]
       , useDependenciesExclusive = True
       , useVersionMacros = elabSetupScriptStyle == SetupCustomExplicitDeps
