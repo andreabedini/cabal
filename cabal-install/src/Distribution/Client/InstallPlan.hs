@@ -1040,7 +1040,7 @@ data PlanProblem ipkg srcpkg
   = PackageMissingDeps
       (GenericPlanPackage ipkg srcpkg)
       -- ^ The package that is missing dependencies
-      [GraphKey ipkg srcpkg]
+      (NonEmpty (GraphKey ipkg srcpkg))
       -- ^ The missing dependencies
   | PackageCycle
       [GenericPlanPackage ipkg srcpkg]
@@ -1070,7 +1070,7 @@ renderPlanProblem (PackageMissingDeps pkg missingDeps) =
   fsep [ text "Package"
        , pretty (nodeKey pkg)
        , text "depends on the following packages which are missing from the plan:"
-       , fsep (punctuate comma (map pretty missingDeps))
+       , fsep (punctuate comma (map pretty $ NE.toList missingDeps))
        ]
 renderPlanProblem (PackageCycle cycleGroup) =
   fsep [ text "The following packages are involved in a dependency cycle:"
@@ -1111,10 +1111,7 @@ checkForMissingDeps
 checkForMissingDeps graph =
  [ PackageMissingDeps
     pkg
-    ( mapMaybe
-        (fmap nodeKey . flip Graph.lookup graph)
-        missingDeps
-    )
+    missingDeps
   | (pkg, missingDeps) <- Graph.broken graph
   ]
 

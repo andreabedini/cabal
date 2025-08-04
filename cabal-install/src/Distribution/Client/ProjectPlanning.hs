@@ -3897,7 +3897,7 @@ pruneInstallPlanToDependencies pkgTargets installPlan =
             CannotPruneDependencies
               [ (pkg, missingDeps)
               | (pkg, missingDepIds) <- brokenPackages
-              , let missingDeps = mapMaybe lookupDep missingDepIds
+              , let missingDeps =  NE.map (fromMaybe (error "should not happen") . lookupDep) missingDepIds
               ]
           where
             -- lookup in the original unpruned graph
@@ -3912,7 +3912,7 @@ pruneInstallPlanToDependencies pkgTargets installPlan =
 newtype CannotPruneDependencies
   = CannotPruneDependencies
       [ ( ElaboratedPlanPackage
-        , [ElaboratedPlanPackage]
+        , NonEmpty ElaboratedPlanPackage
         )
       ]
   deriving (Show)
