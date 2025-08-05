@@ -1706,21 +1706,33 @@ elaborateInstallPlan
         => (SolverId -> [ElaboratedPlanPackage])
         -> SolverPackage UnresolvedPkgLoc
         -> LogProgress [ElaboratedConfiguredPackage]
-      elaborateSolverToComponents mapDep spkg@SolverPackage{solverPkgStage, solverPkgLibDeps, solverPkgExeDeps} =
+      elaborateSolverToComponents
+        mapDep
+        solverPkg@SolverPackage{solverPkgStage, solverPkgLibDeps, solverPkgExeDeps} =
         case mkComponentsGraph (elabEnabledSpec elab0) pd of
+          Left cns ->
+            dieProgress $
+              hang
+                (text "Dependency cycle between the following components:")
+                4
+                (vcat (map (text . componentNameStanza) cns)) 
           Right g -> do
             let src_comps = componentsGraphToList g
+            
             infoProgress $
               hang
-                (text "Component graph for" <+> pretty (solverId (ResolverPackage.Configured spkg)))
+                (text "Component graph for" <+> pretty (solverId (ResolverPackage.Configured solverPkg)))
                 4
                 (dispComponentsWithDeps src_comps)
+            
             (_, comps) <-
               mapAccumM
                 buildComponent
                 (Map.empty, Map.empty, Map.empty)
                 (map fst src_comps)
+            
             let whyNotPerComp = why_not_per_component src_comps
+            
             case NE.nonEmpty whyNotPerComp of
               Nothing ->
                 return comps
@@ -1729,18 +1741,13 @@ elaborateInstallPlan
                 pkgComp <-
                   elaborateSolverToPackage
                     notPerCompReasons
-                    spkg
+                    solverPkg
                     g
                     (comps ++ maybeToList setupComponent)
                 return [pkgComp]
-          Left cns ->
-            dieProgress $
-              hang
-                (text "Dependency cycle between the following components:")
-                4
-                (vcat (map (text . componentNameStanza) cns))
         where
           bt = PD.buildType (elabPkgDescription elab0)
+          
           -- You are eligible to per-component build if this list is empty
           why_not_per_component g =
             cuz_buildtype ++ cuz_spec ++ cuz_length ++ cuz_flag
@@ -1793,7 +1800,7 @@ elaborateInstallPlan
                   <+> fsep (punctuate comma $ map (text . whyNotPerComponent) $ toList reasons)
           -- TODO: Maybe exclude Backpack too
 
-          elab0 = elaborateSolverToCommon spkg
+          elab0 = elaborateSolverToCommon solverPkg
           pkgid = elabPkgSourceId elab0
           pd = elabPkgDescription elab0
 
@@ -1866,6 +1873,7 @@ elaborateInstallPlan
                   [ text "lib_dep_map:" <+> Disp.hsep (punctuate comma $ map pretty (Map.keys lib_dep_map))
                   , text "exe_dep_map:" <+> Disp.hsep (punctuate comma $ map pretty (Map.keys exe_dep_map))
                   ]
+                
                 cc0 <-
                   toConfiguredComponent
                     pd
@@ -2000,14 +2008,16 @@ elaborateInstallPlan
                       , elabPkgOrComp =
                           ElabComponent $
                             elab_comp
-                              { compLinkedLibDependencies = ordNub (map ci_id (lc_includes lc))
+                              { compLinkedLibDependencies =
+                                  ordNub (map ci_id (lc_includes lc))
                               , compOrderLibDependencies =
                                   ordNub
                                     ( map
                                         (abstractUnitId . ci_id)
                                         (lc_includes lc ++ lc_sig_includes lc)
                                     )
-                              , compLinkedInstantiatedWith = Map.fromList (lc_insts lc)
+                              , compLinkedInstantiatedWith =
+                                  Map.fromList (lc_insts lc)
                               }
                       }
                   elab =
@@ -2041,14 +2051,17 @@ elaborateInstallPlan
                   [ (getComponentId pkg, planPackageExePaths pkg)
                   | pkg <- external_exe_dep_pkgs
                   ]
+              
               exe_map1 = Map.union external_exe_map $ fmap (\x -> [x]) exe_map
 
               external_lib_cc_map =
                 Map.fromListWith Map.union $
                   map mkCCMapping external_lib_dep_pkgs
+              
               external_exe_cc_map =
                 Map.fromListWith Map.union $
                   map mkCCMapping external_exe_dep_pkgs
+              
               external_lc_map =
                 Map.fromList $
                   map mkShapeMapping $
@@ -2127,7 +2140,7 @@ elaborateInstallPlan
         -> LogProgress ElaboratedConfiguredPackage
       elaborateSolverToPackage
         pkgWhyNotPerComponent
-        pkg@SolverPackage {solverPkgSource = SourcePackage {srcpkgPackageId}}
+        solverPkg@SolverPackage {solverPkgSource = SourcePackage {srcpkgPackageId}}
         compGraph
         comps = do
           -- Knot tying: the final elab includes the
@@ -2139,23 +2152,13 @@ elaborateInstallPlan
               { elabPkgSourceHash
               , elabStanzasRequested
               , elabStage
-              } = elaborateSolverToCommon pkg
+              } = elaborateSolverToCommon solverPkg
 
             elab1 =
               elab0
                 { elabUnitId = newSimpleUnitId pkgInstalledId
                 , elabComponentId = pkgInstalledId
-                , elabPkgOrComp = ElabPackage $ ElaboratedPackage
-                   { pkgStage = elabStage
-                   , pkgInstalledId
-                   , pkgLibDependencies
-                   , pkgDependsOnSelfLib
-                   , pkgExeDependencies
-                   , pkgExeDependencyPaths
-                   , pkgPkgConfigDependencies
-                   , pkgStanzasEnabled
-                   , pkgWhyNotPerComponent
-                   }
+                , elabPkgOrComp = ElabPackage elabPkg
                 , elabModuleShape = modShape
                 }
 
@@ -2174,7 +2177,7 @@ elaborateInstallPlan
               Just e -> Ty.elabModuleShape e
 
             pkgInstalledId
-              | shouldBuildInplaceOnly pkg =
+              | shouldBuildInplaceOnly solverPkg =
                   mkComponentId (prettyShow srcpkgPackageId)
               | otherwise =
                   assert (isJust elabPkgSourceHash) $
@@ -2189,19 +2192,31 @@ elaborateInstallPlan
             isExternal confid = confSrcId confid /= srcpkgPackageId
             isExternal' (WithStage stage confId) = stage /= elabStage || isExternal confId
 
-            pkgLibDependencies =
-              buildComponentDeps (filter (isExternal . fst) . compLibDependencies)
-            
-            pkgExeDependencies =
-              buildComponentDeps (filter isExternal' . compExeDependencies)
-            
-            pkgExeDependencyPaths =
-              buildComponentDeps (filter (isExternal' . fst) . compExeDependencyPaths)
+            elabPkg = ElaboratedPackage
+              { pkgStage = elabStage
+              , pkgInstalledId
+              , pkgLibDependencies = buildComponentDeps (filter (isExternal . fst) . compLibDependencies)
+              , pkgDependsOnSelfLib
+              , pkgExeDependencies = buildComponentDeps (filter isExternal' . compExeDependencies)
+              , pkgExeDependencyPaths = buildComponentDeps (filter (isExternal' . fst) . compExeDependencyPaths)
+              -- Why is this flat?
+              , pkgPkgConfigDependencies = CD.flatDeps $ buildComponentDeps compPkgConfigDependencies
+              , -- NB: This is not the final setting of 'pkgStanzasEnabled'.
+                -- See [Sticky enabled testsuites]; we may enable some extra
+                -- stanzas opportunistically when it is cheap to do so.
+                --
+                -- However, we start off by enabling everything that was
+                -- requested, so that we can maintain an invariant that
+                -- pkgStanzasEnabled is a superset of elabStanzasRequested
+                pkgStanzasEnabled = optStanzaKeysFilteredByValue (fromMaybe False) elabStanzasRequested
+              , pkgWhyNotPerComponent
+              }
 
-            -- TODO: Why is this flat?
-            pkgPkgConfigDependencies =
-              CD.flatDeps $ buildComponentDeps compPkgConfigDependencies
-
+            -- This tells us which components depend on the main library of this package.
+            -- Note: the sublib case should not occur, because sub-libraries are not
+            -- supported without per-component builds.
+            -- TODO: Add a check somewhere that this is the case.
+            pkgDependsOnSelfLib :: CD.ComponentDeps [()]
             pkgDependsOnSelfLib =
               CD.fromList
                 [ (CD.componentNameToComponent cn, [()])
@@ -2221,20 +2236,11 @@ elaborateInstallPlan
                 | ElaboratedConfiguredPackage{elabPkgOrComp = ElabComponent comp} <- comps
                 ]
 
-            -- NB: This is not the final setting of 'pkgStanzasEnabled'.
-            -- See [Sticky enabled testsuites]; we may enable some extra
-            -- stanzas opportunistically when it is cheap to do so.
-            --
-            -- However, we start off by enabling everything that was
-            -- requested, so that we can maintain an invariant that
-            -- pkgStanzasEnabled is a superset of elabStanzasRequested
-            pkgStanzasEnabled = optStanzaKeysFilteredByValue (fromMaybe False) elabStanzasRequested
-
       elaborateSolverToCommon
         :: SolverPackage UnresolvedPkgLoc
         -> ElaboratedConfiguredPackage
       elaborateSolverToCommon
-        pkg@SolverPackage{
+        solverPkg@SolverPackage{
                 solverPkgStage,
                 solverPkgSource = SourcePackage
                   { srcpkgPackageId
@@ -2270,17 +2276,20 @@ elaborateInstallPlan
             elabPlatform = getStage platforms elabStage
             elabProgramDb = getStage programDbs elabStage
 
-            elabPkgDescription = case PD.finalizePD
-              solverPkgFlags
-              elabEnabledSpec
-              (const Satisfied)
-              elabPlatform
-              (compilerInfo elabCompiler)
-              []
-              srcpkgDescription of
+            elabPkgDescription =
+              case PD.finalizePD
+                solverPkgFlags
+                elabEnabledSpec
+                (const Satisfied)
+                elabPlatform
+                (compilerInfo elabCompiler)
+                []
+                srcpkgDescription of
               Right (desc, _) -> desc
               Left _ -> error "Failed to finalizePD in elaborateSolverToCommon"
+            
             elabFlagAssignment = solverPkgFlags
+            
             elabFlagDefaults =
               PD.mkFlagAssignment
                 [ (PD.flagName flag, PD.flagDefault flag)
@@ -2329,12 +2338,15 @@ elaborateInstallPlan
               if programId == "ghc" && elabBuildHaddocks
                 then cp{programOverrideArgs = "-haddock" : programOverrideArgs}
                 else cp
-
+            
             elabPkgSourceLocation = srcpkgSource
+            
             elabPkgSourceHash = Map.lookup srcpkgPackageId sourcePackageHashes
-            elabLocalToProject = isLocalToProject pkg
+            
+            elabLocalToProject = isLocalToProject solverPkg
+            
             elabBuildStyle =
-              if shouldBuildInplaceOnly pkg
+              if shouldBuildInplaceOnly solverPkg
                 then BuildInplaceOnly OnDisk
                 else BuildAndInstall
 
@@ -2343,12 +2355,14 @@ elaborateInstallPlan
             elabRegisterPackageDBStack = buildAndRegisterDbs elabStage
 
             elabSetupScriptStyle = packageSetupScriptStyle elabPkgDescription
+            
             elabSetupScriptCliVersion =
               packageSetupScriptSpecVersion
                 elabSetupScriptStyle
                 elabPkgDescription
                 libDepGraph
                 solverPkgLibDeps
+            
             elabSetupPackageDBStack = buildAndRegisterDbs (prevStage elabStage)
 
             -- Same as corePackageDbs but with the addition of the in-place packagedb.
@@ -2362,7 +2376,7 @@ elaborateInstallPlan
             elabInplaceSetupPackageDBStack = inplacePackageDbs (prevStage elabStage)
 
             buildAndRegisterDbs stage
-              | shouldBuildInplaceOnly pkg = inplacePackageDbs stage
+              | shouldBuildInplaceOnly solverPkg = inplacePackageDbs stage
               | otherwise = corePackageDbs stage
 
             elabPkgDescriptionOverride = srcpkgDescrOverride
@@ -2420,6 +2434,7 @@ elaborateInstallPlan
                 | prog <- configuredPrograms elabProgramDb
                 ]
                 <> perPkgOptionMapLast srcpkgPackageId packageConfigProgramPaths
+            
             elabProgramArgs =
               Map.unionWith
                 (++)
@@ -2431,13 +2446,16 @@ elaborateInstallPlan
                     ]
                 )
                 (perPkgOptionMapMappend srcpkgPackageId packageConfigProgramArgs)
+            
             elabProgramPathExtra = perPkgOptionNubList srcpkgPackageId packageConfigProgramPathExtra
             elabConfiguredPrograms = configuredPrograms elabProgramDb
             elabConfigureScriptArgs = perPkgOptionList srcpkgPackageId packageConfigConfigureArgs
+            
             elabExtraLibDirs = perPkgOptionList srcpkgPackageId packageConfigExtraLibDirs
             elabExtraLibDirsStatic = perPkgOptionList srcpkgPackageId packageConfigExtraLibDirsStatic
             elabExtraFrameworkDirs = perPkgOptionList srcpkgPackageId packageConfigExtraFrameworkDirs
             elabExtraIncludeDirs = perPkgOptionList srcpkgPackageId packageConfigExtraIncludeDirs
+            
             elabProgPrefix = perPkgOptionMaybe srcpkgPackageId packageConfigProgPrefix
             elabProgSuffix = perPkgOptionMaybe srcpkgPackageId packageConfigProgSuffix
 
@@ -2486,7 +2504,6 @@ elaborateInstallPlan
         where
           exe = fromFlagOrDefault def bothflag
           lib = fromFlagOrDefault def (bothflag <> libflag)
-
           bothflag = lookupPerPkgOption pkgid fboth
           libflag = lookupPerPkgOption pkgid flib
 
@@ -2621,6 +2638,7 @@ elaborateInstallPlan
             NonSetupLibDepSolverPlanPackage
             (SolverInstallPlan.toList solverPlan)
 
+      packagesWithLibDepsDownwardClosedProperty :: (PackageIdentifier -> Bool) -> Set PackageIdentifier
       packagesWithLibDepsDownwardClosedProperty property =
         Set.fromList
           . map packageId
@@ -2645,12 +2663,15 @@ elaborateInstallPlan
 -- TODO: Drop matchPlanPkg/matchElabPkg in favor of mkCCMapping
 
 shouldBeLocal :: PackageSpecifier (SourcePackage (PackageLocation loc)) -> Maybe PackageId
-shouldBeLocal NamedPackage{} = Nothing
-shouldBeLocal (SpecificSourcePackage pkg) = case srcpkgSource pkg of
-  LocalUnpackedPackage _ -> Just (packageId pkg)
-  _ -> Nothing
+shouldBeLocal (NamedPackage _ _) =
+  Nothing
+shouldBeLocal (SpecificSourcePackage pkg) =
+  case srcpkgSource pkg of
+    LocalUnpackedPackage _ -> Just (packageId pkg)
+    _ -> Nothing
 
 -- | Given a 'ElaboratedPlanPackage', report if it matches a 'ComponentName'.
+-- TODO: check the role of stage here.
 matchPlanPkg :: (ComponentName -> Bool) -> ElaboratedPlanPackage -> Bool
 matchPlanPkg p = InstallPlan.foldPlanPackage (\(WithStage _stage ipkg) -> p (ipiComponentName ipkg)) (matchElabPkg p)
 
