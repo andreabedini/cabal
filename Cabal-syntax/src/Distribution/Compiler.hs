@@ -64,13 +64,7 @@ import qualified Text.PrettyPrint as Disp
 data CompilerFlavor
   = GHC
   | GHCJS
-  | NHC
-  | YHC
-  | Hugs
-  | HBC
-  | Helium
   | JHC
-  | Eta
   | -- | @since 3.12.1.0
     -- MicroHS, see https://github.com/augustss/MicroHs
     MHS
@@ -83,11 +77,10 @@ instance NFData CompilerFlavor where rnf = genericRnf
 
 knownCompilerFlavors :: [CompilerFlavor]
 knownCompilerFlavors =
-  [GHC, GHCJS, NHC, YHC, Hugs, HBC, Helium, JHC, Eta, MHS]
+  [GHC, GHCJS, JHC, MHS]
 
 instance Pretty CompilerFlavor where
   pretty (OtherCompiler name) = Disp.text name
-  pretty NHC = Disp.text "nhc98"
   pretty other = Disp.text (lowercase (show other))
 
 instance Parsec CompilerFlavor where
