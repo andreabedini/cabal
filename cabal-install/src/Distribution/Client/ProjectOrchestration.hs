@@ -405,7 +405,6 @@ runProjectPreBuildPhase
     pkgsBuildStatus <-
       rebuildTargetsDryRun
         distDirLayout
-        elaboratedShared
         elaboratedPlan'
 
     -- Improve the plan by marking up-to-date packages as installed.
@@ -527,7 +526,7 @@ installExecutables :: Verbosity -> ProjectBaseContext -> ProjectBuildContext -> 
 installExecutables
   verbosity
   ProjectBaseContext{distDirLayout}
-  ProjectBuildContext{elaboratedPlanOriginal, elaboratedShared, targetsMap}
+  ProjectBuildContext{elaboratedPlanOriginal, targetsMap}
   postBuildStatus =
     unless (null srcdst) $ do
       infoNoWrap verbosity $ "Copying executables to " <> bindir
@@ -546,7 +545,7 @@ installExecutables
         , Just (InstallPlan.Configured elab) <- [InstallPlan.lookup elaboratedPlanOriginal pkg]
         , (ComponentTarget (CExeName cname) _subtarget, _targetSelectors) <- targets
         , let exe = unUnqualComponentName cname
-        , let dir = binDirectoryFor distDirLayout elaboratedShared elab exe
+        , let dir = binDirectoryFor distDirLayout elab exe
         ]
 
 -- Note that it is a deliberate design choice that the 'buildTargets' is
@@ -1204,7 +1203,7 @@ printPlan
 
       showConfigureFlags :: ElaboratedConfiguredPackage -> String
       showConfigureFlags elab =
-        let Toolchain{toolchainProgramDb} = getStage (pkgConfigToolchains elaboratedShared) (elabStage elab)
+        let Toolchain{toolchainProgramDb} = elabToolchain elab
             commonFlags =
               setupHsCommonFlags
                 verbosity
@@ -1217,7 +1216,6 @@ printPlan
                     (\_ -> return (error "unused"))
                     elaboratedPlan
                     (ReadyPackage elab)
-                    elaboratedShared
                     commonFlags
                 )
             -- \| Given a default value @x@ for a flag, nub @Flag x@
