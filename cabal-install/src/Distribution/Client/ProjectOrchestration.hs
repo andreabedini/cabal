@@ -344,7 +344,6 @@ withInstallPlan
   verbosity
   ProjectBaseContext
     { distDirLayout
-    , cabalDirLayout
     , projectConfig
     , localPackages
     , installedPackages
@@ -358,7 +357,6 @@ withInstallPlan
       rebuildInstallPlan
         verbosity
         distDirLayout
-        cabalDirLayout
         projectConfig
         localPackages
         installedPackages
@@ -373,7 +371,6 @@ runProjectPreBuildPhase
   verbosity
   ProjectBaseContext
     { distDirLayout
-    , cabalDirLayout
     , projectConfig
     , localPackages
     , installedPackages
@@ -387,7 +384,6 @@ runProjectPreBuildPhase
       rebuildInstallPlan
         verbosity
         distDirLayout
-        cabalDirLayout
         projectConfig
         localPackages
         installedPackages
@@ -445,7 +441,6 @@ runProjectBuildPhase
         verbosity
         projectConfig
         distDirLayout
-        (cabalStoreDirLayout cabalDirLayout)
         elaboratedPlanToExecute
         elaboratedShared
         pkgsBuildStatus
@@ -545,7 +540,7 @@ installExecutables
         , Just (InstallPlan.Configured elab) <- [InstallPlan.lookup elaboratedPlanOriginal pkg]
         , (ComponentTarget (CExeName cname) _subtarget, _targetSelectors) <- targets
         , let exe = unUnqualComponentName cname
-        , let dir = binDirectoryFor distDirLayout elab exe
+        , let dir = installedBinDirectory elab
         ]
 
 -- Note that it is a deliberate design choice that the 'buildTargets' is
@@ -1158,9 +1153,6 @@ printPlan
             , if verbosity >= deafening
                 then prettyShow (installedUnitId elab)
                 else prettyShow (packageId elab)
-            , case elabBuildStyle elab of
-                BuildInplaceOnly InMemory -> "(interactive)"
-                _ -> ""
             , case elabPkgOrComp elab of
                 ElabPackage pkg -> showTargets elab ++ ifVerbose (showStanzas (pkgStanzasEnabled pkg))
                 ElabComponent comp ->
@@ -1214,7 +1206,6 @@ printPlan
               runIdentity $
                 ( setupHsConfigureFlags
                     (\_ -> return (error "unused"))
-                    elaboratedPlan
                     (ReadyPackage elab)
                     commonFlags
                 )
