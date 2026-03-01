@@ -190,7 +190,7 @@ validate = go
 
     -- What to do for package nodes ...
     goP :: QPN -> POption -> Validate (Tree d c) -> Validate (Tree d c)
-    goP qpn@(Q (PackagePath _stage _) pn) (POption i _mpp) r = do
+    goP qpn@(Q (PackagePath _) pn) (POption i _mpp) r = do
       PA ppa pfa psa <- asks pa    -- obtain current preassignment
       extSupported   <- asks supportedExt  -- obtain the supported extensions
       langSupported  <- asks supportedLang -- obtain the supported languages
@@ -234,7 +234,8 @@ validate = go
 
     -- What to do for flag nodes ...
     goF :: QFN -> Bool -> Validate (Tree d c) -> Validate (Tree d c)
-    goF qfn@(FN qpn@(Q (PackagePath stage _) _) _f) b r = do
+    goF qfn@(FN qpn@(Q (PackagePath q) _) _f) b r = do
+      let stage = qualStage q
       PA ppa pfa psa <- asks pa -- obtain current preassignment
       extSupported   <- asks supportedExt  -- obtain the supported extensions
       langSupported  <- asks supportedLang -- obtain the supported languages
@@ -264,7 +265,8 @@ validate = go
 
     -- What to do for stanza nodes (similar to flag nodes) ...
     goS :: QSN -> Bool -> Validate (Tree d c) -> Validate (Tree d c)
-    goS qsn@(SN qpn@(Q (PackagePath stage _) _) _f) b r = do
+    goS qsn@(SN qpn@(Q (PackagePath q) _) _f) b r = do
+      let stage = qualStage q
       PA ppa pfa psa <- asks pa -- obtain current preassignment
       extSupported   <- asks supportedExt  -- obtain the supported extensions
       langSupported  <- asks supportedLang -- obtain the supported languages

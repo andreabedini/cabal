@@ -267,7 +267,7 @@ convGPD stage os arch cinfo constraints strfl solveExes pn
 -- before dependency solving. Additionally, this function only considers flags
 -- that are set by unqualified flag constraints, and it doesn't check the
 -- intra-package dependencies of a component.
-testConditionForComponent :: Stage 
+testConditionForComponent :: Stage
                           -> OS
                           -> Arch
                           -> CompilerInfo
@@ -275,19 +275,18 @@ testConditionForComponent :: Stage
                           -> (a -> Bool)
                           -> CondTree ConfVar [Dependency] a
                           -> Maybe Bool
-testConditionForComponent stage os arch cinfo constraints p tree =
+testConditionForComponent _stage os arch cinfo constraints p tree =
     case go $ extractCondition p tree of
       Lit True  -> Just True
       Lit False -> Just False
       _         -> Nothing
   where
-    -- TODO: fix for stage
     flagAssignment :: [(FlagName, Bool)]
     flagAssignment =
         mconcat [ unFlagAssignment fa
-                | PackageConstraint (ConstraintScope stage' (ScopeAnyQualifier _)) (PackagePropertyFlags fa)
+                | PackageConstraint (ConstraintScope (ScopeAnyQualifier _)) (PackagePropertyFlags fa)
                     <- L.map unlabelPackageConstraint constraints
-                , maybe True (== stage) stage']
+                ]
 
     -- Simplify the condition, using the current environment. Most of this
     -- function was copied from convBranch and

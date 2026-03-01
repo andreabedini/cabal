@@ -138,6 +138,7 @@ import Distribution.Client.ProjectPlanning.SetupPolicy
   , packageSetupScriptSpecVersion
   , packageSetupScriptStyle
   )
+import Distribution.Client.ProjectPlanning.Stage (qpnStage)
 import Distribution.Client.ProjectPlanning.Types as Ty
 import Distribution.Client.RebuildMonad
 import Distribution.Client.Setup hiding (cabalVersion, packageName)
@@ -1690,7 +1691,7 @@ elaborateInstallPlan
         flip InstallPlan.fromSolverInstallPlanWithProgress solverPlan $ \mapDep planpkg ->
           case planpkg of
             SolverInstallPlan.PreExisting pkg ->
-              return [InstallPlan.PreExisting (WithStage (instSolverStage pkg) (instSolverPkgIPI pkg))]
+              return [InstallPlan.PreExisting (WithStage (qpnStage (instSolverQPN pkg)) (instSolverPkgIPI pkg))]
             SolverInstallPlan.Configured pkg ->
               let inplace_doc
                     | shouldBuildInplaceOnly pkg = text "inplace"
@@ -1712,7 +1713,7 @@ elaborateInstallPlan
         -> LogProgress [ElaboratedConfiguredPackage]
       elaborateSolverToComponents
         mapDep
-        solverPkg@SolverPackage{solverPkgStage, solverPkgLibDeps, solverPkgExeDeps} =
+        solverPkg@SolverPackage{solverPkgQPN, solverPkgLibDeps, solverPkgExeDeps} =
           case mkComponentsGraph (elabEnabledSpec elab0) pd of
             Left cns ->
               dieProgress $
@@ -1916,7 +1917,7 @@ elaborateInstallPlan
                         ]
                           <>
                           -- Internal, assume the same stage
-                          [ WithStage solverPkgStage confId
+                          [ WithStage (qpnStage solverPkgQPN) confId
                           | aid <- cc_exe_deps cc0
                           , let confId = annotatedIdToConfiguredId aid
                           , confSrcId confId == pkgid
@@ -1935,7 +1936,7 @@ elaborateInstallPlan
                         ]
                           <>
                           -- Internal, assume the same stage
-                          [ (WithStage solverPkgStage confId, path)
+                          [ (WithStage (qpnStage solverPkgQPN) confId, path)
                           | aid <- cc_exe_deps cc0
                           , let confId = annotatedIdToConfiguredId aid
                           , confSrcId confId == pkgid
@@ -2250,7 +2251,7 @@ elaborateInstallPlan
         -> ElaboratedConfiguredPackage
       elaborateSolverToCommon
         solverPkg@SolverPackage
-          { solverPkgStage
+          { solverPkgQPN
           , solverPkgSource =
             SourcePackage
               { srcpkgPackageId
@@ -2281,7 +2282,7 @@ elaborateInstallPlan
             elabIsCanonical = True
             elabPkgSourceId = srcpkgPackageId
 
-            elabStage = solverPkgStage
+            elabStage = qpnStage solverPkgQPN
             elabCompiler = getStage compilers elabStage
             elabPlatform = getStage platforms elabStage
             elabProgramDb = getStage programDbs elabStage

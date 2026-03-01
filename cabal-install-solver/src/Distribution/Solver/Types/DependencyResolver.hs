@@ -17,8 +17,6 @@ import Distribution.Solver.Types.ResolverPackage
     ( ResolverPackage )
 import Distribution.Solver.Types.SourcePackage
     ( SourcePackage )
-import Distribution.Solver.Types.Stage
-    ( Staged )
 import Distribution.Solver.Types.SummarizedMessage
     ( SummarizedMessage(..) )
 import Distribution.Simple.PackageIndex ( InstalledPackageIndex )
@@ -34,9 +32,17 @@ import Distribution.System ( Platform )
 -- solving the package dependency problem and we want to make it easy to swap
 -- in alternatives.
 --
-type DependencyResolver loc = Staged (CompilerInfo, Platform)
-                           -> Staged (Maybe PkgConfigDb)
-                           -> Staged InstalledPackageIndex
+-- The build and host parameters represent the two compilation stages:
+-- packages needed on the build machine (setup scripts, executables) vs.
+-- packages that run on the target machine. The resolver receives separate
+-- toolchain, pkg-config, and installed-package-index values for each.
+--
+type DependencyResolver loc = (CompilerInfo, Platform)   -- ^ build toolchain
+                           -> (CompilerInfo, Platform)   -- ^ host toolchain
+                           -> Maybe PkgConfigDb          -- ^ build pkg-config db
+                           -> Maybe PkgConfigDb          -- ^ host pkg-config db
+                           -> InstalledPackageIndex      -- ^ build installed packages
+                           -> InstalledPackageIndex      -- ^ host installed packages
                            -> PackageIndex (SourcePackage loc)
                            -> (PackageName -> PackagePreferences)
                            -> [LabeledPackageConstraint]

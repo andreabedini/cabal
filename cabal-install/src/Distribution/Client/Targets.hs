@@ -101,7 +101,7 @@ import qualified Data.Map as Map
 import Distribution.Client.Errors
 import qualified Distribution.Client.GZipUtils as GZipUtils
 import qualified Distribution.Compat.CharParsing as P
-import Distribution.Solver.Types.Stage (Stage)
+import Distribution.Client.ProjectPlanning.Stage (Stage)
 import Distribution.Utils.Path (makeSymbolicPath)
 import Network.URI
   ( URI (..)
@@ -642,14 +642,14 @@ fromUserQualifier (UserQualSetup name) = QualSetup name
 fromUserQualifier (UserQualExe name1 name2) = QualExe name1 name2
 
 fromUserConstraintScope :: UserConstraintScope -> ConstraintScope
-fromUserConstraintScope (UserConstraintScope mstage (UserQualified q pn)) =
-  ConstraintScope mstage (ScopeQualified (fromUserQualifier q) pn)
-fromUserConstraintScope (UserConstraintScope mstage (UserAnySetupQualifier pn)) =
-  ConstraintScope mstage (ScopeAnySetupQualifier pn)
-fromUserConstraintScope (UserConstraintScope mstage (UserAnyExeQualifier pn)) =
-  ConstraintScope mstage (ScopeAnyExeQualifier pn)
-fromUserConstraintScope (UserConstraintScope mstage (UserAnyQualifier pn)) =
-  ConstraintScope mstage (ScopeAnyQualifier pn)
+fromUserConstraintScope (UserConstraintScope _mstage (UserQualified q pn)) =
+  ConstraintScope (ScopeQualified (fromUserQualifier q) pn)
+fromUserConstraintScope (UserConstraintScope _mstage (UserAnySetupQualifier pn)) =
+  ConstraintScope (ScopeAnySetupQualifier pn)
+fromUserConstraintScope (UserConstraintScope _mstage (UserAnyExeQualifier pn)) =
+  ConstraintScope (ScopeAnyExeQualifier pn)
+fromUserConstraintScope (UserConstraintScope _mstage (UserAnyQualifier pn)) =
+  ConstraintScope (ScopeAnyQualifier pn)
 
 -- | Version of 'PackageConstraint' that the user can specify on
 -- the command line.

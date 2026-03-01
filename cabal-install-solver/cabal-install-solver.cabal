@@ -95,10 +95,12 @@ library
     Distribution.Solver.Types.SolverId
     Distribution.Solver.Types.SolverPackage
     Distribution.Solver.Types.SourcePackage
-    Distribution.Solver.Types.Stage
     Distribution.Solver.Types.SummarizedMessage
     Distribution.Solver.Types.Toolchain
     Distribution.Solver.Types.Variable
+
+  other-modules:
+    Distribution.Solver.Types.Stage
 
   build-depends:
     , array         >=0.4      && <0.6

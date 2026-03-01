@@ -10,6 +10,7 @@ module Distribution.Solver.Modular.Package
   , PN
   , QPV
   , instI
+  , qualStage
   , showI
   , showPI
   , unPN
@@ -23,7 +24,7 @@ import Distribution.Pretty (prettyShow)
 
 import Distribution.Solver.Modular.Version
 import Distribution.Solver.Types.PackagePath
-import Distribution.Solver.Types.Stage (Stage, showStage)
+import Distribution.Solver.Types.Stage (Stage (..), showStage)
 
 -- | A package name.
 type PN = PackageName
@@ -69,3 +70,13 @@ showPI (PI qpn i) = showQPN qpn ++ "-" ++ showI i
 instI :: I -> Bool
 instI (I _ _ (Inst _)) = True
 instI _              = False
+
+-- | Derive the internal solver 'Stage' from a 'Qualifier'.
+-- 'QualToplevel' corresponds to 'Host' (packages that run on the target),
+-- while 'QualSetup' and 'QualExe' correspond to 'Build' (packages that
+-- run on the build machine). This is the single source of truth for the
+-- stage-from-qualifier mapping inside the solver.
+qualStage :: Qualifier -> Stage
+qualStage QualToplevel  = Host
+qualStage (QualSetup _) = Build
+qualStage (QualExe _ _) = Build

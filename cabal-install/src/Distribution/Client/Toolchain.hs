@@ -4,15 +4,21 @@
 module Distribution.Client.Toolchain
   ( Stage (..)
   , Staged (..)
+  , Toolchains
+  , getStage
+  , always
+  , prevStage
+  , stages
   , Toolchain (..)
   , mkProgramDb
   , configToolchain
   , configToolchains
-  , module Distribution.Solver.Types.Stage
   , module Distribution.Solver.Types.Toolchain
   )
 where
 
+import Distribution.Client.ProjectPlanning.Stage
+  ( Stage (..), Staged (..), getStage, always, prevStage, stages )
 import Distribution.Client.Setup (ConfigExFlags (..))
 import Distribution.Simple (Compiler, CompilerFlavor)
 import Distribution.Simple.Compiler (interpretPackageDBStack)
@@ -20,11 +26,13 @@ import Distribution.Simple.Configure
 import Distribution.Simple.Program (ProgArg)
 import Distribution.Simple.Program.Db
 import Distribution.Simple.Setup
-import Distribution.Solver.Types.Stage
 import Distribution.Solver.Types.Toolchain
 import Distribution.System (Platform)
 import Distribution.Utils.NubList
 import Distribution.Verbosity (Verbosity)
+
+-- | A toolchain for each stage.
+type Toolchains = Staged Toolchain
 
 mkProgramDb
   :: Verbosity

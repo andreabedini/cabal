@@ -30,16 +30,12 @@ import Distribution.Solver.Types.OptionalStanza
 import Distribution.Solver.Types.PackagePath
 
 import qualified Text.PrettyPrint as Disp
-import Distribution.Solver.Types.Toolchain (Stage (..))
 
 
 -- | Determines to what packages and in what contexts a
 -- constraint applies.
 data ConstraintScope =
     ConstraintScope
-      -- | The stage at which the constraint applies, if any.
-      -- If Nothing, the constraint applies to all stages.
-    (Maybe Stage)
       -- | The qualifier that determines the scope of the constraint.
     ConstraintQualifier
   deriving (Eq, Show)
@@ -69,19 +65,19 @@ data ConstraintQualifier
 -- the package with the specified name when that package is a
 -- top-level dependency in the host stage.
 scopeToplevel :: PackageName -> ConstraintScope
-scopeToplevel = ConstraintScope (Just Host) . ScopeQualified QualToplevel
+scopeToplevel = ConstraintScope . ScopeQualified QualToplevel
 
 -- | Returns the package name associated with a constraint scope.
 scopeToPackageName :: ConstraintScope -> PackageName
-scopeToPackageName (ConstraintScope _stage (ScopeTarget pn)) = pn
-scopeToPackageName (ConstraintScope _stage (ScopeQualified _ pn)) = pn
-scopeToPackageName (ConstraintScope _stage (ScopeAnySetupQualifier pn)) = pn
-scopeToPackageName (ConstraintScope _stage (ScopeAnyExeQualifier pn)) = pn
-scopeToPackageName (ConstraintScope _stage (ScopeAnyQualifier pn)) = pn
+scopeToPackageName (ConstraintScope (ScopeTarget pn)) = pn
+scopeToPackageName (ConstraintScope (ScopeQualified _ pn)) = pn
+scopeToPackageName (ConstraintScope (ScopeAnySetupQualifier pn)) = pn
+scopeToPackageName (ConstraintScope (ScopeAnyExeQualifier pn)) = pn
+scopeToPackageName (ConstraintScope (ScopeAnyQualifier pn)) = pn
 
 constraintScopeMatches :: ConstraintScope -> QPN -> Bool
-constraintScopeMatches (ConstraintScope mstage qualifier) (Q (PackagePath stage' q) pn') =
-  maybe True (== stage') mstage && constraintQualifierMatches qualifier q pn'
+constraintScopeMatches (ConstraintScope qualifier) (Q (PackagePath q) pn') =
+  constraintQualifierMatches qualifier q pn'
 
 constraintQualifierMatches :: ConstraintQualifier -> Qualifier -> PackageName -> Bool
 constraintQualifierMatches (ScopeTarget pn) QualToplevel pn' = pn == pn'
@@ -97,8 +93,7 @@ constraintQualifierMatches (ScopeAnyExeQualifier _) (QualSetup _) _compile = Fal
 constraintQualifierMatches (ScopeAnyQualifier pn) _ pn' = pn == pn'
 
 instance Pretty ConstraintScope where
-  pretty (ConstraintScope mstage qualifier) =
-    maybe mempty pretty mstage <+> pretty qualifier
+  pretty (ConstraintScope qualifier) = pretty qualifier
 
 instance Pretty ConstraintQualifier where
   pretty (ScopeTarget pn) = pretty pn <<>> Disp.text "." <<>> pretty pn

@@ -43,7 +43,7 @@ import Distribution.Solver.Types.Variable
 import Distribution.Verbosity
 import Distribution.Version
 
-import Distribution.Solver.Types.Stage (Stage)
+import Distribution.Client.ProjectPlanning.Stage (Stage)
 import UnitTests.Distribution.Solver.Modular.DSL
 import UnitTests.Distribution.Solver.Modular.QuickCheck.Utils
   ( ArbitraryOrd (..)
@@ -470,8 +470,8 @@ arbitraryConstraint pkgs = do
   (PN pn, v) <- elements pkgs
   let anyQualifier = ScopeAnyQualifier (mkPackageName pn)
   oneof
-    [ ExVersionConstraint (ConstraintScope Nothing anyQualifier) <$> arbitraryVersionRange v
-    , ExStanzaConstraint (ConstraintScope Nothing anyQualifier) <$> sublistOf [TestStanzas, BenchStanzas]
+    [ ExVersionConstraint (ConstraintScope anyQualifier) <$> arbitraryVersionRange v
+    , ExStanzaConstraint (ConstraintScope anyQualifier) <$> sublistOf [TestStanzas, BenchStanzas]
     ]
 
 arbitraryPreference :: [(PN, PV)] -> Gen ExPreference

@@ -163,8 +163,8 @@ import Distribution.Solver.Types.SolverPackage
   ( SolverPackage (SolverPackage)
   )
 import Distribution.Solver.Types.SourcePackage
-import Distribution.Solver.Types.Toolchain
 import Distribution.Solver.Types.Variable
+import Distribution.Client.ProjectPlanning.Stage (Stage (..), Staged (..), getStage, qpnStage)
 
 import Control.Exception
   ( assert
@@ -448,7 +448,7 @@ dontInstallNonReinstallablePackages params =
   where
     extraConstraints =
       [ LabeledPackageConstraint
-        (PackageConstraint (ConstraintScope Nothing (ScopeAnyQualifier pkgname)) PackagePropertyInstalled)
+        (PackageConstraint (ConstraintScope (ScopeAnyQualifier pkgname)) PackagePropertyInstalled)
         ConstraintSourceNonReinstallablePackage
       | pkgname <- nonReinstallablePackages
       ]
@@ -650,7 +650,7 @@ addSetupCabalMinVersionConstraint minVersion =
   addConstraints
     [ LabeledPackageConstraint
         ( PackageConstraint
-            (ConstraintScope Nothing (ScopeAnySetupQualifier cabalPkgname))
+            (ConstraintScope (ScopeAnySetupQualifier cabalPkgname))
             (PackagePropertyVersion $ orLaterVersion minVersion)
         )
         ConstraintSetupCabalMinVersion
@@ -668,7 +668,7 @@ addSetupCabalMaxVersionConstraint maxVersion =
   addConstraints
     [ LabeledPackageConstraint
         ( PackageConstraint
-            (ConstraintScope Nothing (ScopeAnySetupQualifier cabalPkgname))
+            (ConstraintScope (ScopeAnySetupQualifier cabalPkgname))
             (PackagePropertyVersion $ earlierVersion maxVersion)
         )
         ConstraintSetupCabalMaxVersion
@@ -684,7 +684,7 @@ addSetupCabalProfiledDynamic =
   addConstraints
     [ LabeledPackageConstraint
         ( PackageConstraint
-            (ConstraintScope Nothing (ScopeAnySetupQualifier cabalPkgname))
+            (ConstraintScope (ScopeAnySetupQualifier cabalPkgname))
             (PackagePropertyVersion $ orLaterVersion (mkVersion [3, 13, 0]))
         )
         ConstraintSourceProfiledDynamic
@@ -789,9 +789,12 @@ resolveDependencies toolchains pkgConfigDB installedPkgIndex params = do
     formatProgress $
       runSolver
         config
-        toolchains
-        pkgConfigDB
-        installedPkgIndex'
+        (getStage toolchains Build)
+        (getStage toolchains Host)
+        (getStage pkgConfigDB Build)
+        (getStage pkgConfigDB Host)
+        (getStage installedPkgIndex' Build)
+        (getStage installedPkgIndex' Host)
         sourcePkgIndex
         preferences
         constraints
@@ -1024,7 +1027,8 @@ configuredPackageProblems
   -> [PackageProblem]
 configuredPackageProblems
   toolchains
-  (SolverPackage stage _qpn pkg specifiedFlags stanzas specifiedDeps0 _specifiedExeDeps') =
+  (SolverPackage qpn pkg specifiedFlags stanzas specifiedDeps0 _specifiedExeDeps') =
+    let stage = qpnStage qpn in
     [ DuplicateFlag flag
     | flag <- PD.findDuplicateFlagAssignments specifiedFlags
     ]

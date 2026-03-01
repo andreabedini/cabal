@@ -360,8 +360,8 @@ showConflictingDep (ConflictingDep dr (PkgComponent qpn comp) ci) =
 -- >>> import Distribution.Types.PackageName
 -- >>> import Distribution.Types.Version
 -- >>> import Distribution.Types.UnitId
--- >>> let foobarPN = PackagePath DefaultNamespace QualToplevel
--- >>> let bazquxPN = PackagePath (Independent $ mkPackageName "bazqux") QualToplevel
+-- >>> let foobarPN = PackagePath QualToplevel
+-- >>> let bazquxPN = PackagePath (QualSetup (mkPackageName "bazqux"))
 -- >>> let foobarQPN = Q foobarPN (mkPackageName "foo-bar")
 -- >>> let v0 = POption (I (mkVersion [0]) InRepo) Nothing
 -- >>> let v1 = POption (I (mkVersion [1]) InRepo) Nothing

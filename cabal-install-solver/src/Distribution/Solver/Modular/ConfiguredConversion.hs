@@ -33,18 +33,16 @@ convCP iidx sidx (CP qpi fa es ds) =
     (PI qpn (I s _ (Inst pi)))  ->
       PreExisting $
                   InstSolverPackage {
-                    instSolverStage = s,
                     instSolverQPN = qpn,
                     instSolverPkgIPI =  fromMaybe (error "convCP: lookupUnitId failed") $ SI.lookupUnitId (getStage iidx s) pi,
                     instSolverPkgLibDeps = fmap fst ds',
                     instSolverPkgExeDeps = fmap snd ds'
                   }
     -- "In repo" i.e. a source package
-    (PI qpn@(Q _path pn) (I s v (InRepo _pn))) ->
+    (PI qpn@(Q _path pn) (I _s v (InRepo _pn))) ->
       let pi = PackageIdentifier pn v in
       Configured $
                   SolverPackage {
-                      solverPkgStage = s,
                       solverPkgQPN = qpn,
                       solverPkgSource = fromMaybe (error "convCP: lookupPackageId failed") $ CI.lookupPackageId sidx pi,
                       solverPkgFlags = fa,
@@ -57,9 +55,9 @@ convCP iidx sidx (CP qpi fa es ds) =
     ds' = fmap (partitionEithers . map convConfId) ds
 
 convConfId :: PI QPN -> Either SolverId {- is lib -} SolverId {- is exe -}
-convConfId (PI (Q (PackagePath _stage q) pn) (I stage v loc)) =
+convConfId (PI qpn@(Q (PackagePath q) pn) (I _stage v loc)) =
     case loc of
-        Inst pi -> Left (PreExistingId stage sourceId pi)
+        Inst pi -> Left (PreExistingId qpn sourceId pi)
         _otherwise
           | QualExe _ pn' <- q
           -- NB: the dependencies of the executable are also
@@ -68,7 +66,7 @@ convConfId (PI (Q (PackagePath _stage q) pn) (I stage v loc)) =
           -- at the actual thing.  Fortunately for us, I was
           -- silly and didn't allow arbitrarily nested build-tools
           -- dependencies, so a shallow check works.
-          , pn == pn' -> Right (PlannedId stage sourceId)
-          | otherwise    -> Left  (PlannedId stage sourceId)
+          , pn == pn' -> Right (PlannedId qpn sourceId)
+          | otherwise    -> Left  (PlannedId qpn sourceId)
   where
     sourceId    = PackageIdentifier pn v

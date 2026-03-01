@@ -38,8 +38,8 @@ instance Package (ResolverPackage loc) where
   packageId (Configured  spkg)     = packageId spkg
 
 solverId :: ResolverPackage loc -> SolverId
-solverId (PreExisting ipkg) = PreExistingId (instSolverStage ipkg) (packageId ipkg) (installedUnitId ipkg)
-solverId (Configured spkg)  = PlannedId (solverPkgStage spkg) (packageId spkg)
+solverId (PreExisting ipkg) = PreExistingId (instSolverQPN ipkg) (packageId ipkg) (installedUnitId ipkg)
+solverId (Configured spkg)  = PlannedId (solverPkgQPN spkg) (packageId spkg)
 
 solverQPN :: ResolverPackage loc -> QPN
 solverQPN (PreExisting ipkg) = instSolverQPN ipkg

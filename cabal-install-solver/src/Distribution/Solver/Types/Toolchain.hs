@@ -2,9 +2,6 @@
 
 module Distribution.Solver.Types.Toolchain
   ( Toolchain (..)
-  , Toolchains
-  , Stage (..)
-  , Staged (..)
   ) where
 
 import Distribution.Compat.Prelude
@@ -12,7 +9,6 @@ import Prelude ()
 
 import Distribution.Simple.Compiler
 import Distribution.Simple.Program.Db
-import Distribution.Solver.Types.Stage (getStage, Stage (..), Staged (..))
 import Distribution.System
 
 ---------------------------
@@ -39,4 +35,3 @@ instance Eq Toolchain where
 instance Binary Toolchain
 instance Structured Toolchain
 
-type Toolchains = Staged Toolchain

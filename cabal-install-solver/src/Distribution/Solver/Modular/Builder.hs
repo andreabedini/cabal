@@ -36,7 +36,6 @@ import qualified Distribution.Solver.Modular.WeightedPSQ as W
 
 import Distribution.Solver.Types.ComponentDeps
 import Distribution.Solver.Types.PackagePath
-import qualified Distribution.Solver.Types.Stage as Stage
 
 -- | All state needed to build and link the search tree. It has a type variable
 -- because the linking phase doesn't need to know about the state used to build
@@ -151,10 +150,11 @@ addChildren bs@(BS { rdeps = rdm, open = gs, next = Goals })
 -- of goal.
 addChildren bs@(BS { rdeps, index, next = OneGoal goal }) = 
   case goal of 
-    PkgGoal qpn@(Q (PackagePath s _) pn) gr ->
+    PkgGoal qpn@(Q (PackagePath q) pn) gr ->
       -- For a package goal, we look up the instances available in the global
       -- info, and then handle each instance in turn.
-      case M.lookup pn index of
+      let s = qualStage q
+      in case M.lookup pn index of
         Nothing  -> FailF
                     (varToConflictSet (P qpn) `CS.union` goalReasonToConflictSetWithConflict qpn gr)
                     UnknownPackage
@@ -271,7 +271,7 @@ buildTree idx igs =
       }
   where
     -- The package names are interpreted as top-level goals in the host stage.
-    path = PackagePath Stage.Host QualToplevel
+    path = PackagePath QualToplevel
     qpns = [ Q path pn | pn <- igs ]
 
 

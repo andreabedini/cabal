@@ -62,7 +62,7 @@ import Distribution.Solver.Types.PackagePath
 import Distribution.Types.LibraryName
 import Distribution.Types.PkgconfigVersionRange
 import Distribution.Types.UnqualComponentName
-import Distribution.Solver.Types.Stage
+import Distribution.Solver.Types.Stage (Stage)
 
 {-------------------------------------------------------------------------------
   Constrained instances
@@ -207,7 +207,7 @@ showDependencyReason (DependencyReason qpn flags stanzas) =
 -- NOTE: It's the _dependencies_ of a package that may or may not be independent
 -- from the package itself. Package flag choices must of course be consistent.
 qualifyDeps :: QPN -> FlaggedDeps PN -> FlaggedDeps QPN
-qualifyDeps (Q pp@(PackagePath s q) pn) = go
+qualifyDeps (Q pp@(PackagePath q) pn) = go
   where
     go :: FlaggedDeps PN -> FlaggedDeps QPN
     go = map go1
@@ -233,16 +233,17 @@ qualifyDeps (Q pp@(PackagePath s q) pn) = go
     goD (Lang lang) _ = Lang lang
     goD (Pkg pkn vr) _ = Pkg pkn vr
 
-    -- In case of executable and setup dependencies, we need to qualify the dependency
-    -- with the previsous stage (e.g. Host -> Build).
+    -- Executable and setup dependencies enter the build namespace (QualExe /
+    -- QualSetup), which cabal-install maps to the Build stage. The qualifier
+    -- alone encodes the stage; no explicit Stage field is needed in PackagePath.
     goD (Dep dep@(PkgComponent qpn (ExposedExe _)) ci) _component =
-      Dep (Q (PackagePath (prevStage s) (QualExe pn qpn)) <$> dep) ci
+      Dep (Q (PackagePath (QualExe pn qpn)) <$> dep) ci
 
     goD (Dep dep@(PkgComponent _qpn (ExposedLib _)) ci) ComponentSetup =
-      Dep (Q (PackagePath (prevStage s) (QualSetup pn)) <$> dep) ci
+      Dep (Q (PackagePath (QualSetup pn)) <$> dep) ci
 
     goD (Dep dep@(PkgComponent _qpn _) ci) _component =
-      Dep (Q (PackagePath s q) <$> dep) ci
+      Dep (Q (PackagePath q) <$> dep) ci
 
 -- | Remove qualifiers from set of dependencies
 --

@@ -15,17 +15,19 @@ import Prelude ()
 import Distribution.Package (PackageName)
 import Distribution.Pretty (pretty, flatStyle, Pretty)
 import qualified Text.PrettyPrint as Disp
-import Distribution.Solver.Types.Stage (Stage)
 
-data PackagePath = PackagePath Stage Qualifier
+-- | A package path identifies the namespace (qualifier) in which a package
+-- is resolved. The stage (build vs. host) is determined by the qualifier:
+-- 'QualToplevel' implies the host stage, while 'QualSetup' and 'QualExe'
+-- imply the build stage. See 'Distribution.Client.ProjectPlanning.Stage.qpnStage'.
+data PackagePath = PackagePath Qualifier
   deriving (Eq, Ord, Show, Generic)
 
 instance Binary PackagePath
 instance Structured PackagePath
 
 instance Pretty PackagePath where
-  pretty (PackagePath stage qualifier) =
-    pretty stage <<>> Disp.text ":" <<>> pretty qualifier
+  pretty (PackagePath qualifier) = pretty qualifier
 
 -- | Qualifier of a package within a namespace (see 'PackagePath')
 data Qualifier =
@@ -85,8 +87,8 @@ instance (Structured a) => Structured (Qualified a)
 type QPN = Qualified PackageName
 
 instance Pretty (Qualified PackageName) where
-  pretty (Q (PackagePath stage qual) pn) =
-    pretty stage <<>> Disp.colon <<>> dispQualifier qual <<>> pretty pn
+  pretty (Q (PackagePath qual) pn) =
+    dispQualifier qual <<>> pretty pn
 
 -- | Pretty-prints a qualified package name.
 dispQPN :: QPN -> Disp.Doc

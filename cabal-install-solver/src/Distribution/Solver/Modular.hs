@@ -69,7 +69,7 @@ import Distribution.Solver.Types.SummarizedMessage
     ( SummarizedMessage(StringMsg) )
 import Distribution.Solver.Types.Variable
     ( Variable(..) )
-import Distribution.Solver.Types.Toolchain
+import Distribution.Solver.Types.Stage (Stage(..), Staged(..))
 
 import Distribution.Simple.Setup
          ( BooleanFlag(..) )
@@ -80,7 +80,7 @@ import Distribution.Verbosity ( normal, verbose )
 -- | Ties the two worlds together: classic cabal-install vs. the modular
 -- solver. Performs the necessary translations before and after.
 modularResolver :: SolverConfig -> DependencyResolver loc
-modularResolver sc toolchains pkgConfigDbs iidx sidx pprefs pcs pns = do
+modularResolver sc buildTP hostTP buildPkgCfg hostPkgCfg buildIIdx hostIIdx sidx pprefs pcs pns = do
     (assignment, revdepmap) <- solve' sc cinfo pkgConfigDbs idx pprefs gcs pns
 
     -- Results have to be converted into an install plan. 'convCP' removes
@@ -88,6 +88,11 @@ modularResolver sc toolchains pkgConfigDbs iidx sidx pprefs pcs pns = do
     -- and can be removed.
     return $ ordNubBy nodeKey $ map (convCP iidx sidx) (toCPs assignment revdepmap)
   where
+      -- Wrap explicit build/host pairs into Staged for internal solver use.
+      toolchains   = Staged $ \case { Build -> buildTP;  Host -> hostTP }
+      pkgConfigDbs = Staged $ \case { Build -> buildPkgCfg; Host -> hostPkgCfg }
+      iidx         = Staged $ \case { Build -> buildIIdx; Host -> hostIIdx }
+
       cinfo = fst <$> toolchains
 
       -- Indices have to be converted into solver-specific uniform index.
