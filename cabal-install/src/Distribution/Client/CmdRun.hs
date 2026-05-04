@@ -60,6 +60,7 @@ import Distribution.Client.ProjectPlanning.Types
   ( ElaboratedPackageOrComponent (..)
   , dataDirsEnvironmentForPlan
   , elabExeDependencyPaths
+  , pkgConfigPlatform
   )
 import Distribution.Client.ScriptUtils
   ( AcceptNoTargets (..)
@@ -79,6 +80,9 @@ import Distribution.Client.Utils
   , occursOnlyOrBefore
   )
 
+import Distribution.Simple.BuildPaths
+  ( exeExtension
+  )
 import Distribution.Simple.BuildToolDepends
   ( getAllInternalToolDependencies
   )
@@ -139,6 +143,7 @@ import System.Directory
 import System.FilePath
   ( isPathSeparator
   , isValid
+  , (<.>)
   , (</>)
   )
 
@@ -296,13 +301,14 @@ runAction flags targetAndArgs globalFlags =
         dieWithException verbosity $
           MultipleMatchingExecutables exeName (fmap (\p -> " - in package " ++ prettyShow (elabUnitId p)) elabPkgs)
 
-    let defaultExePath =
+    let platform = pkgConfigPlatform (elaboratedShared buildCtx)
+        defaultExePath =
           binDirectoryFor
             (distDirLayout baseCtx)
             (elaboratedShared buildCtx)
             pkg
             exeName
-            </> exeName
+            </> exeName <.> exeExtension platform
         exePath = fromMaybe defaultExePath (movedExePath selectedComponent (distDirLayout baseCtx) (elaboratedShared buildCtx) pkg)
 
     let dryRun =
