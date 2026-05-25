@@ -405,6 +405,7 @@ linkLibrary buildTargetDir cleanedExtraLibDirs cleanedExtraLibDirsStatic verbosi
         { ghcOptBytecodeLib = toFlag True
         , ghcOptInputFiles = toNubListR $ map coerceSymbolicPath objectFiles
         , ghcOptOutputFile = toFlag bytecodeLibFilePath
+        }
 
   staticObjectFiles <- getObjWayFiles StaticWay
   profObjectFiles <- getObjWayFiles ProfWay

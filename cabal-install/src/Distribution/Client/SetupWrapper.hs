@@ -79,6 +79,7 @@ import Distribution.Simple.PreProcess
   )
 import Distribution.Simple.Program
   ( ProgramDb
+  , builtinPrograms
   , emptyProgramDb
   , getDbProgramOutputCwd
   , getProgramSearchPath

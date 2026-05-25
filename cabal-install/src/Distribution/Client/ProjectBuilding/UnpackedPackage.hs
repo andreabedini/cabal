@@ -101,7 +101,7 @@ import qualified Distribution.Compat.Graph as Graph
 import Distribution.Client.ProjectBuilding.PackageFileMonitor
 import Distribution.PackageDescription (BuildType(..))
 import qualified Distribution.PackageDescription as PD
-import Distribution.Client.FileMonitor (monitorFileHashed, beginUpdateFileMonitor)
+import Distribution.Client.FileMonitor (MonitorFilePath, monitorFileHashed, beginUpdateFileMonitor)
 import Distribution.Client.SourceFiles (needElaboratedConfiguredPackage)
 import Distribution.Client.SrcDist (allPackageSourceFiles)
 import Distribution.Client.RebuildMonad (execRebuild)
@@ -484,12 +484,13 @@ buildAndInstallUnpackedPackage
       builddir
       mlogFile
       $ \case
-        PBConfigurePhase{runConfigure} -> do
+        PBConfigurePhase{runConfigure} ->
           whenReconfigure $ do
             noticeProgress ProgressStarting
-            runConfigure
+            lbi <- runConfigure
             invalidatePackageRegFileMonitor packageFileMonitor
             updatePackageConfigFileMonitor packageFileMonitor (getSymbolicPath srcdir) pkg
+            return lbi
         PBBuildPhase{runBuild} -> do
           whenRebuild $ do
             noticeProgress ProgressBuilding
@@ -569,7 +570,7 @@ buildAndInstallUnpackedPackage
 
         PBTestPhase{runTest} -> runTest
         PBBenchPhase{runBench} -> runBench
-        PBReplPhase{runRepl} -> runRepl
+        PBReplPhase{runRepl} -> runRepl >> return ()
 
     -- TODO: [nice to have] we currently rely on Setup.hs copy to do the right
     -- thing. Although we do copy into an image dir and do the move into the
@@ -598,7 +599,7 @@ buildAndInstallUnpackedPackage
 
       whenReconfigure action = case buildStatus of
         BuildStatusConfigure _ -> action
-        _ -> return ()
+        _ -> InLibraryLBI <$> Cabal.getPersistBuildConfig (Just srcdir) builddir
 
       whenRebuild :: IO () -> IO ()
       whenRebuild action
