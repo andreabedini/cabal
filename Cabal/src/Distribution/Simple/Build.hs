@@ -723,9 +723,10 @@ replComponent
           testSuiteLibV09AsLibAndExe pkg_descr test clbi lbi0 inplaceDir distPref
     preprocessComponent pkg_descr comp lbi clbi False verbosity suffixHandlers
     extras <- preprocessExtras verbosity comp lbi
-    let libbi = libBuildInfo lib
+    let verbHandles = verbosityHandles verbosity
+        libbi = libBuildInfo lib
         lib' = lib{libBuildInfo = libbi{cSources = cSources libbi ++ map (flip ExtraSourcePkg []) extras}}
-    replLib replFlags pkg lbi lib' libClbi
+    replLib verbHandles replFlags pkg lbi lib' libClbi
 replComponent
   replFlags
   verbosity
@@ -743,23 +744,23 @@ replComponent
         CLib lib -> do
           let libbi = libBuildInfo lib
               lib' = lib{libBuildInfo = libbi{cSources = cSources libbi ++ map (flip ExtraSourcePkg []) extras}}
-          replLib replFlags pkg_descr lbi lib' clbi
+          replLib verbHandles replFlags pkg_descr lbi lib' clbi
         CFLib flib ->
           replFLib verbHandles replFlags pkg_descr lbi flib clbi
         CExe exe -> do
           let ebi = buildInfo exe
               exe' = exe{buildInfo = ebi{cSources = cSources ebi ++ map (flip ExtraSourcePkg []) extras}}
-          replExe replFlags pkg_descr lbi exe' clbi
+          replExe verbHandles replFlags pkg_descr lbi exe' clbi
         CTest test@TestSuite{testInterface = TestSuiteExeV10{}} -> do
           let exe = testSuiteExeV10AsExe test
           let ebi = buildInfo exe
               exe' = exe{buildInfo = ebi{cSources = cSources ebi ++ map (flip ExtraSourcePkg []) extras}}
-          replExe replFlags pkg_descr lbi exe' clbi
+          replExe verbHandles replFlags pkg_descr lbi exe' clbi
         CBench bm@Benchmark{benchmarkInterface = BenchmarkExeV10{}} -> do
           let exe = benchmarkExeV10asExe bm
           let ebi = buildInfo exe
               exe' = exe{buildInfo = ebi{cSources = cSources ebi ++ map (flip ExtraSourcePkg []) extras}}
-          replExe replFlags pkg_descr lbi exe' clbi
+          replExe verbHandles replFlags pkg_descr lbi exe' clbi
 #if __GLASGOW_HASKELL__ < 811
 -- silence pattern-match warnings prior to GHC 9.0
         _ -> error "impossible"

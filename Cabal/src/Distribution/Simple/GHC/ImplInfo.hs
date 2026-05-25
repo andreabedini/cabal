@@ -22,7 +22,6 @@ import Prelude ()
 import Distribution.Simple.Compiler
   ( Compiler
   , CompilerFlavor (..)
-  , compilerCompatVersion
   , compilerFlavor
   , compilerVersion
   )

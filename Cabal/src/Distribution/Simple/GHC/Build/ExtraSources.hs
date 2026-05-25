@@ -30,7 +30,8 @@ import Distribution.System (Arch (JavaScript), Platform (..))
 import Distribution.Types.ComponentLocalBuildInfo
 import Distribution.Types.ExtraSource (ExtraSource (..))
 import Distribution.Utils.Path
-import Distribution.Verbosity (VerbosityHandles, VerbosityLevel, mkVerbosity, verbosityLevel)
+import Distribution.Verbosity (VerbosityHandles, mkVerbosity)
+import qualified Distribution.Verbosity as Verbosity
 
 -- | An action that builds all the extra build sources of a component, i.e. C,
 -- C++, Js, Asm, C-- sources.
@@ -155,7 +156,7 @@ buildExtraSources
    . Internal.SourcePath (ExtraSource from)
   => String
   -- ^ String describing the extra sources being built, for printing.
-  -> ( VerbosityLevel
+  -> ( Verbosity.Verbosity
        -> LocalBuildInfo
        -> BuildInfo
        -> ComponentLocalBuildInfo
@@ -219,7 +220,7 @@ buildExtraSources
         buildAction extraSource = do
           let baseSrcOpts =
                 componentSourceGhcOptions
-                  (verbosityLevel verbosity)
+                  verbosity
                   lbi
                   bi
                   clbi

@@ -241,8 +241,8 @@ configureCompiler verbosity hcPath conf0 = do
         case Map.lookup "Project Unit Id" ghcInfoMap of
           Nothing -> NoAbiTag
           Just "" -> NoAbiTag
-          Just projectUnitId ->
-            case dropWhile (== '-') $ stripCommonPrefix (prettyShow compilerId) projectUnitId of
+          Just projectUnitId' ->
+            case dropWhile (== '-') $ stripCommonPrefix (prettyShow compilerId) projectUnitId' of
               "" -> NoAbiTag
               tag -> AbiTag tag
 

@@ -419,7 +419,7 @@ linkLibrary buildTargetDir cleanedExtraLibDirs cleanedExtraLibDirsStatic verbosi
   -- This would be simpler by not adding every object to the invocation, and
   -- rather using module names.
   unless (null staticObjectFiles) $ do
-    let opts = ghcOptPackages (Internal.componentGhcOptions verbosity lbi libBi clbi buildTargetDir)
+    let opts = ghcOptPackages (Internal.componentGhcOptions (verbosityLevel verbosity) lbi libBi clbi buildTargetDir)
     for_ (fromNubListR opts) $ \pkgOpts ->
       info verbosity (show pkgOpts)
     for_ wantedWays $ \way -> do

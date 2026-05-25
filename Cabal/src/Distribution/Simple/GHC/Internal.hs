@@ -372,7 +372,7 @@ componentCcGhcOptions verbosity lbi bi clbi odir extraSource =
   mempty
     { -- Respect -v0, but don't crank up verbosity on GHC if
       -- Cabal verbosity is requested. For that, use --ghc-option=-v instead!
-      ghcOptVerbosity = toFlag (min verbosity Normal)
+      ghcOptVerbosity = toFlag (min (verbosityLevel verbosity) Normal)
     , ghcOptMode = toFlag GhcModeCompile
     , ghcOptInputFiles = toNubListR [sourcePath lbi extraSource]
     , ghcOptCppIncludePath = includePaths lbi bi clbi odir
@@ -405,7 +405,7 @@ componentCxxGhcOptions verbosity lbi bi clbi odir extraSource =
   mempty
     { -- Respect -v0, but don't crank up verbosity on GHC if
       -- Cabal verbosity is requested. For that, use --ghc-option=-v instead!
-      ghcOptVerbosity = toFlag (min verbosity Normal)
+      ghcOptVerbosity = toFlag (min (verbosityLevel verbosity) Normal)
     , ghcOptMode = toFlag GhcModeCompile
     , ghcOptInputFiles = toNubListR [sourcePath lbi extraSource]
     , ghcOptCppIncludePath = includePaths lbi bi clbi odir
@@ -438,7 +438,7 @@ componentAsmGhcOptions verbosity lbi bi clbi odir extraSource =
   mempty
     { -- Respect -v0, but don't crank up verbosity on GHC if
       -- Cabal verbosity is requested. For that, use --ghc-option=-v instead!
-      ghcOptVerbosity = toFlag (min verbosity Normal)
+      ghcOptVerbosity = toFlag (min (verbosityLevel verbosity) Normal)
     , ghcOptMode = toFlag GhcModeCompile
     , ghcOptInputFiles = toNubListR [sourcePath lbi extraSource]
     , ghcOptCppIncludePath = includePaths lbi bi clbi odir
@@ -466,7 +466,7 @@ componentJsGhcOptions verbosity lbi bi clbi odir extraSource =
   mempty
     { -- Respect -v0, but don't crank up verbosity on GHC if
       -- Cabal verbosity is requested. For that, use --ghc-option=-v instead!
-      ghcOptVerbosity = toFlag (min verbosity Normal)
+      ghcOptVerbosity = toFlag (min (verbosityLevel verbosity) Normal)
     , ghcOptMode = toFlag GhcModeCompile
     , ghcOptInputFiles = toNubListR [sourcePath lbi extraSource]
     , ghcOptJSppOptions = jsppOptions bi
@@ -570,7 +570,7 @@ componentCmmGhcOptions verbosity lbi bi clbi odir extraSource =
   mempty
     { -- Respect -v0, but don't crank up verbosity on GHC if
       -- Cabal verbosity is requested. For that, use --ghc-option=-v instead!
-      ghcOptVerbosity = toFlag (min verbosity Normal)
+      ghcOptVerbosity = toFlag (min (verbosityLevel verbosity) Normal)
     , ghcOptMode = toFlag GhcModeCompile
     , ghcOptInputFiles = toNubListR [sourcePath lbi extraSource]
     , ghcOptCppIncludePath = includePaths lbi bi clbi odir
