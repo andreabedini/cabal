@@ -62,7 +62,7 @@ nextStage :: Stage -> Stage
 nextStage s | s == maxBound = s
             | otherwise     = Prelude.succ s
 
--- TOOD: I think there is similar code for stanzas, compare.
+-- TODO: I think there is similar code for stanzas, compare.
 
 newtype Staged a = Staged
   { getStage :: Stage -> a

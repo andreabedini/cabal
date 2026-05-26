@@ -91,7 +91,7 @@ type FlaggedDeps qpn = [FlaggedDep qpn]
 --
 -- Note 2: why LDep contains its own DependencyReason? I am thinking it should
 -- be external to this type. Basically you traverse the tree and the flag and
--- stanza choices are the DepedencyReason?
+-- stanza choices are the DependencyReason?
 data FlaggedDep qpn
   = -- | Dependencies which are conditional on a flag choice.
     Flagged
@@ -248,7 +248,7 @@ qualifyDeps (Q pp@(PackagePath s q) pn) = go
     goD (Pkg pkn vr) _ = Pkg pkn vr
 
     -- In case of executable and setup dependencies, we need to qualify the dependency
-    -- with the previsous stage (e.g. Host -> Build).
+    -- with the previous stage (e.g. Host -> Build).
     goD (Dep dep@(PkgComponent qpn (ExposedExe _)) ci) _component =
       Dep (Q (PackagePath (prevStage s) (QualExe pn qpn)) <$> dep) ci
 

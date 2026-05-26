@@ -488,7 +488,7 @@ data PostBuildProjectStatus = PostBuildProjectStatus
   -- ^ As a convenience for 'Set.intersection' with any of the other
   -- 'PackageIdSet's to select only packages that are being built
   -- in-place within the project (i.e. not destined for the store).
-  -- FIXME: remove the refence to "inplace"
+  -- FIXME: remove the reference to "inplace"
   , packagesAlreadyInStore :: PackageIdSet
   -- ^ As a convenience for 'Set.intersection' or 'Set.difference' with
   -- any of the other 'PackageIdSet's to select only packages that were

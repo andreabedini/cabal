@@ -116,7 +116,7 @@ configureToolchain verbosity _implInfo ghcProg ghcInfo db = do
   -- we _could_ use ghc as a c frontend, but we do not pass all
   -- db stack appropriately, and thus we can run into situations
   -- where GHC will fail if it's stricter in it's wired-in-unit
-  -- selction and has the wrong db stack. However we don't need
+  -- selection and has the wrong db stack. However we don't need
   -- ghc to compile a _test_ c program. So we configure `gcc`
   -- first and then use `gcc` (the generic c compiler in cabal
   -- terminology) to compile the test program.

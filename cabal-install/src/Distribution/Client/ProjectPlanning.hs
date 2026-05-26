@@ -4071,7 +4071,7 @@ setupHsConfigureFlags
             Just _ -> error "non-library dependency"
             Nothing -> LMainLibName
 
-      -- FIXME: whathever
+      -- FIXME: whatever
       -- configCoverageFor = determineCoverageFor elab plan
       configCoverageFor = NoFlag
 
@@ -4431,7 +4431,7 @@ packageHashConfigInputs pkg =
     ElaboratedConfiguredPackage{..} = normaliseConfiguredPackage pkg
     LBC.BuildOptions{..} = elabBuildOptions
 
--- FIXME: whathever
+-- FIXME: whatever
 -- --------------------------------------------------------------------------------
 -- -- Configure --coverage-for flags
 

@@ -144,7 +144,7 @@ data Tree d c
 data POption
   = POption
       I
-      -- ^ The choosen package instance.
+      -- ^ The chosen package instance.
       (Maybe PackagePath)
       -- ^ The package this choice is linked to (if any).
   deriving (Eq, Show)

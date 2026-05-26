@@ -164,7 +164,7 @@ convIPId stage dr comp idx ipid =
 
 -- | Convert a cabal-install source package index to the simpler,
 -- more uniform index format of the solver.
--- NOTE: The package description of source package can depent on the platform
+-- NOTE: The package description of source package can depend on the platform
 -- and compiler version. Here we decide to convert a single source package
 -- into multiple index entries, one for each stage, where the conditionals are
 -- resolved. This choice might incour in high memory consumption and it might
