@@ -67,6 +67,7 @@ GenericPackageDescription {
             extraFrameworkDirs = [],
             asmSources = [],
             cmmSources = [],
+            autogenCmmSources = [],
             cSources = [],
             cxxSources = [],
             jsSources = [],
@@ -92,18 +93,11 @@ GenericPackageDescription {
             includes = [],
             autogenIncludes = [],
             installIncludes = [],
-            options = PerCompilerFlavor
-              []
-              [],
-            profOptions = PerCompilerFlavor
-              []
-              [],
-            sharedOptions =
-            PerCompilerFlavor [] [],
-            profSharedOptions =
-            PerCompilerFlavor [] [],
-            staticOptions =
-            PerCompilerFlavor [] [],
+            options = [],
+            profOptions = [],
+            sharedOptions = [],
+            profSharedOptions = [],
+            staticOptions = [],
             customFieldsBI = [],
             targetBuildDepends = [
               Dependency

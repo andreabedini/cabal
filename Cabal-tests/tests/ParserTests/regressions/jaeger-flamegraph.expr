@@ -105,6 +105,7 @@ GenericPackageDescription {
           extraFrameworkDirs = [],
           asmSources = [],
           cmmSources = [],
+          autogenCmmSources = [],
           cSources = [],
           cxxSources = [],
           jsSources = [],
@@ -131,20 +132,13 @@ GenericPackageDescription {
           includes = [],
           autogenIncludes = [],
           installIncludes = [],
-          options = PerCompilerFlavor
-            [
-              "-Wall",
-              "-Werror=missing-home-modules"]
-            [],
-          profOptions = PerCompilerFlavor
-            []
-            [],
-          sharedOptions =
-          PerCompilerFlavor [] [],
-          profSharedOptions =
-          PerCompilerFlavor [] [],
-          staticOptions =
-          PerCompilerFlavor [] [],
+          options = [
+            "-Wall",
+            "-Werror=missing-home-modules"],
+          profOptions = [],
+          sharedOptions = [],
+          profSharedOptions = [],
+          staticOptions = [],
           customFieldsBI = [],
           targetBuildDepends = [
             Dependency
@@ -192,6 +186,7 @@ GenericPackageDescription {
             extraFrameworkDirs = [],
             asmSources = [],
             cmmSources = [],
+            autogenCmmSources = [],
             cSources = [],
             cxxSources = [],
             jsSources = [],
@@ -218,21 +213,14 @@ GenericPackageDescription {
             includes = [],
             autogenIncludes = [],
             installIncludes = [],
-            options = PerCompilerFlavor
-              [
-                "-Wall",
-                "-Werror=missing-home-modules",
-                "-threaded"]
-              [],
-            profOptions = PerCompilerFlavor
-              []
-              [],
-            sharedOptions =
-            PerCompilerFlavor [] [],
-            profSharedOptions =
-            PerCompilerFlavor [] [],
-            staticOptions =
-            PerCompilerFlavor [] [],
+            options = [
+              "-Wall",
+              "-Werror=missing-home-modules",
+              "-threaded"],
+            profOptions = [],
+            sharedOptions = [],
+            profSharedOptions = [],
+            staticOptions = [],
             customFieldsBI = [],
             targetBuildDepends = [
               Dependency
@@ -314,6 +302,7 @@ GenericPackageDescription {
             extraFrameworkDirs = [],
             asmSources = [],
             cmmSources = [],
+            autogenCmmSources = [],
             cSources = [],
             cxxSources = [],
             jsSources = [],
@@ -341,21 +330,14 @@ GenericPackageDescription {
             includes = [],
             autogenIncludes = [],
             installIncludes = [],
-            options = PerCompilerFlavor
-              [
-                "-Wall",
-                "-Werror=missing-home-modules",
-                "-threaded"]
-              [],
-            profOptions = PerCompilerFlavor
-              []
-              [],
-            sharedOptions =
-            PerCompilerFlavor [] [],
-            profSharedOptions =
-            PerCompilerFlavor [] [],
-            staticOptions =
-            PerCompilerFlavor [] [],
+            options = [
+              "-Wall",
+              "-Werror=missing-home-modules",
+              "-threaded"],
+            profOptions = [],
+            sharedOptions = [],
+            profSharedOptions = [],
+            staticOptions = [],
             customFieldsBI = [],
             targetBuildDepends = [
               Dependency

@@ -98,6 +98,7 @@ GenericPackageDescription {
           extraFrameworkDirs = [],
           asmSources = [],
           cmmSources = [],
+          autogenCmmSources = [],
           cSources = [],
           cxxSources = [],
           jsSources = [],
@@ -126,18 +127,11 @@ GenericPackageDescription {
           includes = [],
           autogenIncludes = [],
           installIncludes = [],
-          options = PerCompilerFlavor
-            []
-            [],
-          profOptions = PerCompilerFlavor
-            []
-            [],
-          sharedOptions =
-          PerCompilerFlavor [] [],
-          profSharedOptions =
-          PerCompilerFlavor [] [],
-          staticOptions =
-          PerCompilerFlavor [] [],
+          options = [],
+          profOptions = [],
+          sharedOptions = [],
+          profSharedOptions = [],
+          staticOptions = [],
           customFieldsBI = [],
           targetBuildDepends = [
             Dependency
@@ -192,6 +186,7 @@ GenericPackageDescription {
             extraFrameworkDirs = [],
             asmSources = [],
             cmmSources = [],
+            autogenCmmSources = [],
             cSources = [],
             cxxSources = [],
             jsSources = [],
@@ -216,18 +211,11 @@ GenericPackageDescription {
             includes = [],
             autogenIncludes = [],
             installIncludes = [],
-            options = PerCompilerFlavor
-              []
-              [],
-            profOptions = PerCompilerFlavor
-              []
-              [],
-            sharedOptions =
-            PerCompilerFlavor [] [],
-            profSharedOptions =
-            PerCompilerFlavor [] [],
-            staticOptions =
-            PerCompilerFlavor [] [],
+            options = [],
+            profOptions = [],
+            sharedOptions = [],
+            profSharedOptions = [],
+            staticOptions = [],
             customFieldsBI = [],
             targetBuildDepends = [
               Dependency
@@ -277,6 +265,7 @@ GenericPackageDescription {
             extraFrameworkDirs = [],
             asmSources = [],
             cmmSources = [],
+            autogenCmmSources = [],
             cSources = [],
             cxxSources = [],
             jsSources = [],
@@ -301,18 +290,13 @@ GenericPackageDescription {
             includes = [],
             autogenIncludes = [],
             installIncludes = [],
-            options = PerCompilerFlavor
-              ["-pgmL", "markdown-unlit"]
-              [],
-            profOptions = PerCompilerFlavor
-              []
-              [],
-            sharedOptions =
-            PerCompilerFlavor [] [],
-            profSharedOptions =
-            PerCompilerFlavor [] [],
-            staticOptions =
-            PerCompilerFlavor [] [],
+            options = [
+              "-pgmL",
+              "markdown-unlit"],
+            profOptions = [],
+            sharedOptions = [],
+            profSharedOptions = [],
+            staticOptions = [],
             customFieldsBI = [],
             targetBuildDepends = [
               Dependency

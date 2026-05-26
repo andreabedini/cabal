@@ -175,6 +175,7 @@ GenericPackageDescription {
           extraFrameworkDirs = [],
           asmSources = [],
           cmmSources = [],
+          autogenCmmSources = [],
           cSources = [],
           cxxSources = [],
           jsSources = [],
@@ -236,18 +237,11 @@ GenericPackageDescription {
           includes = [],
           autogenIncludes = [],
           installIncludes = [],
-          options = PerCompilerFlavor
-            ["-Wall"]
-            [],
-          profOptions = PerCompilerFlavor
-            []
-            [],
-          sharedOptions =
-          PerCompilerFlavor [] [],
-          profSharedOptions =
-          PerCompilerFlavor [] [],
-          staticOptions =
-          PerCompilerFlavor [] [],
+          options = ["-Wall"],
+          profOptions = [],
+          sharedOptions = [],
+          profSharedOptions = [],
+          staticOptions = [],
           customFieldsBI = [],
           targetBuildDepends = [
             Dependency
@@ -313,6 +307,7 @@ GenericPackageDescription {
                 extraFrameworkDirs = [],
                 asmSources = [],
                 cmmSources = [],
+                autogenCmmSources = [],
                 cSources = [],
                 cxxSources = [],
                 jsSources = [],
@@ -337,18 +332,11 @@ GenericPackageDescription {
                 includes = [],
                 autogenIncludes = [],
                 installIncludes = [],
-                options = PerCompilerFlavor
-                  []
-                  [],
-                profOptions = PerCompilerFlavor
-                  []
-                  [],
-                sharedOptions =
-                PerCompilerFlavor [] [],
-                profSharedOptions =
-                PerCompilerFlavor [] [],
-                staticOptions =
-                PerCompilerFlavor [] [],
+                options = [],
+                profOptions = [],
+                sharedOptions = [],
+                profSharedOptions = [],
+                staticOptions = [],
                 customFieldsBI = [],
                 targetBuildDepends = [
                   Dependency
@@ -391,6 +379,7 @@ GenericPackageDescription {
                 extraFrameworkDirs = [],
                 asmSources = [],
                 cmmSources = [],
+                autogenCmmSources = [],
                 cSources = [],
                 cxxSources = [],
                 jsSources = [],
@@ -415,18 +404,11 @@ GenericPackageDescription {
                 includes = [],
                 autogenIncludes = [],
                 installIncludes = [],
-                options = PerCompilerFlavor
-                  []
-                  [],
-                profOptions = PerCompilerFlavor
-                  []
-                  [],
-                sharedOptions =
-                PerCompilerFlavor [] [],
-                profSharedOptions =
-                PerCompilerFlavor [] [],
-                staticOptions =
-                PerCompilerFlavor [] [],
+                options = [],
+                profOptions = [],
+                sharedOptions = [],
+                profSharedOptions = [],
+                staticOptions = [],
                 customFieldsBI = [],
                 targetBuildDepends = [
                   Dependency
@@ -478,6 +460,7 @@ GenericPackageDescription {
                 extraFrameworkDirs = [],
                 asmSources = [],
                 cmmSources = [],
+                autogenCmmSources = [],
                 cSources = [],
                 cxxSources = [],
                 jsSources = [],
@@ -504,18 +487,11 @@ GenericPackageDescription {
                 includes = [],
                 autogenIncludes = [],
                 installIncludes = [],
-                options = PerCompilerFlavor
-                  []
-                  [],
-                profOptions = PerCompilerFlavor
-                  []
-                  [],
-                sharedOptions =
-                PerCompilerFlavor [] [],
-                profSharedOptions =
-                PerCompilerFlavor [] [],
-                staticOptions =
-                PerCompilerFlavor [] [],
+                options = [],
+                profOptions = [],
+                sharedOptions = [],
+                profSharedOptions = [],
+                staticOptions = [],
                 customFieldsBI = [],
                 targetBuildDepends = [],
                 mixins = []}},
@@ -550,6 +526,7 @@ GenericPackageDescription {
                 extraFrameworkDirs = [],
                 asmSources = [],
                 cmmSources = [],
+                autogenCmmSources = [],
                 cSources = [],
                 cxxSources = [],
                 jsSources = [],
@@ -576,18 +553,11 @@ GenericPackageDescription {
                 includes = [],
                 autogenIncludes = [],
                 installIncludes = [],
-                options = PerCompilerFlavor
-                  []
-                  [],
-                profOptions = PerCompilerFlavor
-                  []
-                  [],
-                sharedOptions =
-                PerCompilerFlavor [] [],
-                profSharedOptions =
-                PerCompilerFlavor [] [],
-                staticOptions =
-                PerCompilerFlavor [] [],
+                options = [],
+                profOptions = [],
+                sharedOptions = [],
+                profSharedOptions = [],
+                staticOptions = [],
                 customFieldsBI = [],
                 targetBuildDepends = [],
                 mixins = []}},
@@ -623,6 +593,7 @@ GenericPackageDescription {
             extraFrameworkDirs = [],
             asmSources = [],
             cmmSources = [],
+            autogenCmmSources = [],
             cSources = [],
             cxxSources = [],
             jsSources = [],
@@ -649,18 +620,13 @@ GenericPackageDescription {
             includes = [],
             autogenIncludes = [],
             installIncludes = [],
-            options = PerCompilerFlavor
-              ["-Wall", "-threaded"]
-              [],
-            profOptions = PerCompilerFlavor
-              []
-              [],
-            sharedOptions =
-            PerCompilerFlavor [] [],
-            profSharedOptions =
-            PerCompilerFlavor [] [],
-            staticOptions =
-            PerCompilerFlavor [] [],
+            options = [
+              "-Wall",
+              "-threaded"],
+            profOptions = [],
+            sharedOptions = [],
+            profSharedOptions = [],
+            staticOptions = [],
             customFieldsBI = [
               _×_
                 "x-doctest-options"
@@ -708,6 +674,7 @@ GenericPackageDescription {
             extraFrameworkDirs = [],
             asmSources = [],
             cmmSources = [],
+            autogenCmmSources = [],
             cSources = [],
             cxxSources = [],
             jsSources = [],
@@ -735,18 +702,11 @@ GenericPackageDescription {
             includes = [],
             autogenIncludes = [],
             installIncludes = [],
-            options = PerCompilerFlavor
-              ["-Wall"]
-              [],
-            profOptions = PerCompilerFlavor
-              []
-              [],
-            sharedOptions =
-            PerCompilerFlavor [] [],
-            profSharedOptions =
-            PerCompilerFlavor [] [],
-            staticOptions =
-            PerCompilerFlavor [] [],
+            options = ["-Wall"],
+            profOptions = [],
+            sharedOptions = [],
+            profSharedOptions = [],
+            staticOptions = [],
             customFieldsBI = [],
             targetBuildDepends = [
               Dependency

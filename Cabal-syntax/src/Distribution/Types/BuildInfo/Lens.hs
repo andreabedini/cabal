@@ -272,6 +272,9 @@ instance HasBuildInfo BuildInfo where
   asmSources f s = fmap (\x -> s{T.asmSources = x}) (f (T.asmSources s))
   {-# INLINE asmSources #-}
 
+  autogenCmmSources f s = fmap (\x -> s{T.autogenCmmSources = x}) (f (T.autogenCmmSources s))
+  {-# INLINE autogenCmmSources #-}
+
   cmmSources f s = fmap (\x -> s{T.cmmSources = x}) (f (T.cmmSources s))
   {-# INLINE cmmSources #-}
 

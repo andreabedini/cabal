@@ -79,6 +79,7 @@ GenericPackageDescription {
           extraFrameworkDirs = [],
           asmSources = [],
           cmmSources = [],
+          autogenCmmSources = [],
           cSources = [],
           cxxSources = [],
           jsSources = [],
@@ -103,23 +104,16 @@ GenericPackageDescription {
           includes = [],
           autogenIncludes = [],
           installIncludes = [],
-          options = PerCompilerFlavor
-            [
-              "-Wall",
-              "-O2",
-              "-threaded",
-              "-rtsopts",
-              "-with-rtsopts=-N1 -A64m"]
-            [],
-          profOptions = PerCompilerFlavor
-            []
-            [],
-          sharedOptions =
-          PerCompilerFlavor [] [],
-          profSharedOptions =
-          PerCompilerFlavor [] [],
-          staticOptions =
-          PerCompilerFlavor [] [],
+          options = [
+            "-Wall",
+            "-O2",
+            "-threaded",
+            "-rtsopts",
+            "-with-rtsopts=-N1 -A64m"],
+          profOptions = [],
+          sharedOptions = [],
+          profSharedOptions = [],
+          staticOptions = [],
           customFieldsBI = [],
           targetBuildDepends = [
             Dependency

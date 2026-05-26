@@ -68,12 +68,14 @@ instance Parsec (ExtraSource Build) where
       p = some $ P.satisfy (\c -> not (isSpace c) && (c /= ')'))
 
 instance Pretty (ExtraSource Pkg) where
-  pretty (ExtraSourcePkg path opts) =
-    pretty path <<>> PP.parens (PP.hsep (map PP.text opts))
+  pretty (ExtraSourcePkg path opts) = case opts of
+    [] -> pretty path
+    _ -> pretty path <<>> PP.parens (PP.hsep (map PP.text opts))
 
 instance Pretty (ExtraSource Build) where
-  pretty (ExtraSourceBuild path opts) =
-    pretty path <<>> PP.parens (PP.hsep (map PP.text opts))
+  pretty (ExtraSourceBuild path opts) = case opts of
+    [] -> pretty path
+    _ -> pretty path <<>> PP.parens (PP.hsep (map PP.text opts))
 
 parensLax :: P.CharParsing m => m a -> m a
 parensLax p = P.between (P.char '(' *> P.spaces) (P.char ')' *> P.spaces) p
