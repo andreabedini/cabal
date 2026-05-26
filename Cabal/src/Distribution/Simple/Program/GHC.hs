@@ -747,7 +747,7 @@ ghcInvocation verbosity ghcProg comp platform mbWorkDir opts = do
 
 renderGhcOptions :: Compiler -> Platform -> GhcOptions -> [String]
 renderGhcOptions comp _platform@(Platform _arch os) opts
-  | compilerFlavor comp `notElem` [GHC] =
+  | compilerFlavor comp /= GHC =
       error $
         "Distribution.Simple.Program.GHC.renderGhcOptions: "
           ++ "compiler flavor must be 'GHC'!"

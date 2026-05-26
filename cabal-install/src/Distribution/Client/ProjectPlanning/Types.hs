@@ -611,7 +611,7 @@ elabLibDependencies :: ElaboratedConfiguredPackage -> [(WithStage ConfiguredId, 
 elabLibDependencies elab =
   -- Library dependencies are always in the same stage as the component/package we are
   -- building.
-  map (\(cid, promised) -> (WithStage (elabStage elab) cid, promised)) $
+  map (first (WithStage (elabStage elab))) $
     case elabPkgOrComp elab of
       ElabPackage pkg -> ordNub $ CD.nonSetupDeps (pkgLibDependencies pkg)
       ElabComponent comp -> compLibDependencies comp

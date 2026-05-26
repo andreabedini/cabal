@@ -38,8 +38,7 @@ import Distribution.Simple.SetupHooks.Internal
 import qualified Distribution.Simple.Test as Cabal
 import Distribution.Simple.Utils
 import Distribution.Client.Toolchain (Toolchain (..))
-import Distribution.Solver.Types.Stage (Stage (..))
-import Distribution.Solver.Types.Stage (getStage)
+import Distribution.Solver.Types.Stage (Stage (..), getStage)
 import Distribution.System (Platform)
 import Distribution.Types.BuildType
 import Distribution.Types.ComponentRequestedSpec

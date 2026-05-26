@@ -34,5 +34,5 @@ instance Package SolverId where
   packageId = solverSrcId
   
 instance Pretty SolverId where
-    pretty (PreExistingId stage pkg unitId) = mconcat $ punctuate colon $ [pretty stage, pretty pkg, text "installed", pretty unitId]
-    pretty (PlannedId stage pkg)            = mconcat $ punctuate colon $ [pretty stage, pretty pkg, text "planned"]
+    pretty (PreExistingId stage pkg unitId) = mconcat $ punctuate colon [pretty stage, pretty pkg, text "installed", pretty unitId]
+    pretty (PlannedId stage pkg)            = mconcat $ punctuate colon [pretty stage, pretty pkg, text "planned"]

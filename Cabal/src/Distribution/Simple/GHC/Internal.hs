@@ -124,10 +124,10 @@ configureToolchain verbosity _implInfo ghcProg ghcInfo db = do
         { programFindLocation = findProg gccProgramName extraGccPath
         , programPostConf = configureGcc
         }
-  let db' = flip addKnownProgram db $ gccProgram'
+  let db' = addKnownProgram gccProgram' db
   (gccProg, db'') <- requireProgram verbosity gccProgram' db'
   return $
-    flip addKnownPrograms db'' $
+    addKnownPrograms
       [ gppProgram
           { programFindLocation = findProg gppProgramName extraGppPath
           , programPostConf = configureGpp
@@ -145,6 +145,7 @@ configureToolchain verbosity _implInfo ghcProg ghcInfo db = do
           { programFindLocation = findProg stripProgramName extraStripPath
           }
       ]
+      db''
   where
     compilerDir, base_dir, mingwBinDir :: FilePath
     compilerDir = takeDirectory (programPath ghcProg)

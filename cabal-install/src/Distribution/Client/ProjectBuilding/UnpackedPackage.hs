@@ -95,10 +95,7 @@ import System.Semaphore (SemaphoreName (..))
 
 import GHC.Stack
 
-import Distribution.Client.Errors
-
 import qualified Distribution.Compat.Graph as Graph
-import Distribution.Client.ProjectBuilding.PackageFileMonitor
 import Distribution.PackageDescription (BuildType(..))
 import qualified Distribution.PackageDescription as PD
 import Distribution.Client.FileMonitor (MonitorFilePath, monitorFileHashed, beginUpdateFileMonitor)

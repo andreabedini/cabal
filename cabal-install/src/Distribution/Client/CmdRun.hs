@@ -444,16 +444,15 @@ matchingPackagesByUnitId
   -> ElaboratedInstallPlan
   -> [ElaboratedConfiguredPackage]
 matchingPackagesByUnitId (WithStage s uid) =
-  catMaybes
-    . fmap
-      ( foldPlanPackage
-          (const Nothing)
-          ( \x ->
-              if elabUnitId x == uid && elabStage x == s
-                then Just x
-                else Nothing
-          )
-      )
+  mapMaybe
+    ( foldPlanPackage
+        (const Nothing)
+        ( \x ->
+            if elabUnitId x == uid && elabStage x == s
+              then Just x
+              else Nothing
+        )
+    )
     . toList
 
 -- | This defines what a 'TargetSelector' means for the @run@ command.

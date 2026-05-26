@@ -273,8 +273,10 @@ defaultStoreDirLayout storeRoot =
 -- the toolchain.
 betterPlatform :: Toolchain -> String
 betterPlatform toolchain =
-  fromMaybe (prettyShow (toolchainPlatform toolchain))
-    $ Map.lookup "Target platform" (compilerProperties (toolchainCompiler toolchain))
+  Map.findWithDefault
+    (prettyShow (toolchainPlatform toolchain))
+    "Target platform"
+    (compilerProperties (toolchainCompiler toolchain))
 
 defaultCabalDirLayout :: IO CabalDirLayout
 defaultCabalDirLayout =

@@ -186,7 +186,7 @@ encodePlanAsJson _distDirLayout elaboratedInstallPlan elaboratedSharedConfig =
                     J.object $
                       [ comp2str c
                         J..= J.object
-                          ( [ "depends" J..= map (jdisplay . confInstId) (map fst ldeps)
+                          ( [ "depends" J..= map (jdisplay . confInstId . fst) ldeps
                             , "exe-depends" J..= map (jdisplay . fmap confInstId) edeps
                             ]
                               ++ bin_file c
@@ -614,11 +614,9 @@ postBuildProjectStatus
 
       elabLibDeps :: ElaboratedConfiguredPackage -> [UnitId]
       elabLibDeps =
-        map (newSimpleUnitId . confInstId)
-          -- Note, we remove the stage here. In the end we only care about the hash which already incorporates the stage.
-          -- Moreover, library dependencies are always in the same stage as the package itself.
-          . map (\(WithStage _ d) -> d)
-          . map fst
+        -- Note, we remove the stage here. In the end we only care about the hash which already incorporates the stage.
+        -- Moreover, library dependencies are always in the same stage as the package itself.
+        map (newSimpleUnitId . confInstId . (\(WithStage _ d) -> d) . fst)
           . elabLibDependencies
 
       -- Was a build was attempted for this package?

@@ -458,7 +458,7 @@ targetedRepl
             (key, _uid) = fromMaybe (error "panic: targets should be non-empty") $ safeHead $ Map.toList targets
             originalDeps = Graph.nodeKey <$> InstallPlan.directDeps elaboratedPlan key
             oci = OriginalComponentInfo key originalDeps
-            pkgId = fromMaybe (error $ "cannot find " ++ prettyShow key) $ packageId <$> InstallPlan.lookup elaboratedPlan key
+            pkgId = maybe (error $ "cannot find " ++ prettyShow key) packageId (InstallPlan.lookup elaboratedPlan key)
             baseCtx'' = addDepsToProjectTarget (envPackages replEnvFlags) pkgId baseCtx'
 
           return (Just oci, baseCtx'')

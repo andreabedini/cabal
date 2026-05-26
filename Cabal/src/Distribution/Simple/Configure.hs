@@ -3010,7 +3010,7 @@ checkRelocatable verbosity pkg lbi =
       traverse_ (doCheck $ getSymbolicPath pkgr) ipkgs
       where
         doCheck pkgr ipkg
-          | (Just pkgr ==) (IPI.pkgRoot ipkg) =
+          | Just pkgr == IPI.pkgRoot ipkg =
               for_ (IPI.libraryDirs ipkg) $ \libdir -> do
                 -- When @prefix@ is not under @pkgroot@,
                 -- @shortRelativePath prefix pkgroot@ will return a path with

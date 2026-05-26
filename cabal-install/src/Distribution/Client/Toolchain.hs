@@ -61,7 +61,7 @@ configToolchain configFlags@ConfigFlags{..} = do
   -- TODO: Redesign ProgramDB API to prevent such problems as #2241 in the
   -- future.
   toolchainProgramDb <- configureAllKnownPrograms verbosity progdb
-  let toolchainPackageDBs = interpretPackageDBStack Nothing $ interpretPackageDbFlags False $ configPackageDBs
+  let toolchainPackageDBs = interpretPackageDBStack Nothing $ interpretPackageDbFlags False configPackageDBs
 
   return Toolchain{..}
   where
@@ -85,7 +85,7 @@ configToolchains verbosity ConfigFlags{..} ConfigExFlags{..} = do
         (flagToMaybe configHcPath)
         (flagToMaybe configHcPkg)
         programDb
-    let toolchainPackageDBs = interpretPackageDBStack Nothing $ interpretPackageDbFlags False $ configPackageDBs
+    let toolchainPackageDBs = interpretPackageDBStack Nothing $ interpretPackageDbFlags False configPackageDBs
     return Toolchain{..}
 
   buildToolchain <- do
@@ -96,7 +96,7 @@ configToolchains verbosity ConfigFlags{..} ConfigExFlags{..} = do
         (flagToMaybe configBuildHcPath)
         (flagToMaybe configBuildHcPkg)
         programDb
-    let toolchainPackageDBs = interpretPackageDBStack Nothing $ interpretPackageDbFlags False $ configPackageDBs
+    let toolchainPackageDBs = interpretPackageDBStack Nothing $ interpretPackageDbFlags False configPackageDBs
     return Toolchain{..}
 
   return $ Staged (\case Build -> buildToolchain; Host -> hostToolchain)

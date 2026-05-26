@@ -336,7 +336,7 @@ rebuildProjectConfig
                 return (os, arch, compiler)
 
           (projectConfig, _compiler) <- instantiateProjectConfigSkeletonFetchingCompiler fetchCompiler mempty projectConfigSkeleton
-          when (projectConfigDistDir (projectConfigShared $ projectConfig) /= NoFlag) $
+          when (projectConfigDistDir (projectConfigShared projectConfig) /= NoFlag) $
             liftIO $
               warn verbosity "The builddir option is not supported in project and config files. It will be ignored."
           localPackages <- phaseReadLocalPackages (projectConfig <> cliConfig)
@@ -2423,7 +2423,7 @@ elaborateInstallPlan
       -- directory.
       projectSourcePackages :: Set PackageId
       projectSourcePackages =
-        Set.fromList [ pkgId | Just pkgId <- map isLocalUnpackedPackage localPackages ]
+        Set.fromList (mapMaybe isLocalUnpackedPackage localPackages)
 
       pkgsUseSharedLibrary :: Compiler -> Set PackageId
       pkgsUseSharedLibrary compiler =
@@ -2484,9 +2484,7 @@ elaborateInstallPlan
               GHC -> GHC.compilerBuildWay compiler == ProfWay && canBuildProfilingLibs
               _ -> False
 
-          canBuildWayLibs predicate = case predicate compiler of
-            Just can_build -> can_build
-            Nothing -> True
+          canBuildWayLibs predicate = fromMaybe True (predicate compiler)
 
           canBuildProfilingLibs = canBuildWayLibs profilingVanillaSupported
 
@@ -2523,9 +2521,7 @@ elaborateInstallPlan
               GHC -> GHC.compilerBuildWay compiler == ProfDynWay && canBuildProfilingSharedLibs
               _ -> False
 
-          canBuildWayLibs predicate = case predicate compiler of
-            Just can_build -> can_build
-            Nothing -> True
+          canBuildWayLibs predicate = fromMaybe True (predicate compiler)
 
           canBuildProfilingSharedLibs = canBuildWayLibs profilingDynamicSupported
 
@@ -2677,7 +2673,7 @@ binDirectories
 binDirectories package =
   -- quick sanity check: no sense returning a bin directory if we're not going
   -- to put any executables in it, that will just clog up the PATH
-  if noExecutables then [] else [elabBinDir package]
+  [elabBinDir package | not noExecutables]
   where
     noExecutables = null . PD.executables . elabPkgDescription $ package
 
@@ -2812,7 +2808,7 @@ instantiateInstallPlan storeDirLayout plan = do
                                 ElabComponent
                                   comp
                                     { compOrderLibDependencies =
-                                        (if Map.null insts then [] else [newSimpleUnitId cid])
+                                        [newSimpleUnitId cid | not (Map.null insts)]
                                           ++ ordNub
                                             ( map
                                                 unDefUnitId

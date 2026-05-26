@@ -1,5 +1,4 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 
 module Distribution.Simple.GHC.Build.Link where
@@ -398,7 +397,7 @@ linkLibrary buildTargetDir cleanedExtraLibDirs cleanedExtraLibDirsStatic verbosi
         , ghcOptInputFiles = toNubListR $ map coerceSymbolicPath staticObjectFiles
         , ghcOptOutputFile = toFlag staticLibFilePath
         , ghcOptLinkLibs = extraLibs libBi
-        , ghcOptLinkLibPath = toNubListR $ cleanedExtraLibDirsStatic
+        , ghcOptLinkLibPath = toNubListR cleanedExtraLibDirsStatic
         }
     ghcBytecodeLinkArgs objectFiles =
       (ghcSharedLinkArgs objectFiles)

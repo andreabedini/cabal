@@ -355,7 +355,7 @@ fromMap m =
     , graphKeyToVertex = key_to_vertex
     , graphBroken =
         map (\ns'' -> (fst (NE.head ns''), NE.map snd ns'')) $
-          NE.groupWith (nodeKey . fst) $
+          NE.groupWith (nodeKey . fst)
             brokenEdges'
     }
   where

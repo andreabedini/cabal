@@ -119,6 +119,7 @@ import Control.Exception
 import Data.Bifoldable
 import Data.Bifunctor
 import Data.Bitraversable
+import Data.Either (fromRight)
 import qualified Data.Foldable as Foldable (all, toList)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as Map
@@ -331,7 +332,7 @@ instance
 
   get = do
     graph <- mkInstallPlan <$> get
-    return $! either (const (error "Deserialised invalid GenericInstallPlan")) id graph
+    return $! fromRight (error "Deserialised invalid GenericInstallPlan") graph
 
 data ShowPlanNode = ShowPlanNode
   { showPlanHerald :: Doc
@@ -630,7 +631,7 @@ fromSolverInstallPlanWithProgress f plan = do
     -- The error below shouldn't happen, since mapDep should only
     -- be called on neighbor SolverId, which must have all been done
     -- already by the reverse top-sort (we assume the graph is not broken).
-    mapDep pMap key = fromMaybe (error ("fromSolverInstallPlanWithProgress: " ++ prettyShow key)) (Map.lookup key pMap)
+    mapDep pMap key = Map.findWithDefault (error ("fromSolverInstallPlanWithProgress: " ++ prettyShow key)) key pMap
 
 -- | Conversion of 'SolverInstallPlan' to 'InstallPlan'.
 -- Similar to 'elaboratedInstallPlan'
@@ -1165,7 +1166,7 @@ checkForPackageStateInconsistencies graph =
   | pkg <- Foldable.toList graph
   , Just pkg' <-
       map
-        (flip Graph.lookup graph)
+        (`Graph.lookup` graph)
         (nodeNeighbors pkg)
   , not (stateDependencyRelation pkg pkg')
   ]
