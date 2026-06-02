@@ -615,8 +615,8 @@ targetedRepl
     tempFileOptions = commonSetupTempFileOptions $ configCommonFlags configFlags
 
     -- FIXME: the compiler depends on the stage!!
-    validatedTargets ctx compiler elaboratedPlan targetSelectors = do
-      let multi_repl_enabled = multiReplDecision ctx compiler replFlags
+    validatedTargets sharedConfig comp elaboratedPlan' selectors = do
+      let multi_repl_enabled = multiReplDecision sharedConfig comp replFlags
       -- Interpret the targets on the command line as repl targets
       -- (as opposed to say build or haddock targets).
       targets <-
@@ -690,38 +690,6 @@ reportProjectNoTarget projectFile pkgs =
       Flag n -> Just $ quotes (text n)
       _ -> Nothing
     pickComponent = text "pick a single [package:][ctype:]component (or all) as target for the REPL command."
-
--- | Invariant: validatedTargets returns at least one target for the REPL.
-validatedTargets
-  :: Verbosity
-  -> ReplFlags
-  -> ProjectConfigShared
-  -> Compiler
-  -> ElaboratedInstallPlan
-  -> [TargetSelector]
-  -> IO TargetsMapS
-validatedTargets verbosity replFlags ctx compiler elaboratedPlan targetSelectors = do
-  let multi_repl_enabled = multiReplDecision ctx compiler replFlags
-  -- Interpret the targets on the command line as repl targets (as opposed to
-  -- say build or haddock targets).
-  targets <-
-    either (reportTargetProblems verbosity) return $
-      resolveTargetsFromSolver
-        (selectPackageTargets multi_repl_enabled)
-        selectComponentTarget
-        elaboratedPlan
-        Nothing
-        targetSelectors
-
-  -- Reject multiple targets, or at least targets in different components. It is
-  -- ok to have two module/file targets in the same component, but not two that
-  -- live in different components.
-  when (Set.size (distinctTargetComponents targets) > 1 && not (useMultiRepl multi_repl_enabled)) $
-    reportTargetProblems
-      verbosity
-      [multipleTargetsProblem multi_repl_enabled targets]
-
-  return targets
 
 -- | First version of GHC which supports multiple home packages
 minMultipleHomeUnitsVersion :: Version
