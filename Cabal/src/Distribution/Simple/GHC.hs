@@ -246,12 +246,21 @@ configureCompiler verbosity hcPath conf0 = do
               "" -> NoAbiTag
               tag -> AbiTag tag
 
+      -- GHC reports "<unavailable>" (or an empty string) for a wired-in unit
+      -- id it doesn't know, e.g. an in-tree stage1 compiler that reports
+      -- @ghc-internal Unit Id: <unavailable>@. Treat those as absent rather
+      -- than as a real unit id, so we don't manufacture bogus wired-in entries.
+      validUnitId :: String -> Maybe UnitId
+      validUnitId s
+        | s == "" || s == "<unavailable>" = Nothing
+        | otherwise = Just (mkUnitId s)
+
       wiredInUnitIds = do
-        ghcInternalUnitId <- Map.lookup "ghc-internal Unit Id" ghcInfoMap
-        ghcUnitId <- projectUnitId
+        ghcUnitId <- validUnitId =<< projectUnitId
+        ghcInternalUnitId <- validUnitId =<< Map.lookup "ghc-internal Unit Id" ghcInfoMap
         pure
-          [ (mkPackageName "ghc", mkUnitId ghcUnitId)
-          , (mkPackageName "ghc-internal", mkUnitId ghcInternalUnitId)
+          [ (mkPackageName "ghc", ghcUnitId)
+          , (mkPackageName "ghc-internal", ghcInternalUnitId)
           ]
 
   let comp =
