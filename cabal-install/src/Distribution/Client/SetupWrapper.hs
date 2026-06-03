@@ -656,6 +656,20 @@ setupWrapper verbosity options mpkg cmd getCommonFlags getFlags getExtraArgs wra
         InLibraryArgs libArgs ->
           case libArgs of
             InLibraryConfigureArgs elabSharedConfig elabReadyPkg -> do
+              -- Configure the package with its OWN stage's toolchain: the
+              -- compiler that compiles the package together with that compiler's
+              -- program db (ghc-pkg etc.). Previously this used the Host
+              -- toolchain's compiler unconditionally, paired with the setup
+              -- script's program db ('useProgramDb options') — but for a Host
+              -- package the setup script is compiled with the Build compiler, so
+              -- that program db holds the Build 'ghc'/'ghc-pkg'. Pairing the Host
+              -- compiler with the Build ghc/ghc-pkg trips Cabal's ghc-vs-ghc-pkg
+              -- version check (Cabal-4000). Taking both from the package's stage
+              -- toolchain keeps them consistent (and is correct for Build-stage
+              -- packages too).
+              let ReadyPackage elabPkg = elabReadyPkg
+                  stageToolchain =
+                    getStage (pkgConfigToolchains elabSharedConfig) (elabStage elabPkg)
               -- See (1)(a) in Note [Constructing the ProgramDb]
               baseProgDb <-
                 prependProgramSearchPath verbosity
@@ -663,12 +677,12 @@ setupWrapper verbosity options mpkg cmd getCommonFlags getFlags getExtraArgs wra
                   (useExtraEnvOverrides options) =<<
                   mkProgramDb verbHandles flags -- Passes user-supplied arguments to e.g. GHC
                     (restoreProgramDb builtinPrograms $
-                      useProgramDb options) -- Recall that 'useProgramDb' is set to 'pkgConfigCompilerProgs'
+                      toolchainProgramDb stageToolchain)
               -- See (2) in Note [Constructing the ProgramDb]
               setupProgDb <-
                 configCompilerProgDb
                   verbosity
-                  (toolchainCompiler $ getStage (pkgConfigToolchains elabSharedConfig) Host)
+                  (toolchainCompiler stageToolchain)
                   baseProgDb
                   Nothing -- we use configProgramPaths instead
               lbi0 <-
