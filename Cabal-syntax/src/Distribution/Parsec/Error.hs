@@ -9,9 +9,9 @@ module Distribution.Parsec.Error
   ) where
 
 import Distribution.Compat.Prelude
-import Distribution.Parsec.Position
-import Distribution.Parsec.Source
-import Distribution.Parsec.Warning -- TODO: Move PSource into own module
+import Distribution.Fields.Position
+import Distribution.Fields.Source
+import Distribution.Fields.Warning
 import System.FilePath (normalise)
 import Prelude ()
 

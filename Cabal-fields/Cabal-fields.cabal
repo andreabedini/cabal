@@ -1,0 +1,65 @@
+cabal-version: 3.6
+name:          Cabal-fields
+version:       3.17.0.0
+copyright:     2003-2025, Cabal Development Team (see AUTHORS file)
+license:       BSD-3-Clause
+license-file:  LICENSE
+author:        Cabal Development Team <cabal-devel@haskell.org>
+maintainer:    cabal-devel@haskell.org
+homepage:      http://www.haskell.org/cabal/
+bug-reports:   https://github.com/haskell/cabal/issues
+synopsis:      Parsing of the .cabal file format up to fields
+description:
+    This library provides the lexer and parser for the .cabal file format,
+    producing a list of fields and sections from a ByteString. It is the
+    low-level parsing layer underneath Cabal-syntax.
+category:       Distribution
+build-type:     Simple
+
+source-repository head
+  type:     git
+  location: https://github.com/haskell/cabal/
+  subdir:   Cabal-fields
+
+library
+  default-language: Haskell2010
+  hs-source-dirs: src
+
+  build-depends:
+    , array      >= 0.4.0.1  && < 0.6
+    , base       >= 4.17     && < 5
+    , binary     >= 0.8.1    && < 0.9
+    , bytestring >= 0.10.4.0 && < 0.13
+    , containers >= 0.5.2    && < 0.9
+    , deepseq    >= 1.4.3    && < 1.7
+    , filepath   >= 1.3.0.1  && < 1.6
+    , parsec     >= 3.1.13.0 && < 3.2
+    , pretty     >= 1.1.1    && < 1.2
+    , text       >= 2.0.2    && < 2.2
+
+  ghc-options:
+    -Wall
+    -fno-ignore-asserts
+    -Wtabs
+    -Wincomplete-uni-patterns
+    -Wincomplete-record-updates
+    -Wno-unticked-promoted-constructors
+    -Wcompat
+    -Wnoncanonical-monad-instances
+
+  build-tool-depends:
+    -- https://github.com/haskell/alex/issues/288
+    alex:alex < 3.5.4.1 || > 3.5.4.1
+
+  exposed-modules:
+    Distribution.Fields.Field
+    Distribution.Fields.Lexer
+    Distribution.Fields.LexerMonad
+    Distribution.Fields.Parser
+    Distribution.Fields.Position
+    Distribution.Fields.Pretty
+    Distribution.Fields.Source
+    Distribution.Fields.Warning
+
+  other-modules:
+    Distribution.Fields.Internal

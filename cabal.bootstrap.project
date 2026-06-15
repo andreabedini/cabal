@@ -2,6 +2,7 @@ import: project-cabal/constraints.config
 
 packages:
     Cabal
+  , Cabal-fields
   , Cabal-syntax
   , Cabal-hooks
   , cabal-install

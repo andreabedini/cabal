@@ -1,5 +1,3 @@
-{-# LANGUAGE CPP #-}
-
 -----------------------------------------------------------------------------
 
 -- |
@@ -28,21 +26,14 @@ module Distribution.Fields.LexerMonad
   , toPWarnings
   ) where
 
+import Control.Monad (ap, liftM)
 import qualified Data.ByteString as B
+import Data.List (intercalate)
 import qualified Data.List.NonEmpty as NE
-import Distribution.Compat.Prelude
-import Distribution.Parsec.Position (Position (..), positionRow, showPos)
-import Distribution.Parsec.Warning (PWarnType (..), PWarning (..))
-import Prelude ()
-
 import qualified Data.Map.Strict as Map
-
-#ifdef CABAL_PARSEC_DEBUG
--- testing only:
-import qualified Data.Text          as T
-import qualified Data.Text.Encoding as T
-import qualified Data.Vector        as V
-#endif
+import Data.Maybe (mapMaybe)
+import Distribution.Fields.Position (Position (..), positionRow, showPos)
+import Distribution.Fields.Warning (PWarnType (..), PWarning (..))
 
 -- simple state monad
 newtype Lex a = Lex {unLex :: LexState -> LexResult a}
@@ -107,10 +98,6 @@ data LexState = LexState
   , curCode :: {-# UNPACK #-} !StartCode
   -- ^ lexer code
   , warnings :: [LexWarning]
-#ifdef CABAL_PARSEC_DEBUG
-  ,  dbgText :: V.Vector T.Text
-  -- ^ input lines, to print pretty debug info
-#endif
   }
 {- FOURMOLU_ENABLE -}
 
@@ -137,9 +124,6 @@ execLexer (Lex lexer) input =
         , curInput = input
         , curCode = 0
         , warnings = []
-#ifdef CABAL_PARSEC_DEBUG
-        ,  dbgText = V.fromList . T.lines . T.decodeUtf8 $ input
-#endif
         }
 {- FOURMOLU_ENABLE -}
 

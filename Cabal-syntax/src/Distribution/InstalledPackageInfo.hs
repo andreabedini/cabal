@@ -51,7 +51,7 @@ import Distribution.Fields.ParseResult
 import Distribution.Fields.Pretty
 import Distribution.ModuleName
 import Distribution.Package hiding (installedUnitId)
-import Distribution.Parsec.Source
+import Distribution.Fields.Source
 import Distribution.Types.ComponentName
 import Distribution.Utils.Generic (toUTF8BS)
 

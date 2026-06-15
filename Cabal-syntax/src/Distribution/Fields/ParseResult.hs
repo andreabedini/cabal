@@ -23,9 +23,9 @@ module Distribution.Fields.ParseResult
 
 import Distribution.Compat.Prelude
 import Distribution.Parsec.Error (PError (..), PErrorWithSource (..))
-import Distribution.Parsec.Position (Position (..), zeroPos)
-import Distribution.Parsec.Source
-import Distribution.Parsec.Warning
+import Distribution.Fields.Position (Position (..), zeroPos)
+import Distribution.Fields.Source
+import Distribution.Fields.Warning
 import Distribution.Version (Version)
 
 -- | A monad with failure and accumulating errors and warnings.

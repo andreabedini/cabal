@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 
-module Distribution.Parsec.Source
+module Distribution.Fields.Source
   ( PSource (..)
   , CabalFileSource (..)
   , InstalledPackageInfoSource (..)
@@ -10,8 +10,9 @@ module Distribution.Parsec.Source
   ) where
 
 import qualified Data.ByteString as BS
-import Distribution.Compat.Prelude
-import Prelude ()
+import Data.Binary (Binary)
+import Control.DeepSeq (NFData)
+import GHC.Generics (Generic)
 
 -- | The source of a parse error
 data PSource src
@@ -42,4 +43,4 @@ instance Eq src => Eq (PSource src) where
   _ == _ = False
 
 instance Binary src => Binary (PSource src)
-instance NFData src => NFData (PSource src) where rnf = genericRnf
+instance NFData src => NFData (PSource src)

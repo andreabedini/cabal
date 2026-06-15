@@ -32,11 +32,10 @@ module Distribution.Fields.Field
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.Char as Char
-import Distribution.Compat.Prelude
-import Distribution.Pretty (showTokenStr)
-import Distribution.Utils.Generic (fromUTF8BS)
-import Prelude ()
+import Data.List (intercalate)
+import Distribution.Fields.Internal (showTokenStr, fromUTF8BS)
 #if MIN_VERSION_base(4,18,0)
+import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.Foldable1 as F1
 #endif
 

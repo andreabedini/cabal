@@ -11,7 +11,7 @@ import Distribution.Fields.ParseResult
 import Distribution.Fields.Parser (readFields)
 import Distribution.Parsec (Parsec (..), runParsecParser)
 import Distribution.Parsec.FieldLineStream (fieldLineStreamFromBS)
-import Distribution.Parsec.Position
+import Distribution.Fields.Position
 import Distribution.Types.Condition
 import Distribution.Types.ConfVar (ConfVar (..))
 import Distribution.Version

@@ -68,8 +68,8 @@ import Distribution.Parsec.Error (PError (..), PErrorWithSource (..), showPError
 
 import Data.Monoid (Last (..))
 import Distribution.Parsec.FieldLineStream (FieldLineStream, fieldLineStreamFromBS, fieldLineStreamFromString)
-import Distribution.Parsec.Position (Position (..), incPos, retPos, showPos, zeroPos)
-import Distribution.Parsec.Warning
+import Distribution.Fields.Position (Position (..), incPos, retPos, showPos, zeroPos)
+import Distribution.Fields.Warning
 import Numeric (showIntAtBase)
 import Prelude ()
 

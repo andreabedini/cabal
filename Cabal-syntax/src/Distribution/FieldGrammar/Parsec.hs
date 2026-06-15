@@ -89,7 +89,7 @@ import Distribution.Fields.Field
 import Distribution.Fields.ParseResult
 import Distribution.Parsec
 import Distribution.Parsec.FieldLineStream
-import Distribution.Parsec.Position (positionCol, positionRow)
+import Distribution.Fields.Position (positionCol, positionRow)
 
 -------------------------------------------------------------------------------
 -- Auxiliary types

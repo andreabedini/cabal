@@ -1,6 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 
-module Distribution.Parsec.Position
+module Distribution.Fields.Position
   ( Position (..)
   , incPos
   , retPos
@@ -10,8 +10,9 @@ module Distribution.Parsec.Position
   , positionRow
   ) where
 
-import Distribution.Compat.Prelude
-import Prelude ()
+import Data.Binary (Binary)
+import Control.DeepSeq (NFData)
+import GHC.Generics (Generic)
 
 -- | 1-indexed row and column positions in a file.
 data Position
@@ -21,7 +22,7 @@ data Position
   deriving (Eq, Ord, Show, Generic)
 
 instance Binary Position
-instance NFData Position where rnf = genericRnf
+instance NFData Position
 
 -- | Shift position by n columns to the right.
 incPos :: Int -> Position -> Position

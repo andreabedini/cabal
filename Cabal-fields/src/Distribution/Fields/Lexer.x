@@ -10,33 +10,23 @@
 -- Lexer for the cabal files.
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE BangPatterns #-}
-#ifdef CABAL_PARSEC_DEBUG
-{-# LANGUAGE PatternGuards #-}
-#endif
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 module Distribution.Fields.Lexer
   (ltest, lexToken, Token(..), LToken(..)
   ,bol_section, in_section, in_field_layout, in_field_braces
   ,mkLexState) where
 
-import Prelude ()
+import Prelude
 import qualified Prelude
-import Distribution.Compat.Prelude
+import Control.Monad (when)
+import Data.Foldable (traverse_)
 
 import Distribution.Fields.LexerMonad
-import Distribution.Parsec.Position (Position (..), incPos, retPos)
+import Distribution.Fields.Position (Position (..), incPos, retPos)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B.Char8
 import qualified Data.Word as Word
-
-#ifdef CABAL_PARSEC_DEBUG
-import Debug.Trace
-import qualified Data.Vector as V
-import qualified Data.Text   as T
-import qualified Data.Text.Encoding as T
-import qualified Data.Text.Encoding.Error as T
-#endif
 
 }
 -- Various character classes
@@ -235,21 +225,7 @@ lexToken = do
 
 
 checkPosition :: Position -> ByteString -> ByteString -> Int -> Lex ()
-#ifdef CABAL_PARSEC_DEBUG
-checkPosition pos@(Position lineno colno) inp inp' len_chars = do
-    text_lines <- getDbgText
-    let len_bytes = B.length inp - B.length inp'
-        pos_txt   | lineno-1 < V.length text_lines = T.take len_chars (T.drop (colno-1) (text_lines V.! (lineno-1)))
-                  | otherwise = T.empty
-        real_txt  = B.take len_bytes inp
-    when (pos_txt /= T.decodeUtf8 real_txt) $
-      traceShow (pos, pos_txt, T.decodeUtf8 real_txt) $
-      traceShow (take 3 (V.toList text_lines)) $ return ()
-  where
-    getDbgText = Lex $ \s@LexState{ dbgText = txt } -> LexResult s txt
-#else
 checkPosition _ _ _ _ = return ()
-#endif
 
 lexAll :: Lex [LToken]
 lexAll = do
@@ -271,22 +247,5 @@ mkLexState input = LexState
   , curInput = input
   , curCode  = 0
   , warnings = []
-#ifdef CABAL_PARSEC_DEBUG
-  , dbgText  = V.fromList . lines' . T.decodeUtf8With T.lenientDecode $ input
-#endif
   }
-
-#ifdef CABAL_PARSEC_DEBUG
-lines' :: T.Text -> [T.Text]
-lines' s1
-  | T.null s1 = []
-  | otherwise = case T.break (\c -> c == '\r' || c == '\n') s1 of
-                  (l, s2) | Just (c,s3) <- T.uncons s2
-                         -> case T.uncons s3 of
-                              Just ('\n', s4) | c == '\r' -> l `T.snoc` '\r' `T.snoc` '\n' : lines' s4
-                              _                           -> l `T.snoc` c : lines' s3
-
-                          | otherwise
-                         -> [l]
-#endif
 }

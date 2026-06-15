@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 
-module Distribution.Parsec.Warning
+module Distribution.Fields.Warning
   ( PWarning (..)
   , PWarningWithSource (..)
   , PSource (..)
@@ -11,11 +11,12 @@ module Distribution.Parsec.Warning
   , showPWarningWithSource
   ) where
 
-import Distribution.Compat.Prelude
-import Distribution.Parsec.Position
-import Distribution.Parsec.Source
+import Data.Binary (Binary)
+import Control.DeepSeq (NFData)
+import GHC.Generics (Generic)
+import Distribution.Fields.Position
+import Distribution.Fields.Source
 import System.FilePath (normalise)
-import Prelude ()
 
 -- | Type of parser warning. We do classify warnings.
 --
@@ -70,7 +71,7 @@ data PWarnType
   deriving (Eq, Ord, Show, Enum, Bounded, Generic)
 
 instance Binary PWarnType
-instance NFData PWarnType where rnf = genericRnf
+instance NFData PWarnType
 
 -- | Parser warning.
 data PWarning = PWarning {pwarningType :: !PWarnType, pwarningPosition :: !Position, pwarningMessage :: !String}
@@ -80,7 +81,7 @@ data PWarningWithSource src = PWarningWithSource {pwarningSource :: !(PSource sr
   deriving (Eq, Ord, Show, Generic, Functor)
 
 instance Binary PWarning
-instance NFData PWarning where rnf = genericRnf
+instance NFData PWarning
 
 showPWarning :: FilePath -> PWarning -> String
 showPWarning fpath (PWarning _ pos msg) =

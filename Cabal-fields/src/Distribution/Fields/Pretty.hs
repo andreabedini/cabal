@@ -21,12 +21,9 @@ module Distribution.Fields.Pretty
   , prettySectionArgs
   ) where
 
-import Distribution.Compat.Prelude
-import Distribution.Pretty (showToken)
-import Prelude ()
-
+import Data.Functor.Identity (Identity (..), runIdentity)
+import Distribution.Fields.Internal (showToken, fromUTF8BS)
 import Distribution.Fields.Field (FieldName)
-import Distribution.Utils.Generic (fromUTF8BS)
 
 import qualified Distribution.Fields.Parser as P
 

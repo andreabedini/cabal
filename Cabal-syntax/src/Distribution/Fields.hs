@@ -51,4 +51,4 @@ import Distribution.Fields.ParseResult
 import Distribution.Fields.Parser
 import Distribution.Fields.Pretty
 import Distribution.Parsec.Error
-import Distribution.Parsec.Warning
+import Distribution.Fields.Warning
