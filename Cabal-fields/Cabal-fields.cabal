@@ -16,6 +16,9 @@ description:
 category:       Distribution
 build-type:     Simple
 
+extra-doc-files:
+  GRAMMAR.md
+
 source-repository head
   type:     git
   location: https://github.com/haskell/cabal/

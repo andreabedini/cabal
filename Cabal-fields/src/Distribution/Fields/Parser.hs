@@ -10,9 +10,16 @@
 --
 -- Maintainer  :  cabal-devel@haskell.org
 -- Portability :  portable
+--
+-- Phase-2 parser: consumes the lexer's token stream and builds @['Field' 'Position']@.
+-- The grammar is summarised in the @\$grammar@ section below; the full,
+-- implementation-independent specification of the cabal file format lives in
+-- @Cabal-fields\/GRAMMAR.md@.
 {- FOURMOLU_DISABLE -}
 module Distribution.Fields.Parser
   ( -- * Types
+    -- | The cabal-file AST, re-exported from "Distribution.Fields.Field" for
+    -- convenience so that reading fields needs only this one import.
     Field (..)
   , Name (..)
   , FieldLine (..)
@@ -20,6 +27,8 @@ module Distribution.Fields.Parser
 
     -- * Grammar and parsing
     -- $grammar
+
+    -- ** Entry points
   , readFields
   , readFields'
   ) where
@@ -334,6 +343,22 @@ fieldInlineOrBraces name =
 --
 -- >>> readFields "foo: \223"
 -- Right [Field (Name (Position 1 1) "foo") [FieldLine (Position 1 6) "\223"]]
+--
+-- The following examples double as regression tests for the positions documented in
+-- @Cabal-fields\/GRAMMAR.md@. A multi-line field keeps each physical line as a separate 'FieldLine':
+--
+-- >>> readFields "build-depends:\n    base >= 4,\n    containers\n"
+-- Right [Field (Name (Position 1 1) "build-depends") [FieldLine (Position 2 5) "base >= 4,",FieldLine (Position 3 5) "containers"]]
+--
+-- A section with an indented child field:
+--
+-- >>> readFields "library\n  exposed-modules: Foo\n"
+-- Right [Section (Name (Position 1 1) "library") [] [Field (Name (Position 2 3) "exposed-modules") [FieldLine (Position 2 20) "Foo"]]]
+--
+-- The same section in brace style; note that a braces-style field line keeps the trailing space before @}@:
+--
+-- >>> readFields "library { exposed-modules: Foo }\n"
+-- Right [Section (Name (Position 1 1) "library") [] [Field (Name (Position 1 11) "exposed-modules") [FieldLine (Position 1 28) "Foo "]]]
 --
 -- 'readFields' won't (necessarily) fail on invalid UTF8 data, but the reported positions may be off.
 --

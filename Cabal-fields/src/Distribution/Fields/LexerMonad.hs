@@ -6,6 +6,9 @@
 --
 -- Maintainer  :  cabal-devel@haskell.org
 -- Portability :  portable
+--
+-- The lexer's state monad and warning types. See @Cabal-fields/GRAMMAR.md@ for how the
+-- lexer and its warnings fit into the overall grammar.
 module Distribution.Fields.LexerMonad
   ( InputStream
   , LexState (..)
@@ -35,7 +38,9 @@ import Data.Maybe (mapMaybe)
 import Distribution.Fields.Position (Position (..), positionRow, showPos)
 import Distribution.Fields.Warning (PWarnType (..), PWarning (..))
 
--- simple state monad
+-- | The lexer monad: a minimal, hand-written strict state monad over 'LexState'
+-- (no @mtl@\/@transformers@). Lexer actions thread the current position, input,
+-- start code, and accumulated warnings.
 newtype Lex a = Lex {unLex :: LexState -> LexResult a}
 
 instance Functor Lex where
@@ -49,6 +54,7 @@ instance Monad Lex where
   return = pure
   (>>=) = thenLex
 
+-- | The result of running a lexer step: the updated state and a value.
 data LexResult a = LexResult {-# UNPACK #-} !LexState a
 
 data LexWarningType
@@ -64,12 +70,19 @@ data LexWarningType
     LexBraces
   deriving (Eq, Ord, Show)
 
+-- | A raw lexer warning: its kind and the position it occurred at. Converted to
+-- a public 'PWarning' by 'toPWarnings'.
 data LexWarning
   = LexWarning
       !LexWarningType
       {-# UNPACK #-} !Position
   deriving (Show)
 
+-- | Convert raw lexer warnings into public 'PWarning's. Warnings of the same
+-- type are coalesced into a single 'PWarning' listing all positions, and
+-- 'LexBraces' is dropped entirely (it is informational only). Note that
+-- 'Distribution.Fields.Parser.readFields'' returns the raw 'LexWarning's, /not/
+-- the result of this conversion.
 toPWarnings :: [LexWarning] -> [PWarning]
 toPWarnings =
   mapMaybe (uncurry toWarning)
@@ -108,6 +121,8 @@ type StartCode =
   Int
   -- ^ An @alex@ lexer start code
 
+-- | The lexer input: a strict 'B.ByteString' (raw bytes; see the encoding notes
+-- in @Cabal-fields/GRAMMAR.md@).
 type InputStream = B.ByteString
 
 -- | Execute the given lexer on the supplied input stream.
@@ -135,24 +150,32 @@ returnLex a = Lex $ \s -> LexResult s a
 thenLex :: Lex a -> (a -> Lex b) -> Lex b
 (Lex m) `thenLex` k = Lex $ \s -> case m s of LexResult s' a -> unLex (k a) s'
 
+-- | Set the current source position.
 setPos :: Position -> Lex ()
 setPos pos = Lex $ \s -> LexResult s{curPos = pos} ()
 
+-- | Get the current source position.
 getPos :: Lex Position
 getPos = Lex $ \s@LexState{curPos = pos} -> LexResult s pos
 
+-- | Modify the current source position with a function.
 adjustPos :: (Position -> Position) -> Lex ()
 adjustPos f = Lex $ \s@LexState{curPos = pos} -> LexResult s{curPos = f pos} ()
 
+-- | Get the remaining (unconsumed) input.
 getInput :: Lex InputStream
 getInput = Lex $ \s@LexState{curInput = i} -> LexResult s i
 
+-- | Replace the remaining input.
 setInput :: InputStream -> Lex ()
 setInput i = Lex $ \s -> LexResult s{curInput = i} ()
 
+-- | Get the current Alex start code (lexer mode).
 getStartCode :: Lex Int
 getStartCode = Lex $ \s@LexState{curCode = c} -> LexResult s c
 
+-- | Set the Alex start code (lexer mode). The parser uses this to switch the
+-- lexer between section and field-value tokenisation.
 setStartCode :: Int -> Lex ()
 setStartCode c = Lex $ \s -> LexResult s{curCode = c} ()
 

@@ -18,6 +18,9 @@ import qualified Text.PrettyPrint as PP
 showToken :: String -> PP.Doc
 showToken = PP.text . showTokenStr
 
+-- | Quote a token if printing it unquoted would be ambiguous — i.e. if it looks
+-- like a comment (@--@ prefix), ends with @:@, is empty, or contains a space or
+-- comma. Otherwise it is returned unchanged.
 showTokenStr :: String -> String
 showTokenStr str
   -- if token looks like a comment (starts with --), print it in quotes

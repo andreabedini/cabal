@@ -7,7 +7,10 @@
 -- Maintainer  :  cabal-devel@haskell.org
 -- Portability :  portable
 --
--- Lexer for the cabal files.
+-- Phase-1 lexer for cabal files (Alex). Operates in several start-code modes and
+-- emits a stream of located tokens, keeping indentation as explicit @Indent@ tokens.
+-- The full, implementation-independent lexical grammar (character classes, modes,
+-- per-mode rules, tokens, warnings) is documented in @Cabal-fields/GRAMMAR.md@.
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE BangPatterns #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
@@ -155,6 +158,7 @@ data Token = TokSym   !ByteString       -- ^ Haskell-like identifier, number or 
            | LexicalError InputStream --TODO: add separate string lexical error
   deriving Show
 
+-- | A 'Token' tagged with the source 'Position' at which it starts.
 data LToken = L !Position !Token
   deriving Show
 
@@ -197,6 +201,9 @@ lexicalError pos inp = do
   setInput B.empty
   return $! L pos (LexicalError inp)
 
+-- | Produce the next token from the current lexer state, skipping over matches
+-- that emit nothing (whitespace, comments, blank lines). Advances the position
+-- and input, and honours the current start code (mode).
 lexToken :: Lex LToken
 lexToken = do
   pos <- getPos
@@ -235,12 +242,16 @@ lexAll = do
     _       -> do ts <- lexAll
                   return (t : ts)
 
+-- | Debugging helper: lex a 'String' starting in the given start code and print
+-- the accumulated warnings followed by every token.
 ltest :: Int -> String -> Prelude.IO ()
 ltest code s =
   let (ws, xs) = execLexer (setStartCode code >> lexAll) (B.Char8.pack s)
    in traverse_ print ws >> traverse_ print xs
 
 
+-- | Build the initial lexer state for some input: position @1:1@, start code @0@
+-- (the BOM-handling mode), and no warnings.
 mkLexState :: ByteString -> LexState
 mkLexState input = LexState
   { curPos   = Position 1 1

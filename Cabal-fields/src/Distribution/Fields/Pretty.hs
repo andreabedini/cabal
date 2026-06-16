@@ -2,9 +2,13 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE LambdaCase #-}
 
--- | Cabal-like file AST types: 'Field', 'Section' etc,
+-- | Pretty-printing of cabal-like files.
 --
--- This (intermediate) data type is used for pretty-printing.
+-- 'PrettyField' is an intermediate representation (parallel to the parser's
+-- 'P.Field') whose values are already-rendered 'PP.Doc's. Build one from a parsed
+-- @['P.Field' ann]@ with 'fromParsecFields' (or 'genericFromParsecFields' for
+-- custom rendering), then turn it into text with 'showFields'. See
+-- @Cabal-fields/GRAMMAR.md@ for the underlying grammar.
 --
 -- @since 3.0.0.0
 module Distribution.Fields.Pretty
@@ -30,24 +34,36 @@ import qualified Distribution.Fields.Parser as P
 import qualified Data.ByteString as BS
 import qualified Text.PrettyPrint as PP
 
--- | This type is used to discern when a comment block should go
---   before or after a cabal-like file field, otherwise it would
---   be hardcoded to a single position. It is often used in
---   conjunction with @PrettyField@.
+-- $setup
+-- >>> :set -XOverloadedStrings
+
+-- | Whether a comment block attached to a field/section should be emitted
+--   before or after it (or that there is no comment). Used as the annotation
+--   interpretation by 'showFields'.
 data CommentPosition = CommentBefore [String] | CommentAfter [String] | NoComment
 
+-- | A field or section ready for pretty-printing: like the parser's 'P.Field',
+-- but with field values and section arguments already rendered to 'PP.Doc's.
 data PrettyField ann
-  = PrettyField ann FieldName PP.Doc
-  | PrettySection ann FieldName [PP.Doc] [PrettyField ann]
-  | PrettyEmpty
+  = -- | A field: annotation, name, and the rendered value document.
+    PrettyField ann FieldName PP.Doc
+  | -- | A section: annotation, name, rendered arguments, and body.
+    PrettySection ann FieldName [PP.Doc] [PrettyField ann]
+  | -- | Nothing to print (rendered as no output); useful as a neutral element.
+    PrettyEmpty
   deriving (Functor, Foldable, Traversable)
 
--- | Prettyprint a list of fields.
+-- | Pretty-print a list of 'PrettyField's to text, using 4-space indentation.
+-- The first argument maps each annotation to an optional comment block.
 --
--- Note: the first argument should return 'String's without newlines
--- and properly prefixes (with @--@) to count as comments.
--- This unsafety is left in place so one could generate empty lines
--- between comment lines.
+-- Round-tripping a parsed field through 'fromParsecFields' and back:
+--
+-- >>> fmap (showFields (const NoComment) . fromParsecFields) (P.readFields "name:foo\n")
+-- Right "name: foo\n"
+--
+-- Note: the comment function should return 'String's without newlines, already
+-- prefixed (with @--@) to count as comments. This unsafety is left in place so
+-- one could generate empty lines between comment lines.
 showFields :: (ann -> CommentPosition) -> [PrettyField ann] -> String
 showFields rann = showFields' rann (const id) 4
 
