@@ -152,6 +152,7 @@ ghcid-cli: ## Run ghcid for the cabal-install executable.
 .PHONY: doctest
 doctest: ## Run doctests.
 	cabal --numeric-version
+	cd Cabal-fields && $(DOCTEST)
 	cd Cabal-syntax && $(DOCTEST)
 	cd Cabal-described && $(DOCTEST)
 	cd Cabal && $(DOCTEST)
