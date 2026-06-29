@@ -1468,7 +1468,7 @@ dieOnBuildFailures verbosity currentCommand plan buildOutcomes
       case reason of
         DownloadFailed _ -> "Failed to download " ++ pkgstr
         UnpackFailed _ -> "Failed to unpack " ++ pkgstr
-        ConfigureFailed _ -> "Failed to build " ++ pkgstr
+        ConfigureFailed _ -> "Failed to configure " ++ pkgstr
         BuildFailed _ -> "Failed to build " ++ pkgstr
         ReplFailed _ -> "repl failed for " ++ pkgstr
         HaddocksFailed _ -> "Failed to build documentation for " ++ pkgstr
