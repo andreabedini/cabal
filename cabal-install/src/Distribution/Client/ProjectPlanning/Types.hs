@@ -104,6 +104,7 @@ import Distribution.Client.Toolchain
   ( Stage (..)
   , Toolchain (..)
   , Toolchains
+  , activeStage
   , getStage
   , overStage
   )
@@ -137,7 +138,6 @@ import Distribution.Simple.Utils (cabalVersion, ordNub)
 import Distribution.Solver.Types.ComponentDeps (ComponentDeps)
 import qualified Distribution.Solver.Types.ComponentDeps as CD
 import Distribution.Solver.Types.OptionalStanza
-import Distribution.Solver.Types.Stage (isCross)
 import Distribution.System
 import Distribution.Types.ComponentRequestedSpec
 import qualified Distribution.Types.LocalBuildConfig as LBC
@@ -296,17 +296,19 @@ setPkgConfigCompilerProgs progs shared =
 elabToolchain :: ElaboratedSharedConfig -> ElaboratedConfiguredPackage -> Toolchain
 elabToolchain shared elab = pkgConfigStageToolchain shared (elabStage elab)
 
--- | The compiler a package is built with; see 'elabToolchain'.
 -- | The stage whose per-stage state (package DBs, the running
 -- 'InstalledPackageIndex', the store) a package belongs to: its own stage,
 -- except that in a non-cross build the build stage collapses onto the host
--- stage, which is the only one with any state. Compare 'getStage', which
--- collapses the /value/ the same way when reading.
+-- stage, which is the only one with any state (see 'activeStage'). Compare
+-- 'getStage', which collapses the /value/ the same way when reading.
+--
+-- Pair this with 'elabToolchain' whenever addressing the store; using
+-- 'elabStage' directly can name a store directory that nothing else reads.
 elabActiveStage :: ElaboratedSharedConfig -> ElaboratedConfiguredPackage -> Stage
-elabActiveStage shared elab
-  | isCross (pkgConfigToolchains shared) = elabStage elab
-  | otherwise = Host
+elabActiveStage shared elab =
+  activeStage (pkgConfigToolchains shared) (elabStage elab)
 
+-- | The compiler a package is built with; see 'elabToolchain'.
 elabCompiler :: ElaboratedSharedConfig -> ElaboratedConfiguredPackage -> Compiler
 elabCompiler shared = toolchainCompiler . elabToolchain shared
 

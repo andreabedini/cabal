@@ -155,6 +155,7 @@ import Distribution.Client.Toolchain
   , Staged (..)
   , Toolchain (..)
   , Toolchains
+  , activeStage
   , activeStages
   , getStage
   , isCross
@@ -1205,18 +1206,17 @@ rebuildInstallPlan
         -> Rebuild ElaboratedInstallPlan
       phaseImprovePlan elaboratedPlan elaboratedShared = do
         liftIO $ debug verbosity "Improving the install plan..."
-        -- Each stage has its own store, keyed by that stage's compiler and
-        -- the platform it targets; read them all. Unit ids hash both, so a
-        -- plain union cannot confuse the stages.
+        -- Each stage has its own store, so read them separately and tag the
+        -- entries with the stage they came from: a package present in the host
+        -- store says nothing about the build store, even when the two would
+        -- agree on its 'UnitId'.
         storePkgIdSet <-
-          fmap Set.unions . for (activeStages toolchains) $ \stage -> do
-            let toolchain = getStage toolchains stage
-            getStoreEntries
-              cabalStoreDirLayout
-              (toolchainCompiler toolchain)
-              (toolchainPlatform toolchain)
+          fmap fold . for (activeStages toolchains) $ \stage ->
+            Set.map (WithStage stage)
+              <$> getStoreEntries cabalStoreDirLayout stage (getStage toolchains stage)
         let improvedPlan =
               improveInstallPlanWithInstalledPackages
+                elaboratedShared
                 storePkgIdSet
                 elaboratedPlan
         liftIO $ debugNoWrap verbosity (showElaboratedInstallPlan improvedPlan)
@@ -2818,14 +2818,16 @@ elaborateInstallPlan
       -- The package databases of a build stage: the store database of that
       -- stage's compiler and the platform it targets, and for in-place builds
       -- that compiler's dist database too, on top of whichever project
-      -- databases apply to the stage. Equal for both stages unless
-      -- cross-compiling.
+      -- databases apply to the stage. Without a distinct build stage the build
+      -- stage shares the host's store, hence 'activeStage'.
       stageCorePackageDbs :: Stage -> PackageDBStackCWD
       stageCorePackageDbs s =
         storePackageDBStack
-          (stageCompilerOf s)
-          (stagePlatformOf s)
+          s'
+          (getStage toolchains s')
           (projectPackageDbs s)
+        where
+          s' = activeStage toolchains s
 
       stageInplacePackageDbs :: Stage -> PackageDBStackCWD
       stageInplacePackageDbs s =
@@ -4494,17 +4496,17 @@ userInstallDirTemplates compiler = do
 
 storePackageInstallDirs
   :: StoreDirLayout
-  -> Compiler
-  -> Platform
+  -> Stage
+  -> Toolchain
   -> InstalledPackageId
   -> InstallDirs.InstallDirs FilePath
-storePackageInstallDirs storeDirLayout compiler platform ipkgid =
-  storePackageInstallDirs' storeDirLayout compiler platform $ newSimpleUnitId ipkgid
+storePackageInstallDirs storeDirLayout stage toolchain ipkgid =
+  storePackageInstallDirs' storeDirLayout stage toolchain $ newSimpleUnitId ipkgid
 
 storePackageInstallDirs'
   :: StoreDirLayout
-  -> Compiler
-  -> Platform
+  -> Stage
+  -> Toolchain
   -> UnitId
   -> InstallDirs.InstallDirs FilePath
 storePackageInstallDirs'
@@ -4512,13 +4514,13 @@ storePackageInstallDirs'
     { storePackageDirectory
     , storeDirectory
     }
-  compiler
-  platform
+  stage
+  toolchain
   unitid =
     InstallDirs.InstallDirs{..}
     where
-      store = storeDirectory compiler platform
-      prefix = storePackageDirectory compiler platform unitid
+      store = storeDirectory stage toolchain
+      prefix = storePackageDirectory stage toolchain unitid
       bindir = prefix </> "bin"
       libdir = prefix </> "lib"
       libsubdir = ""
@@ -4569,8 +4571,8 @@ computeInstallDirs storeDirLayout defaultInstallDirs elaboratedShared elab
       -- use special simplified install dirs
       storePackageInstallDirs'
         storeDirLayout
-        (elabCompiler elaboratedShared elab)
-        (elabPlatform elaboratedShared elab)
+        (elabActiveStage elaboratedShared elab)
+        (elabToolchain elaboratedShared elab)
         (elabUnitId elab)
 
 -- TODO: [code cleanup] perhaps reorder this code
@@ -5076,14 +5078,17 @@ packageHashConfigInputs shared pkg =
 -- 'ElaboratedInstallPlan', replace configured source packages by installed
 -- packages from the store whenever they exist.
 improveInstallPlanWithInstalledPackages
-  :: Set UnitId
+  :: ElaboratedSharedConfig
+  -> Set (WithStage UnitId)
   -> ElaboratedInstallPlan
   -> ElaboratedInstallPlan
-improveInstallPlanWithInstalledPackages installedPkgIdSet =
+improveInstallPlanWithInstalledPackages shared installedPkgIdSet =
   InstallPlan.installed canPackageBeImproved
   where
+    -- The set is tagged with the /active/ stage each store belongs to, so the
+    -- package's stage must be collapsed the same way ('elabActiveStage').
     canPackageBeImproved pkg =
-      installedUnitId pkg `Set.member` installedPkgIdSet
+      WithStage (elabActiveStage shared pkg) (installedUnitId pkg) `Set.member` installedPkgIdSet
 
 -- TODO: sanity checks:
 -- \* the installed package must have the expected deps etc

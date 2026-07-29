@@ -12,6 +12,7 @@ module Distribution.Solver.Types.Stage
   , always
   , isCross
   , activeStages
+  , activeStage
   ) where
 
 import Distribution.Compat.Prelude
@@ -104,3 +105,15 @@ isCross = isJust . onBuild
 -- separately.
 activeStages :: Staged a -> [Stage]
 activeStages s = Host : [Build | isCross s]
+
+-- | The active stage a given stage resolves to: 'Build' collapses onto 'Host'
+-- unless there really is a distinct build stage.
+--
+-- 'getStage' already collapses the /value/ this way. Use this wherever the
+-- stage /itself/ is observable — notably in store paths, where tagging a
+-- package @build@ in a non-cross build would put it in a directory that
+-- nothing else looks in.
+activeStage :: Staged a -> Stage -> Stage
+activeStage s stage
+  | stage == Build && not (isCross s) = Host
+  | otherwise = stage
