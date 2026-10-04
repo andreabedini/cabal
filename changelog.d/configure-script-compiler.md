@@ -3,6 +3,7 @@ synopsis: Tell `configure` scripts which compiler Cabal is using
 packages: [Cabal]
 issues: [7452, 2947]
 prs: 12340
+significance: significant
 ---
 
 A `build-type: Configure` package's `configure` script now receives the path

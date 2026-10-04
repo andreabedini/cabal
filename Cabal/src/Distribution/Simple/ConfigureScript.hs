@@ -94,10 +94,26 @@ runConfigureScript verbHandles cfg flags programDb hp = do
   -- ConfigFlags alone do not say: cabal-install passes the compiler as a
   -- program path override and leaves 'configHcPath' unset, in which case
   -- 'configureArgs' would only pass the flavour name.
-  let hcPrograms = case flagToMaybe (configHcFlavor cfg) of
-        Just GHC -> Just (ghcProgram, ghcPkgProgram)
-        Just GHCJS -> Just (ghcjsProgram, ghcjsPkgProgram)
-        _ -> Nothing
+  --
+  -- The match on the flavour is exhaustive on purpose: a new flavour with
+  -- its own compiler program should make this fail to compile, not leave
+  -- its configure scripts silently without a compiler path.
+  let hcProgramsFor :: CompilerFlavor -> Maybe (Program, Program)
+      hcProgramsFor = \case
+        GHC -> Just (ghcProgram, ghcPkgProgram)
+        GHCJS -> Just (ghcjsProgram, ghcjsPkgProgram)
+        NHC -> Nothing
+        YHC -> Nothing
+        Hugs -> Nothing
+        HBC -> Nothing
+        Helium -> Nothing
+        JHC -> Nothing
+        LHC -> Nothing
+        UHC -> Nothing
+        Eta -> Nothing
+        MHS -> Nothing
+        OtherCompiler _ -> Nothing
+      hcPrograms = flagToMaybe (configHcFlavor cfg) >>= hcProgramsFor
       configuredPath prog = programPath <$> lookupProgram prog programDb
   mHcPath <- traverse getShortPathName (hcPrograms >>= configuredPath . fst)
   mHcPkgPath <- traverse getShortPathName (hcPrograms >>= configuredPath . snd)
