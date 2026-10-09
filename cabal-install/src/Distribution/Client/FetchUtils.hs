@@ -149,34 +149,30 @@ checkRepoTarballFetched repo pkgid = do
     then return (Just file)
     else return Nothing
 
+-- | Check the already fetched tarballs of a secure repository against the
+-- hashes in the repository metadata.
 verifyFetchedTarballs
   :: Verbosity
   -> RepoContext
-  -> Repo
+  -> SecureRepo
   -> [PackageId]
   -> IO
       [ Either
-          (Repo, PackageId) -- Verified
-          (Repo, PackageId) -- unverified)
+          (SecureRepo, PackageId) -- Verified
+          (SecureRepo, PackageId) -- unverified)
       ]
 verifyFetchedTarballs verbosity repoCtxt repo pkgids =
   -- Establish the context once per repo (see #10110), this codepath is important
   -- to be fast as it can happen when no other building happens.
-  let establishContext k =
-        case repo of
-          RepoSecure{} ->
-            repoContextWithSecureRepo repoCtxt repo $ \repoSecure ->
-              Sec.withIndex repoSecure $ \callbacks -> k (Just callbacks)
-          _ -> k Nothing
-   in do
-        establishContext $ \mCallbacks ->
-          forM pkgids $ \pkgid -> do
-            let file = packageFile repo pkgid
-            res <- verifyFetchedTarball verbosity file mCallbacks pkgid
-            return $ if res then Left (repo, pkgid) else Right (repo, pkgid)
+  repoContextWithSecureRepo repoCtxt repo $ \repoSecure ->
+    Sec.withIndex repoSecure $ \callbacks ->
+      forM pkgids $ \pkgid -> do
+        let file = packageFile (RepoSecure repo) pkgid
+        res <- verifyFetchedTarball verbosity file callbacks pkgid
+        return $ if res then Left (repo, pkgid) else Right (repo, pkgid)
 
-verifyFetchedTarball :: Verbosity -> FilePath -> Maybe Sec.IndexCallbacks -> PackageId -> IO Bool
-verifyFetchedTarball verbosity file mCallbacks pkgid =
+verifyFetchedTarball :: Verbosity -> FilePath -> Sec.IndexCallbacks -> PackageId -> IO Bool
+verifyFetchedTarball verbosity file callbacks pkgid =
   let
     handleError :: IO Bool -> IO Bool
     handleError act = do
@@ -189,25 +185,22 @@ verifyFetchedTarball verbosity file mCallbacks pkgid =
       exists <- doesFileExist file
       if not exists
         then return True -- if the file does not exist, it vacuously passes validation, since it will be downloaded as necessary with what we will then check is a valid hash.
-        else case mCallbacks of
-          -- a secure repo has hashes we can compare against to confirm this is the correct file.
-          Just callbacks ->
-            let warnAndFail s = warn verbosity ("Fetched tarball " ++ file ++ " does not match server, will redownload: " ++ s) >> return False
-             in -- the do block in parens is due to dealing with the checked exceptions mechanism.
-                ( do
-                    fileInfo <- Sec.indexLookupFileInfo callbacks pkgid
-                    sz <- Sec.FileLength . fromInteger <$> getFileSize file
-                    if sz /= Sec.fileInfoLength (Sec.trusted fileInfo)
-                      then warnAndFail "file length mismatch"
-                      else do
-                        res <- Sec.compareTrustedFileInfo (Sec.trusted fileInfo) <$> Sec.computeFileInfo (Sec.Path file :: Sec.Path Sec.Absolute)
-                        if res
-                          then pure True
-                          else warnAndFail "file hash mismatch"
-                )
-                  `Sec.catchChecked` (\(e :: Sec.InvalidPackageException) -> warnAndFail (show e))
-                  `Sec.catchChecked` (\(e :: Sec.VerificationError) -> warnAndFail (show e))
-          _ -> pure True
+        else -- a secure repo has hashes we can compare against to confirm this is the correct file.
+          let warnAndFail s = warn verbosity ("Fetched tarball " ++ file ++ " does not match server, will redownload: " ++ s) >> return False
+           in -- the do block in parens is due to dealing with the checked exceptions mechanism.
+              ( do
+                  fileInfo <- Sec.indexLookupFileInfo callbacks pkgid
+                  sz <- Sec.FileLength . fromInteger <$> getFileSize file
+                  if sz /= Sec.fileInfoLength (Sec.trusted fileInfo)
+                    then warnAndFail "file length mismatch"
+                    else do
+                      res <- Sec.compareTrustedFileInfo (Sec.trusted fileInfo) <$> Sec.computeFileInfo (Sec.Path file :: Sec.Path Sec.Absolute)
+                      if res
+                        then pure True
+                        else warnAndFail "file hash mismatch"
+              )
+                `Sec.catchChecked` (\(e :: Sec.InvalidPackageException) -> warnAndFail (show e))
+                `Sec.catchChecked` (\(e :: Sec.VerificationError) -> warnAndFail (show e))
 
 -- | Fetch a package if we don't have it already.
 fetchPackage
@@ -266,16 +259,16 @@ fetchRepoTarball verbosity' repoCtxt repo pkgid = do
     downloadRepoPackage :: IO FilePath
     downloadRepoPackage = case repo of
       RepoLocalNoIndex{} -> return (packageFile repo pkgid)
-      RepoRemote{..} -> do
+      RepoRemote r -> do
         transport <- repoContextGetTransport repoCtxt
-        remoteRepoCheckHttps verbosity transport repoRemote
-        let uri = packageURI repoRemote pkgid
+        remoteRepoCheckHttps verbosity transport (legacyRepoRemote r)
+        let uri = packageURI (legacyRepoRemote r) pkgid
             dir = packageDir repo pkgid
             path = packageFile repo pkgid
         createDirectoryIfMissing True dir
         _ <- downloadURI transport verbosity uri path
         return path
-      RepoSecure{} -> repoContextWithSecureRepo repoCtxt repo $ \rep -> do
+      RepoSecure r -> repoContextWithSecureRepo repoCtxt r $ \rep -> do
         let dir = packageDir repo pkgid
             path = packageFile repo pkgid
         createDirectoryIfMissing True dir
@@ -396,9 +389,9 @@ packageFile repo pkgid =
 -- | Generate the full path to the directory where the local cached copy of
 -- the tarball for a given @PackageIdentifier@ is stored.
 packageDir :: Repo -> PackageId -> FilePath
-packageDir (RepoLocalNoIndex (LocalRepo _ dir _) _) _pkgid = dir
+packageDir (RepoLocalNoIndex r) _pkgid = localRepoPath (localNoIndexRepo r)
 packageDir repo pkgid =
-  repoLocalDir repo
+  repoCacheDir repo
     </> prettyShow (packageName pkgid)
     </> prettyShow (packageVersion pkgid)
 

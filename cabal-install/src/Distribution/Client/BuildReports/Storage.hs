@@ -79,7 +79,7 @@ storeAnonymous reports =
   sequence_
     [ appendFile file (concatMap format reports')
     | (repo, reports') <- separate reports
-    , let file = repoLocalDir repo </> "build-reports.log"
+    , let file = repoCacheDir repo </> "build-reports.log"
     ]
   where
     -- TODO: make this concurrency safe, either lock the report file or make sure

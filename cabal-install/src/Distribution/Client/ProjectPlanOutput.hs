@@ -21,7 +21,7 @@ import Distribution.Client.ProjectBuilding.Types
 import Distribution.Client.ProjectPlanning.Types
 import Distribution.Client.Types.ConfiguredId (confInstId)
 import Distribution.Client.Types.PackageLocation (PackageLocation (..))
-import Distribution.Client.Types.Repo (RemoteRepo (..), Repo (..))
+import Distribution.Client.Types.Repo (LegacyRepo (..), LocalNoIndexRepo (..), RemoteRepo (..), Repo (..), SecureRepo (..))
 import Distribution.Client.Types.SourceRepo (SourceRepoMaybe, SourceRepositoryPackage (..))
 import Distribution.Client.Version (cabalInstallVersion)
 
@@ -257,20 +257,20 @@ encodePlanAsJson distDirLayout elaboratedInstallPlan elaboratedSharedConfig =
         repoToJ :: Repo -> J.Value
         repoToJ repo =
           case repo of
-            RepoLocalNoIndex{..} ->
+            RepoLocalNoIndex r ->
               J.object
                 [ "type" J..= J.String "local-repo-no-index"
-                , "path" J..= J.String repoLocalDir
+                , "path" J..= J.String (localNoIndexRepoCacheDir r)
                 ]
-            RepoRemote{..} ->
+            RepoRemote r ->
               J.object
                 [ "type" J..= J.String "remote-repo"
-                , "uri" J..= J.String (show (remoteRepoURI repoRemote))
+                , "uri" J..= J.String (show (remoteRepoURI (legacyRepoRemote r)))
                 ]
-            RepoSecure{..} ->
+            RepoSecure r ->
               J.object
                 [ "type" J..= J.String "secure-repo"
-                , "uri" J..= J.String (show (remoteRepoURI repoRemote))
+                , "uri" J..= J.String (show (remoteRepoURI (secureRepoRemote r)))
                 ]
 
         elaboratedPackageToRevision :: ElaboratedConfiguredPackage -> Double

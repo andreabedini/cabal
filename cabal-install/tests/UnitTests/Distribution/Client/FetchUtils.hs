@@ -10,7 +10,7 @@ import Distribution.Client.FetchUtils
 import Distribution.Client.GlobalFlags (RepoContext (..))
 import Distribution.Client.HttpUtils (HttpCode, HttpTransport (..))
 import Distribution.Client.Types.PackageLocation (PackageLocation (..), ResolvedPkgLoc)
-import Distribution.Client.Types.Repo (Repo (..), emptyRemoteRepo)
+import Distribution.Client.Types.Repo (LegacyRepo (..), Repo (..), emptyRemoteRepo)
 import Distribution.Client.Types.RepoName (RepoName (..))
 import Distribution.Types.PackageId (PackageIdentifier (..))
 import Distribution.Types.PackageName (mkPackageName)
@@ -182,9 +182,10 @@ withFakeRepoCtxt handleGet action =
   withTestDir verbosity "fake repo" $ \tmpDir ->
     let repo =
           RepoRemote
-            { repoRemote = emptyRemoteRepo $ RepoName "fake"
-            , repoLocalDir = tmpDir
-            }
+            LegacyRepo
+              { legacyRepoRemote = emptyRemoteRepo $ RepoName "fake"
+              , legacyRepoCacheDir = tmpDir
+              }
         repoCtxt =
           RepoContext
             { repoContextRepos = [repo]

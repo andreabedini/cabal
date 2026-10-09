@@ -18,9 +18,12 @@ import Distribution.Client.HttpUtils
   , configureTransport
   )
 import Distribution.Client.Types
-  ( LocalRepo (..)
+  ( LegacyRepo (..)
+  , LocalNoIndexRepo (..)
+  , LocalRepo (..)
   , RemoteRepo (..)
   , Repo (..)
+  , SecureRepo (..)
   , localRepoCacheKey
   , unRepoName
   )
@@ -138,7 +141,7 @@ data RepoContext = RepoContext
   -- initialization on _every_ invocation (eg @cabal build@) is undesirable.
   , repoContextWithSecureRepo
       :: forall a
-       . Repo
+       . SecureRepo
       -> (forall down. Sec.Repository down -> IO a)
       -> IO a
   -- ^ Get the (initialized) secure repo
@@ -150,7 +153,7 @@ data RepoContext = RepoContext
   }
 
 -- | Wrapper around 'Repository', hiding the type argument
-data SecureRepo = forall down. SecureRepo (Sec.Repository down)
+data SomeSecRepository = forall down. SomeSecRepository (Sec.Repository down)
 
 withRepoContext :: Verbosity -> GlobalFlags -> (RepoContext -> IO a) -> IO a
 withRepoContext verbosity globalFlags =
@@ -203,11 +206,13 @@ withRepoContext'
           }
     where
       secureRemoteRepos =
-        [(remote, cacheDir) | RepoSecure remote cacheDir <- allRemoteRepos]
+        [r | RepoSecure r <- allRemoteRepos]
 
       allRemoteRepos :: [Repo]
       allRemoteRepos =
-        [ (if isSecure then RepoSecure else RepoRemote) remote cacheDir
+        [ if isSecure
+            then RepoSecure (SecureRepo remote cacheDir)
+            else RepoRemote (LegacyRepo remote cacheDir)
         | remote <- remoteRepos
         , let cacheDir = sharedCacheDir </> unRepoName (remoteRepoName remote)
               isSecure = remoteRepoSecure remote == Just True
@@ -215,7 +220,7 @@ withRepoContext'
 
       allLocalNoIndexRepos :: [Repo]
       allLocalNoIndexRepos =
-        [ RepoLocalNoIndex local cacheDir
+        [ RepoLocalNoIndex (LocalNoIndexRepo local cacheDir)
         | local <- localNoIndexRepos
         , let cacheDir
                 | localRepoSharedCache local = sharedCacheDir </> localRepoCacheKey local
@@ -231,33 +236,31 @@ withRepoContext'
           return (Just transport, transport)
 
       withSecureRepo
-        :: Map Repo SecureRepo
-        -> Repo
+        :: Map SecureRepo SomeSecRepository
+        -> SecureRepo
         -> (forall down. Sec.Repository down -> IO a)
         -> IO a
       withSecureRepo secureRepos repo callback =
         case Map.lookup repo secureRepos of
-          Just (SecureRepo secureRepo) -> callback secureRepo
+          Just (SomeSecRepository secureRepo) -> callback secureRepo
           Nothing -> throwIO $ userError "repoContextWithSecureRepo: unknown repo"
 
 -- | Initialize the provided secure repositories
---
--- Assumed invariant: `remoteRepoSecure` should be set for all these repos.
 initSecureRepos
   :: forall a
    . Verbosity
   -> Sec.HTTP.HttpLib
-  -> [(RemoteRepo, FilePath)]
-  -> (Map Repo SecureRepo -> IO a)
+  -> [SecureRepo]
+  -> (Map SecureRepo SomeSecRepository -> IO a)
   -> IO a
 initSecureRepos verbosity httpLib repos callback = go Map.empty repos
   where
-    go :: Map Repo SecureRepo -> [(RemoteRepo, FilePath)] -> IO a
+    go :: Map SecureRepo SomeSecRepository -> [SecureRepo] -> IO a
     go !acc [] = callback acc
-    go !acc ((r, cacheDir) : rs) = do
-      cachePath <- Sec.makeAbsolute $ Sec.fromFilePath cacheDir
-      initSecureRepo verbosity httpLib r cachePath $ \r' ->
-        go (Map.insert (RepoSecure r cacheDir) r' acc) rs
+    go !acc (r : rs) = do
+      cachePath <- Sec.makeAbsolute $ Sec.fromFilePath (secureRepoCacheDir r)
+      initSecureRepo verbosity httpLib (secureRepoRemote r) cachePath $ \r' ->
+        go (Map.insert r r' acc) rs
 
 -- | Initialize the given secure repo
 --
@@ -272,7 +275,7 @@ initSecureRepo
   -- ^ Secure repo ('remoteRepoSecure' assumed)
   -> Sec.Path Sec.Absolute
   -- ^ Cache dir
-  -> (SecureRepo -> IO a)
+  -> (SomeSecRepository -> IO a)
   -- ^ Callback
   -> IO a
 initSecureRepo verbosity httpLib RemoteRepo{..} cachePath = \callback -> do
@@ -298,7 +301,7 @@ initSecureRepo verbosity httpLib RemoteRepo{..} cachePath = \callback -> do
           r
           (map Sec.KeyId remoteRepoRootKeys)
           (Sec.KeyThreshold (fromIntegral remoteRepoKeyThreshold))
-    callback $ SecureRepo r
+    callback $ SomeSecRepository r
   where
     -- Initialize local or remote repo depending on the URI
     withRepo :: [URI] -> (forall down. Sec.Repository down -> IO a) -> IO a
