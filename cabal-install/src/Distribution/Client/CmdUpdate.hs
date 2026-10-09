@@ -20,7 +20,7 @@ import Distribution.Client.IndexUtils
   ( Index (..)
   , currentIndexTimestamp
   , indexBaseName
-  , updatePackageIndexCacheFile
+  , updateNoIndexCache
   , updateRepoIndexCache
   , writeIndexTimestamp
   )
@@ -219,17 +219,16 @@ updateAction flags@NixStyleFlags{..} extraArgs globalFlags = do
 updateRepo :: Verbosity -> RepoContext -> (Repo, RepoIndexState) -> IO ()
 updateRepo verbosity repoCtxt (repo, indexState) = do
   case repo of
-    RepoLocalNoIndex{} -> do
-      let index = RepoIndex repoCtxt repo
-      updatePackageIndexCacheFile verbosity index
-    RepoRemote{..} -> do
+    RepoLocalNoIndex noIndexRepo ->
+      updateNoIndexCache verbosity noIndexRepo
+    RepoRemote legacyRepo@LegacyRepo{..} -> do
       transport <- repoContextGetTransport repoCtxt
       downloadResult <-
         downloadIndex
           transport
           verbosity
-          repoRemote
-          repoLocalDir
+          legacyRepoRemote
+          legacyRepoCacheDir
       case downloadResult of
         FileAlreadyInCache ->
           setModificationTime (indexBaseName repo <.> "tar")
@@ -237,14 +236,14 @@ updateRepo verbosity repoCtxt (repo, indexState) = do
         FileDownloaded indexPath -> do
           writeFileAtomic (dropExtension indexPath) . maybeDecompress
             =<< BS.readFile indexPath
-          updateRepoIndexCache verbosity (RepoIndex repoCtxt repo)
-    RepoSecure{} -> repoContextWithSecureRepo repoCtxt repo $ \repoSecure -> do
-      let index = RepoIndex repoCtxt repo
+          updateRepoIndexCache verbosity (LegacyTarIndex legacyRepo)
+    RepoSecure secureRepo -> repoContextWithSecureRepo repoCtxt secureRepo $ \repoSecure -> do
+      let index = SecureTarIndex repoCtxt secureRepo
       -- NB: This may be a NoTimestamp if we've never updated before
-      current_ts <- currentIndexTimestamp (modifyVerbosityFlags lessVerbose verbosity) index
+      current_ts <- currentIndexTimestamp (modifyVerbosityFlags lessVerbose verbosity) repoCtxt secureRepo
       -- NB: always update the timestamp, even if we didn't actually
       -- download anything
-      writeIndexTimestamp index indexState
+      writeIndexTimestamp secureRepo indexState
 
       updated <- do
         ce <-
@@ -253,7 +252,7 @@ updateRepo verbosity repoCtxt (repo, indexState) = do
             else return Nothing
         Sec.uncheckClientErrors $ Sec.checkForUpdates repoSecure ce
 
-      let rname = remoteRepoName (repoRemote repo)
+      let rname = remoteRepoName (secureRepoRemote secureRepo)
 
       -- Update cabal's internal index as well so that it's not out of sync
       -- (If all access to the cache goes through hackage-security this can go)
@@ -273,7 +272,7 @@ updateRepo verbosity repoCtxt (repo, indexState) = do
       -- This resolves indexState (which could be HEAD) into a timestamp
       -- This could be null but should not be, since the above guarantees
       -- we have an updated index.
-      new_ts <- currentIndexTimestamp (modifyVerbosityFlags lessVerbose verbosity) index
+      new_ts <- currentIndexTimestamp (modifyVerbosityFlags lessVerbose verbosity) repoCtxt secureRepo
 
       noticeNoWrap verbosity $
         "The index-state is set to " ++ prettyShow (IndexStateTime new_ts) ++ "."

@@ -1216,14 +1216,14 @@ getPackageSourceHashes verbosity withRepoCtx solverPlan = do
       -- Tarballs from repositories, either where the repository provides
       -- hashes as part of the repo metadata, or where we will have to
       -- download and hash the tarball.
-      repoTarballPkgsWithMetadataUnvalidated :: [(Repo, [PackageId])]
+      repoTarballPkgsWithMetadataUnvalidated :: [(SecureRepo, [PackageId])]
       repoTarballPkgsWithoutMetadata :: [(Repo, PackageId)]
       ( repoTarballPkgsWithMetadataUnvalidated
         , repoTarballPkgsWithoutMetadata
         ) =
           partitionEithers
             [ case repo of
-              RepoSecure{} -> Left (repo, [pkgid])
+              RepoSecure secureRepo -> Left (secureRepo, [pkgid])
               _ -> Right (repo, pkgid)
             | (pkgid, RepoTarballPackage repo _ _) <- allPkgLocations
             ]
@@ -1257,7 +1257,9 @@ getPackageSourceHashes verbosity withRepoCtx solverPlan = do
           | (repo, pkgid) <- repoTarballPkgsWithoutMetadata
           ]
 
-  let repoTarballPkgsToDownload = repoTarballPkgsToDownloadWithMeta ++ repoTarballPkgsToDownloadWithNoMeta
+  let repoTarballPkgsToDownload =
+        [(RepoSecure repo, pkgid) | (repo, pkgid) <- repoTarballPkgsToDownloadWithMeta]
+          ++ repoTarballPkgsToDownloadWithNoMeta
   ( hashesFromRepoMetadata
     , repoTarballPkgsNewlyDownloaded
     ) <-
@@ -1291,8 +1293,8 @@ getPackageSourceHashes verbosity withRepoCtx solverPlan = do
                         ]
                   | (repo, pkgids) <-
                       map (\grp@((repo, _) :| _) -> (repo, map snd (NE.toList grp)))
-                        . NE.groupBy ((==) `on` (repoName . fst))
-                        . sortBy (compare `on` (repoName . fst))
+                        . NE.groupBy ((==) `on` (repoName . RepoSecure . fst))
+                        . sortBy (compare `on` (repoName . RepoSecure . fst))
                         $ repoTarballPkgsWithMetadata
                   ]
             )

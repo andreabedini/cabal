@@ -257,20 +257,20 @@ encodePlanAsJson distDirLayout elaboratedInstallPlan elaboratedSharedConfig =
         repoToJ :: Repo -> J.Value
         repoToJ repo =
           case repo of
-            RepoLocalNoIndex{..} ->
+            RepoLocalNoIndex NoIndexRepo{..} ->
               J.object
                 [ "type" J..= J.String "local-repo-no-index"
-                , "path" J..= J.String repoLocalDir
+                , "path" J..= J.String noIndexRepoCacheDir
                 ]
-            RepoRemote{..} ->
+            RepoRemote LegacyRepo{..} ->
               J.object
                 [ "type" J..= J.String "remote-repo"
-                , "uri" J..= J.String (show (remoteRepoURI repoRemote))
+                , "uri" J..= J.String (show (remoteRepoURI legacyRepoRemote))
                 ]
-            RepoSecure{..} ->
+            RepoSecure SecureRepo{..} ->
               J.object
                 [ "type" J..= J.String "secure-repo"
-                , "uri" J..= J.String (show (remoteRepoURI repoRemote))
+                , "uri" J..= J.String (show (remoteRepoURI secureRepoRemote))
                 ]
 
         elaboratedPackageToRevision :: ElaboratedConfiguredPackage -> Double

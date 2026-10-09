@@ -12,9 +12,15 @@ module Distribution.Client.Types.Repo
   , emptyLocalRepo
   , localRepoCacheKey
 
+    -- * Repositories, refined by kind
+  , NoIndexRepo (..)
+  , LegacyRepo (..)
+  , SecureRepo (..)
+
     -- * Repository
   , Repo (..)
   , repoName
+  , repoLocalDir
   , isRepoRemote
   , maybeRepoRemote
 
@@ -168,37 +174,76 @@ localRepoCacheKey local = unRepoName (localRepoName local) ++ "-" ++ hashPart
                 localRepoPath local
 
 -------------------------------------------------------------------------------
+-- Repositories, refined by kind
+-------------------------------------------------------------------------------
+
+-- | A @file+noindex@ repository: a directory of package tarballs (and
+-- optionally a @preferred-versions@ file), without an index tarball.
+--
+-- https://github.com/haskell/cabal/issues/6359
+data NoIndexRepo = NoIndexRepo
+  { noIndexRepoLocal :: LocalRepo
+  , noIndexRepoCacheDir :: FilePath
+  -- ^ Where we keep the @noindex.cache@ file. This is either the
+  -- repository directory itself or a directory in the shared cache, see
+  -- 'localRepoSharedCache'.
+  }
+  deriving (Show, Eq, Ord, Generic)
+
+instance Binary NoIndexRepo
+instance NFData NoIndexRepo
+instance Structured NoIndexRepo
+
+-- | A legacy (unsecured) remote repository, using the @00-index.tar@ format.
+--
+-- These indices carry no timestamps, so index-states are not supported.
+data LegacyRepo = LegacyRepo
+  { legacyRepoRemote :: RemoteRepo
+  , legacyRepoCacheDir :: FilePath
+  -- ^ Where we keep the downloaded index and package tarballs.
+  }
+  deriving (Show, Eq, Ord, Generic)
+
+instance Binary LegacyRepo
+instance NFData LegacyRepo
+instance Structured LegacyRepo
+
+-- | A secure remote repository, managed via @hackage-security@ and using the
+-- incremental @01-index.tar@ format.
+--
+-- TODO: Not all access to a secure repo goes through the hackage-security
+-- library currently; code paths that do not still make use of the
+-- 'secureRepoRemote' and 'secureRepoCacheDir' fields directly.
+data SecureRepo = SecureRepo
+  { secureRepoRemote :: RemoteRepo
+  , secureRepoCacheDir :: FilePath
+  -- ^ Where we keep the downloaded index, TUF metadata and package tarballs.
+  }
+  deriving (Show, Eq, Ord, Generic)
+
+instance Binary SecureRepo
+instance NFData SecureRepo
+instance Structured SecureRepo
+
+-------------------------------------------------------------------------------
 -- Any repository
 -------------------------------------------------------------------------------
 
 -- | Different kinds of repositories
 --
+-- Code that only makes sense for one kind of repository should take the
+-- corresponding refined type ('NoIndexRepo', 'LegacyRepo' or 'SecureRepo')
+-- rather than 'Repo', so that the case analysis happens once at the call site
+-- instead of being repeated (and partially handled) in every helper.
+--
 -- NOTE: It is important that this type remains serializable.
 data Repo
   = -- | Local repository, without index.
-    --
-    -- https://github.com/haskell/cabal/issues/6359
-    RepoLocalNoIndex
-      { repoLocal :: LocalRepo
-      , repoLocalDir :: FilePath
-      }
+    RepoLocalNoIndex NoIndexRepo
   | -- | Standard (unsecured) remote repositories
-    RepoRemote
-      { repoRemote :: RemoteRepo
-      , repoLocalDir :: FilePath
-      }
+    RepoRemote LegacyRepo
   | -- | Secure repositories
-    --
-    -- Although this contains the same fields as 'RepoRemote', we use a separate
-    -- constructor to avoid confusing the two.
-    --
-    -- TODO: Not all access to a secure repo goes through the hackage-security
-    -- library currently; code paths that do not still make use of the
-    -- 'repoRemote' and 'repoLocalDir' fields directly.
-    RepoSecure
-      { repoRemote :: RemoteRepo
-      , repoLocalDir :: FilePath
-      }
+    RepoSecure SecureRepo
   deriving (Show, Eq, Ord, Generic)
 
 instance Binary Repo
@@ -212,14 +257,21 @@ isRepoRemote _ = True
 
 -- | Extract @RemoteRepo@ from @Repo@ if remote.
 maybeRepoRemote :: Repo -> Maybe RemoteRepo
-maybeRepoRemote (RepoLocalNoIndex _ _localDir) = Nothing
-maybeRepoRemote (RepoRemote r _localDir) = Just r
-maybeRepoRemote (RepoSecure r _localDir) = Just r
+maybeRepoRemote (RepoLocalNoIndex _) = Nothing
+maybeRepoRemote (RepoRemote r) = Just (legacyRepoRemote r)
+maybeRepoRemote (RepoSecure r) = Just (secureRepoRemote r)
 
 repoName :: Repo -> RepoName
-repoName (RepoLocalNoIndex r _) = localRepoName r
-repoName (RepoRemote r _) = remoteRepoName r
-repoName (RepoSecure r _) = remoteRepoName r
+repoName (RepoLocalNoIndex r) = localRepoName (noIndexRepoLocal r)
+repoName (RepoRemote r) = remoteRepoName (legacyRepoRemote r)
+repoName (RepoSecure r) = remoteRepoName (secureRepoRemote r)
+
+-- | The directory where cabal keeps local state for the repository (index
+-- caches, downloaded tarballs, build reports, ...).
+repoLocalDir :: Repo -> FilePath
+repoLocalDir (RepoLocalNoIndex r) = noIndexRepoCacheDir r
+repoLocalDir (RepoRemote r) = legacyRepoCacheDir r
+repoLocalDir (RepoSecure r) = secureRepoCacheDir r
 
 -------------------------------------------------------------------------------
 
