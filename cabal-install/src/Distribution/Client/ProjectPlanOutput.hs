@@ -21,7 +21,7 @@ import Distribution.Client.ProjectBuilding.Types
 import Distribution.Client.ProjectPlanning.Types
 import Distribution.Client.Types.ConfiguredId (confInstId)
 import Distribution.Client.Types.PackageLocation (PackageLocation (..))
-import Distribution.Client.Types.Repo (RemoteRepo (..), Repo (..))
+import Distribution.Client.Types.Repo (LegacyRepo (..), NoIndexRepo (..), RemoteRepo (..), Repo (..), SecureRepo (..))
 import Distribution.Client.Types.SourceRepo (SourceRepoMaybe, SourceRepositoryPackage (..))
 import Distribution.Client.Version (cabalInstallVersion)
 

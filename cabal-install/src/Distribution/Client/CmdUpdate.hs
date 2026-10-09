@@ -17,7 +17,7 @@ import Distribution.Client.HttpUtils
   ( DownloadResult (..)
   )
 import Distribution.Client.IndexUtils
-  ( Index (..)
+  ( TarIndex (..)
   , currentIndexTimestamp
   , indexBaseName
   , updateNoIndexCache
@@ -52,9 +52,11 @@ import Distribution.Client.Setup
   , RepoContext (..)
   )
 import Distribution.Client.Types
-  ( RemoteRepo (..)
+  ( LegacyRepo (..)
+  , RemoteRepo (..)
   , Repo (..)
   , RepoName (..)
+  , SecureRepo (..)
   , repoName
   , unRepoName
   )
