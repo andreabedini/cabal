@@ -16,8 +16,10 @@ import Distribution.Solver.Types.SourcePackage
 -- It will get elaborated into a 'ConfiguredPackage' or even an
 -- 'ElaboratedConfiguredPackage'.
 --
--- NB: 'SolverPackage's are essentially always with 'UnresolvedPkgLoc',
--- but for symmetry we have the parameter.  (Maybe it can be removed.)
+-- NB: In cabal-install, 'SolverPackage's are always instantiated at
+-- 'UnresolvedPkgLoc'. The parameter is kept so that the solver remains
+-- parametric in the package location: it cannot inspect it, and
+-- cabal-install-solver does not depend on cabal-install's location types.
 --
 data SolverPackage loc = SolverPackage {
         solverPkgSource  :: SourcePackage loc,
