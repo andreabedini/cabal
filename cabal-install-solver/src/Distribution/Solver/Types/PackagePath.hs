@@ -3,6 +3,7 @@ module Distribution.Solver.Types.PackagePath
     , Namespace(..)
     , Qualifier(..)
     , dispQualifier
+    , dispPackagePath
     , Qualified(..)
     , QPN
     , dispQPN
@@ -13,12 +14,21 @@ import Distribution.Solver.Compat.Prelude
 import Prelude ()
 import Distribution.Package (PackageName)
 import Distribution.Pretty (pretty, flatStyle)
+import Distribution.Solver.Types.Stage (Stage (..), showStage)
 import qualified Text.PrettyPrint as Disp
 
--- | A package path consists of a namespace and a package path inside that
--- namespace.
-data PackagePath = PackagePath Namespace Qualifier
-  deriving (Eq, Ord, Show)
+-- | A package path consists of a build stage, a namespace, and a qualifier
+-- inside that namespace.
+--
+-- 'Stage' and 'Namespace' are two /orthogonal/ independence axes: the stage
+-- records whether a node is built for the build or the host system and changes
+-- as the solver crosses tool boundaries, whereas the namespace is fixed at the
+-- root of a top-level goal and inherited unchanged by all its dependencies.
+data PackagePath = PackagePath Stage Namespace Qualifier
+  deriving (Eq, Ord, Show, Generic)
+
+instance Binary PackagePath
+instance Structured PackagePath
 
 -- | Top-level namespace
 --
@@ -30,7 +40,16 @@ data Namespace =
 
     -- | A namespace for a specific build target
   | Independent PackageName
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Generic)
+
+instance Binary Namespace
+instance Structured Namespace
+
+-- | Pretty-prints a stage. The result is either empty (for the default 'Host'
+-- stage) or ends in a colon, so it can be prepended onto a namespace.
+dispStage :: Stage -> Disp.Doc
+dispStage Host = Disp.empty
+dispStage Build = Disp.text (showStage Build) <<>> Disp.text ":"
 
 -- | Pretty-prints a namespace. The result is either empty or
 -- ends in a period, so it can be prepended onto a qualifier.
@@ -68,7 +87,10 @@ data Qualifier =
     -- tracked only @pn2@, that would require us to pick only one
     -- version of an executable over the entire install plan.)
   | QualExe PackageName PackageName
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Generic)
+
+instance Binary Qualifier
+instance Structured Qualifier
 
 -- | Pretty-prints a qualifier. The result is either empty or
 -- ends in a period, so it can be prepended onto a package name.
@@ -94,8 +116,13 @@ type QPN = Qualified PackageName
 
 -- | Pretty-prints a qualified package name.
 dispQPN :: QPN -> Disp.Doc
-dispQPN (Q (PackagePath ns qual) pn) =
-  dispNamespace ns <<>> dispQualifier qual <<>> pretty pn
+dispQPN (Q pp pn) = dispPackagePath pp <<>> pretty pn
+
+-- | Pretty-prints a package path. The result is either empty or ends in a
+-- period, so it can be prepended onto a package name.
+dispPackagePath :: PackagePath -> Disp.Doc
+dispPackagePath (PackagePath stage ns qual) =
+  dispStage stage <<>> dispNamespace ns <<>> dispQualifier qual
 
 -- | String representation of a qualified package name.
 showQPN :: QPN -> String
