@@ -1,0 +1,26 @@
+cabal-version: 3.14
+name: setup-hooks-sublibrary-test
+version: 0.1
+build-type: Hooks
+
+custom-setup
+  setup-depends: base, Cabal, Cabal-hooks, directory, filepath
+
+library
+  exposed-modules: A
+  hs-source-dirs: src
+  build-depends: base, setup-hooks-sublibrary-test:sub
+  default-language: Haskell2010
+
+library sub
+  exposed-modules: B
+  autogen-modules: B
+  build-depends: base
+  default-language: Haskell2010
+
+-- Not to be confused with the setup of the package.
+executable setup
+  main-is: Main.hs
+  hs-source-dirs: exe
+  build-depends: base, setup-hooks-sublibrary-test
+  default-language: Haskell2010

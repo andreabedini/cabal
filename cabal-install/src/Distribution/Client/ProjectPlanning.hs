@@ -1814,12 +1814,10 @@ elaborateInstallPlan
           why_not_per_component g =
             cuz_buildtype ++ cuz_spec ++ cuz_length ++ cuz_flag
             where
-              -- Custom and Hooks are not implemented. Implementing
-              -- per-component builds with Custom would require us to create a
-              -- new 'ElabSetup' type, and teach all of the code paths how to
-              -- handle it.
-              -- Once you've implemented this, swap it for the code below.
-              -- (See #9986 for more information about this task.)
+              -- A package with a custom Setup.hs is built as a whole. Its
+              -- setup is a plan node of its own, which is what a
+              -- per-component build needed (#9986); what is not known is
+              -- whether every Setup.hs copes with configuring one component.
               cuz_buildtype =
                 case bt of
                   PD.Configure -> []
@@ -1830,9 +1828,12 @@ elaborateInstallPlan
                   -- Rejected above with a proper error.
                   PD.Make -> []
                   PD.Simple -> []
-                  -- TODO: remove the following, once we make Setup a separate
-                  -- component (task tracked at #9986).
-                  PD.Hooks -> [CuzBuildType CuzHooksBuildType]
+                  -- A Hooks package is built per component when its setup is
+                  -- linked against a Cabal library that lets a pre-build rule
+                  -- run a build tool of its own package in such a build.
+                  PD.Hooks
+                    | setupCliVersion (elabSetupScriptCliVersion elab0) >= mkVersion [3, 19] -> []
+                    | otherwise -> [CuzBuildType CuzHooksBuildType]
 
               -- cabal-format versions prior to 1.8 have different build-depends semantics
               -- for now it's easier to just fallback to legacy-mode when specVersion < 1.8

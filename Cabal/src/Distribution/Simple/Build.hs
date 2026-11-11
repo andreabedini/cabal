@@ -945,6 +945,10 @@ addInternalBuildTools pwd pkg lbi bi progs =
         { programOverrideEnv = [pkgDataDirVar]
         }
       | toolName <- getAllInternalToolDependencies pkg bi
+      , -- When this component is configured on its own, the executable is not
+      -- part of this build: it was built separately, and 'configure' found
+      -- it on the PATH.
+      not (null (componentNameCLBIs lbi (CExeName toolName)))
       , let toolName' = unUnqualComponentName toolName
       , let toolLocation =
               interpretSymbolicPathLBI lbi $

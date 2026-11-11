@@ -1102,11 +1102,16 @@ configurePackage verbHandles cfg lbc0 pkg_descr00 flags enabled comp platform pa
             -- 1. `build-tools` entries on the whitelist
             --
             -- 2. `build-tool-depends` that aren't from the current package.
+            --
+            -- 3. `build-tool-depends` from the current package, when a single
+            --    component is being configured: the executable is then a
+            --    separate build, already done, and on the PATH like the
+            --    executables of any other package.
             let externBuildToolDeps =
                   [ LegacyExeDependency (unUnqualComponentName eName) versionRange
                   | buildTool@(ExeDependency _ eName versionRange) <-
                       getAllToolDependencies pkg_descr0 bi
-                  , not $ isInternal pkg_descr0 buildTool
+                  , not (isInternal pkg_descr0 buildTool) || oneComponentRequested
                   ]
             -- Second, we collect any build-tools entry we don't know how to
             -- desugar. We'll never have any idea how to build them, so we just
@@ -1117,6 +1122,10 @@ configurePackage verbHandles cfg lbc0 pkg_descr00 flags enabled comp platform pa
                   , isNothing (desugarBuildTool pkg_descr0 buildTool)
                   ]
             externBuildToolDeps ++ unknownBuildTools
+
+      oneComponentRequested = case enabled of
+        OneComponentRequestedSpec{} -> True
+        ComponentRequestedSpec{} -> False
 
   programDb1 <-
     configureAllKnownPrograms (modifyVerbosityFlags lessVerbose verbosity) programDb0
