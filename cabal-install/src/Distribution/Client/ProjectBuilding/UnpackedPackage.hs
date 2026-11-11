@@ -940,7 +940,7 @@ buildAndInstallUnpackedPackage
         ElabComponent comp ->
           prettyShow pkgid
             ++ " ("
-            ++ maybe "custom" prettyShow (compComponentName comp)
+            ++ prettyShow (compComponentName comp)
             ++ ")"
 
       noticeProgress :: ProgressPhase -> IO ()

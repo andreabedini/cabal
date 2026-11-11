@@ -63,14 +63,10 @@ needElaboratedPackage elab epkg =
 
 needElaboratedComponent :: ElaboratedConfiguredPackage -> ElaboratedComponent -> Rebuild ()
 needElaboratedComponent elab ecomp =
-  case mb_comp of
-    Nothing -> needSetup
-    Just comp -> needComponent pkg_descr comp
+  needComponent pkg_descr (getComponent pkg_descr (compComponentName ecomp))
   where
     pkg_descr :: PackageDescription
     pkg_descr = elabPkgDescription elab
-    mb_comp :: Maybe Component
-    mb_comp = fmap (getComponent pkg_descr) (compComponentName ecomp)
 
 needComponent :: PackageDescription -> Component -> Rebuild ()
 needComponent pkg_descr comp =

@@ -565,9 +565,7 @@ elabRequiresRegistration :: ElaboratedConfiguredPackage -> Bool
 elabRequiresRegistration elab =
   case elabPkgOrComp elab of
     ElabComponent comp ->
-      case compComponentName comp of
-        Just cn -> is_lib cn && build_target
-        _ -> False
+      is_lib (compComponentName comp) && build_target
     ElabPackage pkg ->
       -- Tricky! Not only do we have to test if the user selected
       -- a library as a build target, we also have to test if
@@ -708,7 +706,7 @@ elabComponentName :: ElaboratedConfiguredPackage -> Maybe ComponentName
 elabComponentName elab =
   case elabPkgOrComp elab of
     ElabPackage _ -> Just $ CLibName LMainLibName -- there could be more, but default this
-    ElabComponent comp -> compComponentName comp
+    ElabComponent comp -> Just (compComponentName comp)
 
 -- | A user-friendly descriptor for an 'ElaboratedConfiguredPackage'.
 elabConfiguredName :: Verbosity -> ElaboratedConfiguredPackage -> String
@@ -718,9 +716,8 @@ elabConfiguredName verbosity elab
           ElabPackage _ -> ""
           ElabComponent comp ->
             case compComponentName comp of
-              Nothing -> "setup from "
-              Just (CLibName LMainLibName) -> ""
-              Just cname -> prettyShow cname ++ " from "
+              CLibName LMainLibName -> ""
+              cname -> prettyShow cname ++ " from "
       )
         ++ prettyShow (packageId elab)
   | otherwise =
@@ -733,7 +730,7 @@ elabDistDirParams shared elab =
     , distParamComponentId = elabComponentId elab
     , distParamPackageId = elabPkgSourceId elab
     , distParamComponentName = case elabPkgOrComp elab of
-        ElabComponent comp -> compComponentName comp
+        ElabComponent comp -> Just (compComponentName comp)
         ElabPackage _ -> Nothing
     , distParamCompilerId = compilerId (pkgConfigCompiler shared)
     , distParamPlatform = pkgConfigPlatform shared
@@ -863,9 +860,8 @@ elabInplaceDependencyBuildCacheFiles layout sconf plan root =
 data ElaboratedComponent = ElaboratedComponent
   { compSolverName :: CD.Component
   -- ^ The name of the component to be built according to the solver
-  , compComponentName :: Maybe ComponentName
-  -- ^ The name of the component to be built.  Nothing if
-  -- it's a setup dep.
+  , compComponentName :: ComponentName
+  -- ^ The name of the component to be built.
   , compLibDependencies :: [(ConfiguredId, Bool)]
   -- ^ The *external* library dependencies of this component.  We
   -- pass this to the configure script. The Bool indicates whether the

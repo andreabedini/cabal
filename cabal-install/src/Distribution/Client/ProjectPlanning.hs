@@ -299,15 +299,14 @@ sanityCheckElaboratedComponent
     assert
       ( isInplaceBuildStyle elabBuildStyle
           || case compComponentName of
-            Nothing -> True
-            Just (CLibName _) -> True
-            Just (CExeName _) -> True
+            CLibName _ -> True
+            CExeName _ -> True
             -- This is interesting: there's no way to declare a dependency
             -- on a foreign library at the moment, but you may still want
             -- to install these to the store
-            Just (CFLibName _) -> True
-            Just (CBenchName _) -> False
-            Just (CTestName _) -> False
+            CFLibName _ -> True
+            CBenchName _ -> False
+            CTestName _ -> False
       )
 
 sanityCheckElaboratedPackage
@@ -2010,7 +2009,7 @@ elaborateInstallPlan
               compOrderLibDependencies = error "buildComponent: compOrderLibDependencies"
 
               cname = Cabal.componentName comp
-              compComponentName = Just cname
+              compComponentName = cname
               compSolverName = CD.componentNameToComponent cname
 
               -- NB: compLinkedLibDependencies and
@@ -2101,11 +2100,9 @@ elaborateInstallPlan
                     <$> PD.executables (elabPkgDescription elab)
                 -- Per-component mode: just the selected exe
                 ElabComponent comp ->
-                  case fmap
-                    Cabal.componentNameString
-                    (compComponentName comp) of
-                    Just (Just n) -> [prettyShow n]
-                    _ -> [""]
+                  case Cabal.componentNameString (compComponentName comp) of
+                    Just n -> [prettyShow n]
+                    Nothing -> [""]
            in
             binDirectoryFor
               distDirLayout
@@ -2736,7 +2733,7 @@ ipiComponentName = CLibName . IPI.sourceLibName
 matchElabPkg :: (ComponentName -> Bool) -> ElaboratedConfiguredPackage -> Bool
 matchElabPkg p elab =
   case elabPkgOrComp elab of
-    ElabComponent comp -> maybe False p (compComponentName comp)
+    ElabComponent comp -> p (compComponentName comp)
     ElabPackage _ ->
       -- So, what should we do here?  One possibility is to
       -- unconditionally return 'True', because whatever it is
@@ -2782,9 +2779,8 @@ mkCCMapping =
        in ( packageName elab
           , case elabPkgOrComp elab of
               ElabComponent comp ->
-                case compComponentName comp of
-                  Nothing -> Map.empty
-                  Just n -> Map.singleton n (mk_aid n)
+                let n = compComponentName comp
+                 in Map.singleton n (mk_aid n)
               ElabPackage _ ->
                 Map.fromList $
                   map
@@ -3295,7 +3291,7 @@ availableSourceTargets elab =
         ElabPackage _ -> False
         ElabComponent elabComponent ->
           compComponentName elabComponent
-            /= Just cname
+            /= cname
 
     componentAvailableTargetStatus
       :: Component -> AvailableTargetStatus (UnitId, ComponentName)
@@ -3334,7 +3330,7 @@ availableSourceTargets elab =
           elabLocalToProject elab
             || case elabPkgOrComp elab of
               ElabComponent elabComponent ->
-                compComponentName elabComponent == Just cname
+                compComponentName elabComponent == cname
               ElabPackage _ ->
                 case componentName component of
                   CLibName LMainLibName -> True
@@ -4388,12 +4384,7 @@ setupHsConfigureArgs
   -> [String]
 setupHsConfigureArgs (ElaboratedConfiguredPackage{elabPkgOrComp = ElabPackage _}) = []
 setupHsConfigureArgs elab@(ElaboratedConfiguredPackage{elabPkgOrComp = ElabComponent comp}) =
-  [showComponentTarget (packageId elab) (ComponentTarget cname WholeComponent)]
-  where
-    cname =
-      fromMaybe
-        (error "setupHsConfigureArgs: trying to configure setup")
-        (compComponentName comp)
+  [showComponentTarget (packageId elab) (ComponentTarget (compComponentName comp) WholeComponent)]
 
 setupHsCommonFlags
   :: Verbosity

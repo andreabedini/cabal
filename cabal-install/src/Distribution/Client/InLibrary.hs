@@ -117,10 +117,8 @@ libraryConfigureInputsFromElabPackage
       , hooksExe = hooksExePath
       , compRequested =
           case elabPkgOrComp pkg of
-            ElabComponent elabComp
-              | Just elabCompNm <- compComponentName elabComp ->
-                  Just elabCompNm
-            _ -> Nothing
+            ElabComponent elabComp -> Just (compComponentName elabComp)
+            ElabPackage _ -> Nothing
       , localBuildConfig =
           LBC.LocalBuildConfig
             { LBC.extraConfigArgs = userTargets

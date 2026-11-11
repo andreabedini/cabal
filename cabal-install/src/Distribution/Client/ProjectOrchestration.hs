@@ -1155,7 +1155,7 @@ printPlan
 
       showComp :: ElaboratedConfiguredPackage -> ElaboratedComponent -> String
       showComp elab comp =
-        maybe "custom" prettyShow (compComponentName comp)
+        prettyShow (compComponentName comp)
           ++ if Map.null (elabInstantiatedWith elab)
             then ""
             else
