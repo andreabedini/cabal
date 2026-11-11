@@ -163,12 +163,12 @@ externalSetupHooksABI verb hooksExe =
 -- hooks. Those can be retrieved with 'buildTypePreBuildHooks'.
 buildTypeSetupHooks
   :: Verbosity
-  -> Maybe (SymbolicPath CWD (Dir Pkg))
-  -> SymbolicPath Pkg (Dir Dist)
+  -> FilePath
+  -- ^ path to the external hooks executable, used for @build-type: Hooks@
   -> BuildType
   -> SetupHooks
-buildTypeSetupHooks verb mbWorkDir distPref = \case
-  Hooks -> externalSetupHooks verb $ hooksProgFilePath mbWorkDir distPref
+buildTypeSetupHooks verb hooksExe = \case
+  Hooks -> externalSetupHooks verb hooksExe
   Configure -> autoconfSetupHooks
   _ -> noSetupHooks
     -- Note: if any built-in functionality is implemented using SetupHooks,
@@ -177,16 +177,16 @@ buildTypeSetupHooks verb mbWorkDir distPref = \case
 -- | The pre-build hooks obtained by communication with an external hooks executable.
 buildTypePreBuildHooks
   :: VerbosityHandles
-  -> Maybe (SymbolicPath CWD (Dir Pkg))
-  -> SymbolicPath Pkg (Dir Dist)
+  -> FilePath
+  -- ^ path to the external hooks executable, used for @build-type: Hooks@
   -> BuildType
   -> ( PreBuildComponentInputs -> IO [MonitorFilePath] )
-buildTypePreBuildHooks verbHandles mbWorkDir distPref bt pbci = do
+buildTypePreBuildHooks verbHandles hooksExe bt pbci = do
   builtinMons <- builtinPreBuildHooks bt pbci
   externalMons <- case bt of
     Hooks ->
       runExternalPreBuildRules verbHandles
-        (hooksProgFilePath mbWorkDir distPref)
+        hooksExe
         pbci
     _ -> return []
   return (builtinMons ++ externalMons)

@@ -31,7 +31,6 @@ import Distribution.Simple.Build (build_setupHooks, repl_setupHooks)
 import qualified Distribution.Simple.Configure as Cabal
 import Distribution.Simple.Haddock (haddock_setupHooks)
 import Distribution.Simple.Install (install_setupHooks)
-import Distribution.Simple.LocalBuildInfo (mbWorkDirLBI)
 import Distribution.Simple.PackageIndex (InstalledPackageIndex)
 import qualified Distribution.Simple.PreProcess as Cabal
 import Distribution.Simple.Program.Db
@@ -65,6 +64,8 @@ data LibraryConfigureInputs = LibraryConfigureInputs
   , compiler :: Compiler
   , platform :: Platform
   , buildType :: BuildType
+  , hooksExe :: FilePath
+  -- ^ Path to the external hooks executable, used for @build-type: Hooks@.
   , compRequested :: Maybe PD.ComponentName
   , localBuildConfig :: LBC.LocalBuildConfig
   , packageDBStack :: PackageDBStackCWD
@@ -77,6 +78,8 @@ data LibraryConfigureInputs = LibraryConfigureInputs
 libraryConfigureInputsFromElabPackage
   :: VerbosityHandles
   -> BuildType
+  -> FilePath
+  -- ^ path to the external hooks executable
   -> ProgramDb
   -> ElaboratedSharedConfig
   -> ElaboratedReadyPackage
@@ -87,6 +90,7 @@ libraryConfigureInputsFromElabPackage
 libraryConfigureInputsFromElabPackage
   verbHandles
   bt
+  hooksExePath
   progDb
   -- NB: don't use the ProgramDb from the ElaboratedSharedConfig;
   -- that one is only for the compiler itself and not for the package.
@@ -110,6 +114,7 @@ libraryConfigureInputsFromElabPackage
           --
           -- See also 'isMainLibOrExeComponent'.
           bt
+      , hooksExe = hooksExePath
       , compRequested =
           case elabPkgOrComp pkg of
             ElabComponent elabComp
@@ -149,6 +154,7 @@ configure
     , platform = plat
     , compiler = compil
     , buildType = bt
+    , hooksExe = hooksExePath
     , compRequested = mbComp
     , localBuildConfig = lbc0
     , packageDBStack = packageDBs
@@ -168,10 +174,9 @@ configure
     let verbFlags = Cabal.fromFlag $ Cabal.configVerbosity cfg
         verbosity = mkVerbosity verbHandles verbFlags
         mbWorkDir = Cabal.flagToMaybe $ Cabal.configWorkingDir cfg
-        distPref = Cabal.fromFlag $ Cabal.configDistPref cfg
         confHooks =
           configureHooks $
-            ExternalHooksExe.buildTypeSetupHooks verbosity mbWorkDir distPref bt
+            ExternalHooksExe.buildTypeSetupHooks verbosity hooksExePath bt
 
     let pkgId :: PD.PackageIdentifier
         pkgId = PD.package pkgDescr
@@ -245,18 +250,20 @@ configure
 
 build
   :: VerbosityHandles
+  -> FilePath
+  -- ^ path to the external hooks executable
   -> Cabal.BuildFlags
   -> LocalBuildInfo
   -> [String]
   -> IO [MonitorFilePath]
-build verbHandles flags lbi _args =
+build verbHandles hooksExePath flags lbi _args =
   build_setupHooks (preBuildHook, postBuildHook) verbHandles pkgDescr lbi flags Cabal.knownSuffixHandlers
   where
     verb = mkVerbosity verbHandles $ Cabal.fromFlag $ Cabal.buildVerbosity flags
-    hooks = ExternalHooksExe.buildTypeSetupHooks verb mbWorkDir distPref bt
+    hooks = ExternalHooksExe.buildTypeSetupHooks verb hooksExePath bt
     -- (Recall that pre-build hooks are treated specially;
     -- see the 'buildTypeSetupHooks' and 'buildTypePreBuildHooks' functions.)
-    preBuildHook = ExternalHooksExe.buildTypePreBuildHooks verbHandles mbWorkDir distPref bt
+    preBuildHook = ExternalHooksExe.buildTypePreBuildHooks verbHandles hooksExePath bt
     postBuildHook
       | Just postBuild <- postBuildComponentHook $ buildHooks hooks =
           postBuild
@@ -264,63 +271,61 @@ build verbHandles flags lbi _args =
           const $ return ()
     pkgDescr = localPkgDescr lbi
     bt = PD.buildType pkgDescr
-    mbWorkDir = mbWorkDirLBI lbi
-    distPref = Cabal.fromFlag $ Cabal.buildDistPref flags
 
 --------------------------------------------------------------------------------
 -- Haddock
 
 haddock
   :: VerbosityHandles
+  -> FilePath
+  -- ^ path to the external hooks executable
   -> Cabal.HaddockFlags
   -> LocalBuildInfo
   -> [String]
   -> IO [MonitorFilePath]
-haddock verbHandles flags lbi _args =
+haddock verbHandles hooksExePath flags lbi _args =
   haddock_setupHooks preBuildHook verbHandles pkgDescr lbi Cabal.knownSuffixHandlers flags
   where
-    preBuildHook = ExternalHooksExe.buildTypePreBuildHooks verbHandles mbWorkDir distPref bt
+    preBuildHook = ExternalHooksExe.buildTypePreBuildHooks verbHandles hooksExePath bt
     pkgDescr = localPkgDescr lbi
     bt = PD.buildType pkgDescr
-    mbWorkDir = mbWorkDirLBI lbi
-    distPref = Cabal.fromFlag $ Cabal.haddockDistPref flags
 
 --------------------------------------------------------------------------------
 -- Repl
 
 repl
   :: VerbosityHandles
+  -> FilePath
+  -- ^ path to the external hooks executable
   -> Cabal.ReplFlags
   -> LocalBuildInfo
   -> [String]
   -> IO [MonitorFilePath]
-repl verbHandles flags lbi _args =
+repl verbHandles hooksExePath flags lbi _args =
   repl_setupHooks preBuildHook verbHandles pkgDescr lbi flags Cabal.knownSuffixHandlers []
   where
-    preBuildHook = ExternalHooksExe.buildTypePreBuildHooks verbHandles mbWorkDir distPref bt
+    preBuildHook = ExternalHooksExe.buildTypePreBuildHooks verbHandles hooksExePath bt
     pkgDescr = localPkgDescr lbi
     bt = PD.buildType pkgDescr
-    mbWorkDir = mbWorkDirLBI lbi
-    distPref = Cabal.fromFlag $ Cabal.replDistPref flags
 
 --------------------------------------------------------------------------------
 -- Copy
 
 copy
   :: VerbosityHandles
+  -> FilePath
+  -- ^ path to the external hooks executable
   -> Cabal.CopyFlags
   -> LocalBuildInfo
   -> [String]
   -> IO ()
-copy verbHandles flags lbi _args =
+copy verbHandles hooksExePath flags lbi _args =
   install_setupHooks hooks verbHandles pkgDescr lbi flags
   where
     verb = mkVerbosity verbHandles $ Cabal.fromFlag $ Cabal.copyVerbosity flags
-    hooks = installHooks $ ExternalHooksExe.buildTypeSetupHooks verb mbWorkDir distPref bt
+    hooks = installHooks $ ExternalHooksExe.buildTypeSetupHooks verb hooksExePath bt
     pkgDescr = localPkgDescr lbi
     bt = PD.buildType pkgDescr
-    mbWorkDir = mbWorkDirLBI lbi
-    distPref = Cabal.fromFlag $ Cabal.copyDistPref flags
 
 --------------------------------------------------------------------------------
 -- Test, bench, register.

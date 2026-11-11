@@ -640,6 +640,7 @@ setupWrapper verbosity options mpkg cmd getCommonFlags getFlags getExtraArgs wra
   let
     verbHandles = verbosityHandles verbosity
     extraArgs = getExtraArgs version
+    hooksExe = hooksProgFilePath (useWorkingDir options) (useDistPref options)
   case setupMethod setup of
     ExternalMethod path -> do
       runSetupCommand verbosity setup{setupMethod = ExternalMethod path}
@@ -692,6 +693,7 @@ setupWrapper verbosity options mpkg cmd getCommonFlags getFlags getExtraArgs wra
           (InLibrary.libraryConfigureInputsFromElabPackage
              verbHandles
              (setupBuildType setup)
+             hooksExe
              setupProgDb
              elabSharedConfig
              elabReadyPkg
@@ -716,10 +718,10 @@ setupWrapper verbosity options mpkg cmd getCommonFlags getFlags getExtraArgs wra
       return (Just lbi)
     LibraryMethod (InLibraryPostConfigureArgs sPhase lbi) ->
       case sPhase of
-        SBuildPhase    -> InLibrary.build    verbHandles flags lbi extraArgs
-        SHaddockPhase  -> InLibrary.haddock  verbHandles flags lbi extraArgs
-        SReplPhase     -> InLibrary.repl     verbHandles flags lbi extraArgs
-        SCopyPhase     -> InLibrary.copy     verbHandles flags lbi extraArgs
+        SBuildPhase    -> InLibrary.build    verbHandles hooksExe flags lbi extraArgs
+        SHaddockPhase  -> InLibrary.haddock  verbHandles hooksExe flags lbi extraArgs
+        SReplPhase     -> InLibrary.repl     verbHandles hooksExe flags lbi extraArgs
+        SCopyPhase     -> InLibrary.copy     verbHandles hooksExe flags lbi extraArgs
         STestPhase     -> InLibrary.test     verbHandles flags lbi extraArgs
         SBenchPhase    -> InLibrary.bench    verbHandles flags lbi extraArgs
         SRegisterPhase -> InLibrary.register             flags lbi extraArgs
