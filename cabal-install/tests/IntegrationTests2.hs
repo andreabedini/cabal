@@ -1920,6 +1920,11 @@ testSetupScriptStyles config reportSubCase = do
       pkg1 <- expectPackageInstalled plan1 res1 pkgidA
       elabSetupScriptStyle pkg1 @?= SetupCustomExplicitDeps
       hasDefaultSetupDeps pkg1 @?= Just False
+      -- The setup is a node of the plan, and it was built.
+      setup1 <- maybe (assertFailure "expected a setup node") return (elabSetupOf plan1 pkg1)
+      case Map.lookup (installedUnitId setup1) res1 of
+        Just (Right _) -> return ()
+        _ -> assertFailure "expected the setup to be built"
       marker1 <- readFile (basedir </> testdir1 </> "marker")
       marker1 @?= "ok"
       removeFileForcibly (basedir </> testdir1 </> "marker")
@@ -1939,6 +1944,8 @@ testSetupScriptStyles config reportSubCase = do
       (plan3, res3) <- executePlan =<< planProject testdir3 config
       pkg3 <- expectPackageInstalled plan3 res3 pkgidA
       elabSetupScriptStyle pkg3 @?= SetupNonCustomInternalLib
+      -- Nothing to compile, so no setup node.
+      elabSetupDependency pkg3 @?= Nothing
   where
     {-
         --TODO: the SetupNonCustomExternalLib case is hard to test since it
@@ -2117,6 +2124,8 @@ filterConfiguredPackages [] = []
 filterConfiguredPackages (InstallPlan.PreExisting _ : pkgs) = filterConfiguredPackages pkgs
 filterConfiguredPackages (InstallPlan.Installed (ElabUnit elab) : pkgs) = elab : filterConfiguredPackages pkgs
 filterConfiguredPackages (InstallPlan.Configured (ElabUnit elab) : pkgs) = elab : filterConfiguredPackages pkgs
+filterConfiguredPackages (InstallPlan.Installed (ElabSetup _) : pkgs) = filterConfiguredPackages pkgs
+filterConfiguredPackages (InstallPlan.Configured (ElabSetup _) : pkgs) = filterConfiguredPackages pkgs
 
 getProgArgs :: [ElaboratedConfiguredPackage] -> String -> Maybe [String]
 getProgArgs [] _ = Nothing
@@ -2426,6 +2435,8 @@ expectPlanPackage plan pkgid =
   case [ pkg
        | pkg <- InstallPlan.toList plan
        , packageId pkg == pkgid
+       , -- the package itself, not its setup
+       not (isSetupPlanPackage pkg)
        ] of
     [pkg] -> return pkg
     [] ->

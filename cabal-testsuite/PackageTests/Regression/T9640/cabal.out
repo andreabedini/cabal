@@ -5,6 +5,7 @@ Warning: The package description file ./depend-on-custom-with-exe.cabal has warn
 Resolving dependencies...
 Build profile: -w ghc-<GHCVER> -O1
 In order, the following will be built:
+ - one-custom-0.1.0.0 (setup) (requires build)
  - one-custom-0.1.0.0 (lib:one-custom) (requires build)
  - depend-on-custom-with-exe-0.1.0.0 (lib) (first run)
 Configuring one-custom-0.1.0.0...

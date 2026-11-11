@@ -126,10 +126,13 @@ genBoundsAction flags targetStrings globalFlags =
 
       -- Step 4b: Extract which versions we chose for each package from the pruned install plan.
       pkgVersionMap :: Map.Map ComponentId PackageIdentifier
-      pkgVersionMap = Map.fromList (map (InstallPlan.foldPlanPackage externalVersion (foldElabNode localVersion)) (InstallPlan.toList elaboratedPlan'))
+      pkgVersionMap = Map.fromList (map (InstallPlan.foldPlanPackage externalVersion (foldElabNode localVersion setupVersion)) (InstallPlan.toList elaboratedPlan'))
 
       externalVersion :: InstalledPackageInfo -> (ComponentId, PackageIdentifier)
       externalVersion pkg = (installedComponentId pkg, packageId pkg)
+
+      setupVersion :: ElaboratedSetup -> (ComponentId, PackageIdentifier)
+      setupVersion elabSetup = (elabSetupComponentId elabSetup, packageId elabSetup)
 
       localVersion :: ElaboratedConfiguredPackage -> (ComponentId, PackageIdentifier)
       localVersion pkg = (elabComponentId pkg, packageId pkg)

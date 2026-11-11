@@ -10,7 +10,7 @@
 -- We can only use this code for non-Custom scripts; Custom scripts
 -- may have arbitrary extra dependencies (esp. new preprocessors) which
 -- we cannot "see" easily.
-module Distribution.Client.SourceFiles (needElaboratedConfiguredPackage) where
+module Distribution.Client.SourceFiles (needElaboratedConfiguredPackage, needSetup) where
 
 import Control.Monad ((>=>))
 import Control.Monad.IO.Class
@@ -81,10 +81,12 @@ needComponent pkg_descr comp =
     CTest test -> needTestSuite pkg_descr test
     CBench bench -> needBenchmark pkg_descr bench
 
+-- | The source of a package's setup: its @Setup.hs@ or its @SetupHooks.hs@,
+-- whichever the package has.
 needSetup :: Rebuild ()
 needSetup = do
-  void $ findFirstFileMonitored id ["Setup.hs", "Setup.lhs"]
-  void $ findFirstFileMonitored id ["SetupHooks.hs", "SetupHooks.lhs"]
+  findFirstFileMonitored id ["Setup.hs", "Setup.lhs"] >>= traverse_ need
+  findFirstFileMonitored id ["SetupHooks.hs", "SetupHooks.lhs"] >>= traverse_ need
 
 needLibrary :: PackageDescription -> Library -> Rebuild ()
 needLibrary

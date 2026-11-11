@@ -20,12 +20,16 @@ import Distribution.Client.Types hiding
   )
 
 import Distribution.InstalledPackageInfo (InstalledPackageInfo)
+import Distribution.Simple.BuildPaths (exeExtension)
 import Distribution.Simple.LocalBuildInfo
   ( ComponentName (..)
   )
 import Distribution.Simple.Utils (removeFileForcibly)
+import Distribution.System (buildPlatform)
 
 import qualified Data.Set as Set
+import System.Directory (doesFileExist)
+import System.FilePath ((<.>), (</>))
 
 -----------------------------
 -- Package change detection
@@ -134,12 +138,15 @@ checkPackageFileMonitorChanged
   :: PackageFileMonitor
   -> ElaboratedConfiguredPackage
   -> FilePath
+  -> Bool
+  -- ^ Is the setup of the package going to be rebuilt?
   -> [BuildStatus]
   -> IO (Either BuildStatusRebuild BuildResult)
 checkPackageFileMonitorChanged
   PackageFileMonitor{..}
   pkg
   srcdir
+  setupRequiresBuild
   depsBuildStatus = do
     -- TODO: [nice to have] some debug-level message about file
     -- changes, like rerunIfChanged
@@ -150,8 +157,14 @@ checkPackageFileMonitorChanged
         pkgconfig
     case configChanged of
       MonitorChanged monitorReason ->
-        return (Left (BuildStatusConfigure $ void monitorReason))
+        return (Left (BuildStatusConfigure $ ConfigureMonitorChanged $ void monitorReason))
       MonitorUnchanged () _
+        -- A package is configured by its setup, so a new setup means
+        -- configuring again. The configuration monitor only notices once the
+        -- new setup exists (see 'updatePackageConfigFileMonitor'), which is
+        -- after this check.
+        | setupRequiresBuild ->
+            return (Left (BuildStatusConfigure ConfigureSetupRebuilt))
         -- The configChanged here includes the identity of the dependencies,
         -- so depsBuildStatus is just needed for the changes in the content
         -- of dependencies.
@@ -213,16 +226,23 @@ updatePackageConfigFileMonitor
   :: PackageFileMonitor
   -> FilePath
   -> ElaboratedConfiguredPackage
+  -> Maybe ElaboratedSetup
+  -- ^ The setup the package is configured with, if it has one
   -> IO ()
 updatePackageConfigFileMonitor
   PackageFileMonitor{pkgFileMonitorConfig}
   srcdir
-  pkg =
+  pkg
+  mElabSetup = do
+    -- The package has to be configured again when its setup changes. That
+    -- holds even if this run stops before it gets to do so, hence a monitor
+    -- on the setup that outlives the run.
+    setupMonitors <- maybe (return []) setupExeMonitors mElabSetup
     updateFileMonitor
       pkgFileMonitorConfig
       srcdir
       Nothing
-      []
+      setupMonitors
       pkgconfig
       ()
     where
@@ -288,3 +308,75 @@ updatePackageRegFileMonitor
 invalidatePackageRegFileMonitor :: PackageFileMonitor -> IO ()
 invalidatePackageRegFileMonitor PackageFileMonitor{pkgFileMonitorReg} =
   removeFileForcibly (fileMonitorCacheFile pkgFileMonitorReg)
+
+--------------------------------------------------------------------------------
+
+-- * The file monitor of a setup
+
+--------------------------------------------------------------------------------
+
+-- | Says whether a setup built in the project's build directory is up to
+-- date. Its value is the setup it was built for; the files are the sources
+-- of the setup, the executables built from them, and what tells that an
+-- inplace dependency was rebuilt.
+newSetupFileMonitor
+  :: ElaboratedSharedConfig
+  -> DistDirLayout
+  -> ElaboratedSetup
+  -> FileMonitor ElaboratedSetup ()
+newSetupFileMonitor shared layout elabSetup =
+  newFileMonitor (elabSetupMonitorFile layout shared elabSetup)
+
+-- | Does a setup need rebuilding?
+checkSetupFileMonitorChanged
+  :: FileMonitor ElaboratedSetup ()
+  -> ElaboratedSetup
+  -> FilePath
+  -> [BuildStatus]
+  -> IO (Either BuildStatusRebuild BuildResult)
+checkSetupFileMonitorChanged monitor elabSetup srcdir depsBuildStatus = do
+  changed <- checkFileMonitorChanged monitor srcdir elabSetup
+  -- The executable is not a monitored file: it is written during the build,
+  -- which the monitor takes for a change.
+  setupExeExists <- doesFileExist setupExe
+  return $ case changed of
+    MonitorChanged monitorReason ->
+      Left (BuildStatusBuild Nothing (BuildReasonFilesChanged (void monitorReason)))
+    MonitorUnchanged () _
+      | any buildStatusRequiresBuild depsBuildStatus ->
+          Left (BuildStatusBuild Nothing BuildReasonDepsRebuilt)
+      | not setupExeExists ->
+          Left (BuildStatusBuild Nothing (BuildReasonFilesChanged (MonitoredFileChanged setupExe)))
+      | otherwise ->
+          Right
+            BuildResult
+              { buildResultDocs = DocsNotTried
+              , buildResultTests = TestsNotTried
+              , buildResultLogFile = Nothing
+              , buildResultBenchmark = Nothing
+              }
+  where
+    setupExe = elabSetupExeDir elabSetup </> "setup" <.> exeExtension buildPlatform
+
+updateSetupFileMonitor
+  :: FileMonitor ElaboratedSetup ()
+  -> FilePath
+  -> MonitorTimestamp
+  -> ElaboratedSetup
+  -> [MonitorFilePath]
+  -> IO ()
+updateSetupFileMonitor monitor srcdir timestamp elabSetup monitors =
+  updateFileMonitor monitor srcdir (Just timestamp) monitors elabSetup ()
+
+-- | Monitors on the executables of a setup: they change when the setup is
+-- built anew and comes out different.
+setupExeMonitors :: ElaboratedSetup -> IO [MonitorFilePath]
+setupExeMonitors elabSetup =
+  for ["setup", "hooks"] $ \name -> do
+    let exe = elabSetupExeDir elabSetup </> name <.> exeExtension buildPlatform
+    -- A setup need not have a hooks executable.
+    exists <- doesFileExist exe
+    return $
+      if exists
+        then monitorFileHashed exe
+        else monitorNonExistentFile exe

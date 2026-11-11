@@ -1122,6 +1122,16 @@ printPlan
         | otherwise = "will"
 
       showPkgAndReason :: GenericReadyPackage ElaboratedNode -> String
+      showPkgAndReason (ReadyPackage (ElabSetup elabSetup)) =
+        unwords
+          [ " -"
+          , if verbosityLevel verbosity >= Deafening
+              then prettyShow (installedUnitId elabSetup)
+              else prettyShow (packageId elabSetup)
+          , "(setup)"
+          , let buildStatus = pkgsBuildStatus Map.! installedUnitId elabSetup
+             in "(" ++ showBuildStatus buildStatus ++ ")"
+          ]
       showPkgAndReason (ReadyPackage (ElabUnit elab)) =
         unwords $
           filter
@@ -1226,8 +1236,9 @@ printPlan
         BuildStatusUnpack{} -> "requires build"
         BuildStatusRebuild _ rebuild -> case rebuild of
           BuildStatusConfigure
-            (MonitoredValueChanged _) -> "configuration changed"
-          BuildStatusConfigure mreason -> showMonitorChangedReason mreason
+            (ConfigureMonitorChanged (MonitoredValueChanged _)) -> "configuration changed"
+          BuildStatusConfigure (ConfigureMonitorChanged mreason) -> showMonitorChangedReason mreason
+          BuildStatusConfigure ConfigureSetupRebuilt -> "setup rebuilt"
           BuildStatusBuild _ buildreason -> case buildreason of
             BuildReasonDepsRebuilt -> "dependency rebuilt"
             BuildReasonFilesChanged
@@ -1268,7 +1279,11 @@ writeBuildReports settings buildContext plan buildOutcomes = do
         let installOutcome = case result of
               Left bf -> case buildFailureReason bf of
                 GracefulFailure _ -> BuildReports.PlanningFailed
-                DependentFailed p -> BuildReports.DependencyFailed p
+                DependentFailed p
+                  -- A setup that does not compile used to be a failure to
+                  -- configure the package.
+                  | setupFailed pkg -> BuildReports.ConfigureFailed
+                  | otherwise -> BuildReports.DependencyFailed p
                 DownloadFailed _ -> BuildReports.DownloadFailed
                 UnpackFailed _ -> BuildReports.UnpackFailed
                 ConfigureFailed _ -> BuildReports.ConfigureFailed
@@ -1298,6 +1313,17 @@ writeBuildReports settings buildContext plan buildOutcomes = do
                 TestsOk -> BuildReports.Ok
          in Just (BuildReports.BuildReport (packageId pkg) os arch (compilerId comp) cabalInstallID (elabFlagAssignment pkg) (map (packageId . fst) $ elabLibDependencies pkg) installOutcome docsOutcome testsOutcome, getRepo . elabPkgSourceLocation $ pkg) -- TODO handle failure log files?
       fromPlanPackage _ _ = Nothing
+
+      -- Did the setup of the package itself fail to build?
+      setupFailed pkg =
+        or
+          [ True
+          | setup <- elabOrderSetupDependencies pkg
+          , Just (Left failure) <- [Map.lookup setup buildOutcomes]
+          , case buildFailureReason failure of
+              DependentFailed _ -> False
+              _ -> True
+          ]
       buildReports = mapMaybe (\x -> fromPlanPackage x (InstallPlan.lookupBuildOutcome x buildOutcomes)) $ InstallPlan.toList plan
 
   BuildReports.storeLocal
@@ -1357,14 +1383,14 @@ dieOnBuildFailures verbosity currentCommand plan buildOutcomes
       | (pkgid, Left failure) <- Map.toList buildOutcomes
       ]
 
-    failuresClassification :: [(ElaboratedConfiguredPackage, BuildFailurePresentation)]
+    failuresClassification :: [(ElaboratedNode, BuildFailurePresentation)]
     failuresClassification =
       [ (pkg, classifyBuildFailure failure)
       | (pkgid, failure) <- failures
       , case buildFailureReason failure of
           DependentFailed{} -> verbosityLevel verbosity > Normal
           _ -> True
-      , InstallPlan.Configured (ElabUnit pkg) <-
+      , InstallPlan.Configured pkg <-
           maybeToList (InstallPlan.lookup plan pkgid)
       ]
 
@@ -1428,10 +1454,10 @@ dieOnBuildFailures verbosity currentCommand plan buildOutcomes
       | Just (ExitFailure 1) <- fromException e = True
     isFailureSelfExplanatory _ = False
 
-    rootpkgs :: [ElaboratedConfiguredPackage]
+    rootpkgs :: [ElaboratedNode]
     rootpkgs =
       [ pkg
-      | InstallPlan.Configured (ElabUnit pkg) <- InstallPlan.toList plan
+      | InstallPlan.Configured pkg <- InstallPlan.toList plan
       , hasNoDependents pkg
       ]
 
@@ -1446,14 +1472,14 @@ dieOnBuildFailures verbosity currentCommand plan buildOutcomes
     hasNoDependents :: HasUnitId pkg => pkg -> Bool
     hasNoDependents = null . InstallPlan.revDirectDeps plan . installedUnitId
 
-    renderFailureDetail :: Bool -> ElaboratedConfiguredPackage -> BuildFailureReason -> String
+    renderFailureDetail :: Bool -> ElaboratedNode -> BuildFailureReason -> String
     renderFailureDetail mentionDepOf pkg reason =
       renderFailureSummary mentionDepOf pkg reason
         ++ "."
         ++ renderFailureExtraDetail reason
         ++ maybe "" showException (buildFailureException reason)
 
-    renderFailureSummary :: Bool -> ElaboratedConfiguredPackage -> BuildFailureReason -> String
+    renderFailureSummary :: Bool -> ElaboratedNode -> BuildFailureReason -> String
     renderFailureSummary mentionDepOf pkg reason =
       case reason of
         DownloadFailed _ -> "Failed to download " ++ pkgstr
@@ -1466,15 +1492,26 @@ dieOnBuildFailures verbosity currentCommand plan buildOutcomes
         BenchFailed _ -> "Benchmarks failed for " ++ pkgstr
         InstallFailed _ -> "Failed to build " ++ pkgstr
         GracefulFailure msg -> msg
-        DependentFailed depid ->
-          "Failed to build "
-            ++ prettyShow (packageId pkg)
-            ++ " because it depends on "
-            ++ prettyShow depid
-            ++ " which itself failed to build"
+        DependentFailed depid
+          | setupFailed ->
+              "Failed to build "
+                ++ prettyShow (packageId pkg)
+                ++ " because its setup failed to build"
+          | otherwise ->
+              "Failed to build "
+                ++ prettyShow (packageId pkg)
+                ++ " because it depends on "
+                ++ prettyShow depid
+                ++ " which itself failed to build"
       where
+        setupFailed =
+          or
+            [ True
+            | setup <- foldElabNode elabOrderSetupDependencies (const []) pkg
+            , Just (Left _) <- [Map.lookup setup buildOutcomes]
+            ]
         pkgstr =
-          elabConfiguredName verbosity pkg
+          elabNodeName verbosity pkg
             ++ if mentionDepOf
               then renderDependencyOf (installedUnitId pkg)
               else ""

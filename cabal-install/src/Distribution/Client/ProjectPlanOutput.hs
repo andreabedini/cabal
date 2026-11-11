@@ -127,8 +127,8 @@ encodePlanAsJson distDirLayout elaboratedInstallPlan elaboratedSharedConfig =
     planPackageToJ pkg =
       case pkg of
         InstallPlan.PreExisting ipi -> installedPackageInfoToJ ipi
-        InstallPlan.Configured node -> foldElabNode (elaboratedPackageToJ False) node
-        InstallPlan.Installed node -> foldElabNode (elaboratedPackageToJ True) node
+        InstallPlan.Configured node -> foldElabNode (elaboratedPackageToJ False) (elaboratedSetupToJ False) node
+        InstallPlan.Installed node -> foldElabNode (elaboratedPackageToJ True) (elaboratedSetupToJ True) node
     -- Note that the plan.json currently only uses the elaborated plan,
     -- not the improved plan. So we will not get the Installed state for
     -- that case, but the code supports it in case we want to use this
@@ -187,6 +187,9 @@ encodePlanAsJson distDirLayout elaboratedInstallPlan elaboratedSharedConfig =
                   -- TODO: install dirs?
                   []
              )
+          ++ [ "setup-depends" J..= [jdisplay setup]
+             | Just setup <- [elabSetupDependency elab]
+             ]
           ++ case elabPkgOrComp elab of
             ElabPackage pkg ->
               let components =
@@ -204,6 +207,15 @@ encodePlanAsJson distDirLayout elaboratedInstallPlan elaboratedSharedConfig =
                               (pkgLibDependencies pkg)
                               (pkgExeDependencies pkg)
                       ]
+                        -- The setup is a node of its own, but its
+                        -- dependencies used to be listed here.
+                        ++ [ comp2str ComponentDeps.ComponentSetup
+                            J..= J.object
+                              [ "depends" J..= map (jdisplay . confInstId) (elabSetupLibDependencies elabSetup)
+                              , "exe-depends" J..= ([] :: [J.Value])
+                              ]
+                           | Just elabSetup <- [elabSetupOf elaboratedInstallPlan elab]
+                           ]
                in ["components" J..= components]
             ElabComponent comp ->
               [ "depends" J..= map ((jdisplay . confInstId) . fst) (elabLibDependencies elab)
@@ -225,73 +237,6 @@ encodePlanAsJson distDirLayout elaboratedInstallPlan elaboratedSharedConfig =
               "build-info" J..= J.Null
           | otherwise =
               "build-info" J..= J.String (getSymbolicPath $ buildInfoPref $ makeSymbolicPath dist_dir)
-
-        packageLocationToJ :: PackageLocation (Maybe FilePath) -> J.Value
-        packageLocationToJ pkgloc =
-          case pkgloc of
-            LocalUnpackedPackage local ->
-              J.object
-                [ "type" J..= J.String "local"
-                , "path" J..= J.String local
-                ]
-            LocalTarballPackage local ->
-              J.object
-                [ "type" J..= J.String "local-tar"
-                , "path" J..= J.String local
-                ]
-            RemoteTarballPackage uri _ ->
-              J.object
-                [ "type" J..= J.String "remote-tar"
-                , "uri" J..= J.String (show uri)
-                ]
-            RepoTarballPackage repo _ _ ->
-              J.object
-                [ "type" J..= J.String "repo-tar"
-                , "repo" J..= repoToJ repo
-                ]
-            RemoteSourceRepoPackage srcRepo _ ->
-              J.object
-                [ "type" J..= J.String "source-repo"
-                , "source-repo" J..= sourceRepoToJ srcRepo
-                ]
-
-        repoToJ :: Repo -> J.Value
-        repoToJ repo =
-          case repo of
-            RepoLocalNoIndex{..} ->
-              J.object
-                [ "type" J..= J.String "local-repo-no-index"
-                , "path" J..= J.String repoLocalDir
-                ]
-            RepoRemote{..} ->
-              J.object
-                [ "type" J..= J.String "remote-repo"
-                , "uri" J..= J.String (show (remoteRepoURI repoRemote))
-                ]
-            RepoSecure{..} ->
-              J.object
-                [ "type" J..= J.String "secure-repo"
-                , "uri" J..= J.String (show (remoteRepoURI repoRemote))
-                ]
-
-        elaboratedPackageToRevision :: ElaboratedConfiguredPackage -> Double
-        elaboratedPackageToRevision =
-          fromMaybe 0
-            . (readMaybe <=< lookup "x-revision")
-            . PD.customFieldsPD
-            . elabPkgDescription
-
-        sourceRepoToJ :: SourceRepoMaybe -> J.Value
-        sourceRepoToJ SourceRepositoryPackage{..} =
-          J.object $
-            filter
-              ((/= J.Null) . snd)
-              [ "type" J..= jdisplay srpType
-              , "location" J..= J.String (Text.unpack srpLocation)
-              , "branch" J..= fmap (J.String . Text.unpack) srpBranch
-              , "tag" J..= fmap (J.String . Text.unpack) srpTag
-              , "subdir" J..= fmap J.String srpSubdir
-              ]
 
         dist_dir :: FilePath
         dist_dir =
@@ -322,6 +267,125 @@ encodePlanAsJson distDirLayout elaboratedInstallPlan elaboratedSharedConfig =
               if isInplaceBuildStyle (elabBuildStyle elab)
                 then dist_dir </> "build" </> prettyShow s </> ("lib" ++ prettyShow s) <.> dllExtension plat
                 else InstallDirs.bindir (elabInstallDirs elab) </> ("lib" ++ prettyShow s) <.> dllExtension plat
+
+    packageLocationToJ :: PackageLocation (Maybe FilePath) -> J.Value
+    packageLocationToJ pkgloc =
+      case pkgloc of
+        LocalUnpackedPackage local ->
+          J.object
+            [ "type" J..= J.String "local"
+            , "path" J..= J.String local
+            ]
+        LocalTarballPackage local ->
+          J.object
+            [ "type" J..= J.String "local-tar"
+            , "path" J..= J.String local
+            ]
+        RemoteTarballPackage uri _ ->
+          J.object
+            [ "type" J..= J.String "remote-tar"
+            , "uri" J..= J.String (show uri)
+            ]
+        RepoTarballPackage repo _ _ ->
+          J.object
+            [ "type" J..= J.String "repo-tar"
+            , "repo" J..= repoToJ repo
+            ]
+        RemoteSourceRepoPackage srcRepo _ ->
+          J.object
+            [ "type" J..= J.String "source-repo"
+            , "source-repo" J..= sourceRepoToJ srcRepo
+            ]
+
+    repoToJ :: Repo -> J.Value
+    repoToJ repo =
+      case repo of
+        RepoLocalNoIndex{..} ->
+          J.object
+            [ "type" J..= J.String "local-repo-no-index"
+            , "path" J..= J.String repoLocalDir
+            ]
+        RepoRemote{..} ->
+          J.object
+            [ "type" J..= J.String "remote-repo"
+            , "uri" J..= J.String (show (remoteRepoURI repoRemote))
+            ]
+        RepoSecure{..} ->
+          J.object
+            [ "type" J..= J.String "secure-repo"
+            , "uri" J..= J.String (show (remoteRepoURI repoRemote))
+            ]
+
+    elaboratedPackageToRevision :: ElaboratedConfiguredPackage -> Double
+    elaboratedPackageToRevision = packageRevision . elabPkgDescription
+
+    setupRevision :: ElaboratedSetup -> Double
+    setupRevision elabSetup =
+      maybe
+        0
+        (packageRevision . PD.packageDescription . pkgSourceGPkgDescription)
+        (Map.lookup (packageId elabSetup) (pkgConfigPackageSources elaboratedSharedConfig))
+
+    packageRevision :: PD.PackageDescription -> Double
+    packageRevision =
+      fromMaybe 0
+        . (readMaybe <=< lookup "x-revision")
+        . PD.customFieldsPD
+
+    sourceRepoToJ :: SourceRepoMaybe -> J.Value
+    sourceRepoToJ SourceRepositoryPackage{..} =
+      J.object $
+        filter
+          ((/= J.Null) . snd)
+          [ "type" J..= jdisplay srpType
+          , "location" J..= J.String (Text.unpack srpLocation)
+          , "branch" J..= fmap (J.String . Text.unpack) srpBranch
+          , "tag" J..= fmap (J.String . Text.unpack) srpTag
+          , "subdir" J..= fmap J.String srpSubdir
+          ]
+
+    elaboratedSetupToJ :: Bool -> ElaboratedSetup -> J.Value
+    elaboratedSetupToJ isInstalled elabSetup =
+      J.object $
+        [ "type"
+            J..= J.String
+              ( if isInstalled
+                  then "installed"
+                  else "configured"
+              )
+        , "id" J..= (jdisplay . installedUnitId) elabSetup
+        , "pkg-name" J..= (jdisplay . pkgName . packageId) elabSetup
+        , "pkg-version" J..= (jdisplay . pkgVersion . packageId) elabSetup
+        , "pkg-revision" J..= J.Number (setupRevision elabSetup)
+        , -- A setup has no flags. The key is there for those who expect it
+          -- of every entry.
+          "flags" J..= J.object []
+        , "style"
+            J..= J.String
+              ( style2str
+                  (elabSetupLocalToProject elabSetup)
+                  (elabSetupBuildStyle elabSetup)
+              )
+        , "pkg-src" J..= packageLocationToJ (elabSetupPkgSourceLocation elabSetup)
+        ]
+          ++ [ "pkg-cabal-sha256" J..= J.String (showHashValue hash)
+             | Just hash <- [fmap hashValue (elabSetupPkgDescriptionOverride elabSetup)]
+             ]
+          ++ [ "pkg-src-sha256" J..= J.String (showHashValue hash)
+             | Just hash <- [elabSetupPkgSourceHash elabSetup]
+             ]
+          ++ [ "dist-dir"
+              J..= J.String
+                ( distBuildDirectory
+                    distDirLayout
+                    (elabSetupDistDirParams elaboratedSharedConfig elabSetup)
+                )
+             | isInplaceBuildStyle (elabSetupBuildStyle elabSetup)
+             ]
+          ++ [ "depends" J..= map (jdisplay . confInstId) (elabSetupLibDependencies elabSetup)
+             , "exe-depends" J..= ([] :: [J.Value])
+             , "component-name" J..= J.String (comp2str ComponentDeps.ComponentSetup)
+             ]
 
     comp2str :: ComponentDeps.Component -> String
     comp2str = prettyShow
@@ -636,9 +700,12 @@ postBuildProjectStatus
           | pkg <- InstallPlan.toList plan
           , let libdeps = case pkg of
                   InstallPlan.PreExisting ipkg -> installedDepends ipkg
-                  InstallPlan.Configured node -> foldElabNode elabLibDeps node
-                  InstallPlan.Installed node -> foldElabNode elabLibDeps node
+                  InstallPlan.Configured node -> foldElabNode elabLibDeps setupLibDeps node
+                  InstallPlan.Installed node -> foldElabNode elabLibDeps setupLibDeps node
           ]
+
+      setupLibDeps :: ElaboratedSetup -> [UnitId]
+      setupLibDeps = map (newSimpleUnitId . confInstId) . elabSetupLibDependencies
 
       elabLibDeps :: ElaboratedConfiguredPackage -> [UnitId]
       elabLibDeps = map ((newSimpleUnitId . confInstId) . fst) . elabLibDependencies
@@ -669,14 +736,17 @@ postBuildProjectStatus
         selectPlanPackageIdSet $ \case
           InstallPlan.PreExisting _ -> False
           InstallPlan.Installed _ -> False
-          InstallPlan.Configured node -> foldElabNode elabLocalToProject node
+          -- Not the setup of a local package: these are the packages whose
+          -- libraries go in the environment file, with what they link
+          -- against, and a setup links against other things.
+          InstallPlan.Configured node -> foldElabNode elabLocalToProject (const False) node
 
       packagesBuildInplace :: Set UnitId
       packagesBuildInplace =
         selectPlanPackageIdSet $ \case
           InstallPlan.PreExisting _ -> False
           InstallPlan.Installed _ -> False
-          InstallPlan.Configured node -> foldElabNode (isInplaceBuildStyle . elabBuildStyle) node
+          InstallPlan.Configured node -> isInplaceBuildStyle (elabNodeBuildStyle node)
 
       packagesAlreadyInStore :: Set UnitId
       packagesAlreadyInStore =
@@ -972,11 +1042,11 @@ selectGhcEnvironmentFileLibraries PostBuildProjectStatus{..} =
       -- A pre-existing global lib
       InstallPlan.PreExisting _ -> True
       -- A package in the store. Check it's a lib.
-      InstallPlan.Installed node -> foldElabNode elabRequiresRegistration node
+      InstallPlan.Installed node -> foldElabNode elabRequiresRegistration (const False) node
       -- A package we were installing this time, either destined for the store
       -- or just locally. Check it's a lib and that it is probably up to date.
       InstallPlan.Configured node ->
-        foldElabNode elabRequiresRegistration node
+        foldElabNode elabRequiresRegistration (const False) node
           && installedUnitId node `Set.member` packagesProbablyUpToDate
 
 selectGhcEnvironmentFilePackageDbs :: ElaboratedInstallPlan -> PackageDBStackCWD

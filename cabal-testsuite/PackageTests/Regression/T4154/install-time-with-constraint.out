@@ -2,4 +2,5 @@
 Resolving dependencies...
 Build profile: -w ghc-<GHCVER> -O1
 In order, the following would be built:
+ - time-99999 (setup) (first run)
  - time-99999 (lib:time) (first run)

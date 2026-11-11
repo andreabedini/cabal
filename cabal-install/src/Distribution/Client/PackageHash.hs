@@ -13,6 +13,7 @@ module Distribution.Client.PackageHash
   ( -- * Calculating package hashes
     PackageHashInputs (..)
   , PackageHashConfigInputs (..)
+  , defaultPackageHashConfigInputs
   , PackageSourceHash
   , hashedInstalledPackageId
   , hashPackageHashInputs
@@ -247,6 +248,65 @@ data PackageHashConfigInputs = PackageHashConfigInputs
 -- | Calculate the overall hash to be used for an 'InstalledPackageId'.
 hashPackageHashInputs :: PackageHashInputs -> HashValue
 hashPackageHashInputs = hashValue . renderPackageHashInputs
+
+-- | The configuration in which every option has the value that
+-- 'renderPackageHashInputs' leaves out of the rendering.
+defaultPackageHashConfigInputs
+  :: CompilerId
+  -> AbiTag
+  -> Platform
+  -> PackageHashConfigInputs
+defaultPackageHashConfigInputs compid abi platform =
+  PackageHashConfigInputs
+    { pkgHashCompilerId = compid
+    , pkgHashCompilerABI = abi
+    , pkgHashPlatform = platform
+    , pkgHashFlagAssignment = mempty
+    , pkgHashConfigureScriptArgs = []
+    , pkgHashVanillaLib = True
+    , pkgHashSharedLib = False
+    , pkgHashDynExe = False
+    , pkgHashFullyStaticExe = False
+    , pkgHashGHCiLib = False
+    , pkgHashProfLib = False
+    , pkgHashProfExe = False
+    , pkgHashProfLibDetail = ProfDetailDefault
+    , pkgHashProfExeDetail = ProfDetailDefault
+    , pkgHashBytecodeLib = False
+    , pkgHashCoverage = False
+    , pkgHashOptimization = NormalOptimisation
+    , pkgHashSplitObjs = False
+    , pkgHashSplitSections = False
+    , pkgHashStripLibs = False
+    , pkgHashStripExes = True
+    , pkgHashDebugInfo = NormalDebugInfo
+    , pkgHashProgramArgs = Map.empty
+    , pkgHashExtraLibDirs = []
+    , pkgHashExtraLibDirsStatic = []
+    , pkgHashExtraFrameworkDirs = []
+    , pkgHashExtraIncludeDirs = []
+    , pkgHashProgPrefix = Nothing
+    , pkgHashProgSuffix = Nothing
+    , pkgHashPackageDbs = []
+    , pkgHashDocumentation = False
+    , pkgHashHaddockHoogle = False
+    , pkgHashHaddockHtml = False
+    , pkgHashHaddockHtmlLocation = Nothing
+    , pkgHashHaddockForeignLibs = False
+    , pkgHashHaddockExecutables = False
+    , pkgHashHaddockTestSuites = False
+    , pkgHashHaddockBenchmarks = False
+    , pkgHashHaddockInternal = False
+    , pkgHashHaddockCss = Nothing
+    , pkgHashHaddockLinkedSource = False
+    , pkgHashHaddockQuickJump = False
+    , pkgHashHaddockContents = Nothing
+    , pkgHashHaddockIndex = Nothing
+    , pkgHashHaddockBaseUrl = Nothing
+    , pkgHashHaddockResourcesDir = Nothing
+    , pkgHashHaddockOutputDir = Nothing
+    , pkgHashHaddockUseUnicode = False
+    }
 
 -- | Render a textual representation of the 'PackageHashInputs'.
 --

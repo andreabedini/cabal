@@ -30,6 +30,8 @@ data InstallItem
   = APreExisting
   | AConfiguredGlobal ConfiguredGlobal
   | AConfiguredInplace ConfiguredInplace
+  | -- | The compiled setup of a package. It is not a component of it.
+    AConfiguredSetup
   deriving (Show)
 
 -- local or inplace package
@@ -66,7 +68,9 @@ instance FromJSON InstallItem where
       "pre-existing" -> return APreExisting
       "configured" -> do
         s <- v .: "style"
+        component_name <- v .:? "component-name"
         case s :: String of
+          _ | component_name == Just ("setup" :: String) -> return AConfiguredSetup
           "global" -> AConfiguredGlobal `fmap` parseJSON obj
           "inplace" -> AConfiguredInplace `fmap` parseJSON obj
           "local" -> AConfiguredInplace `fmap` parseJSON obj
@@ -134,6 +138,7 @@ planDistDir plan pkg_name cname =
           ++ " in install plan"
   where
     p APreExisting = []
+    p AConfiguredSetup = []
     p (AConfiguredGlobal conf) = do
       guard (configuredGlobalPackageName conf == pkg_name)
       guard $ case configuredGlobalComponentName conf of
@@ -178,6 +183,7 @@ buildInfoFile plan pkg_name cname =
           ++ " in install plan"
   where
     p APreExisting = []
+    p AConfiguredSetup = []
     p (AConfiguredGlobal _) = []
     p (AConfiguredInplace conf) = do
       guard (configuredInplacePackageName conf == pkg_name)

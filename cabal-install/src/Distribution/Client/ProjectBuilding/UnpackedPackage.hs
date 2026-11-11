@@ -16,6 +16,8 @@
 module Distribution.Client.ProjectBuilding.UnpackedPackage
   ( buildInplaceUnpackedPackage
   , buildAndInstallUnpackedPackage
+  , buildInplaceSetup
+  , buildAndInstallSetup
 
     -- ** Auxiliary definitions
   , buildAndRegisterUnpackedPackage
@@ -73,7 +75,7 @@ import Distribution.InstalledPackageInfo (InstalledPackageInfo)
 import qualified Distribution.InstalledPackageInfo as Installed
 import Distribution.Package
 import qualified Distribution.PackageDescription as PD
-import Distribution.Simple.BuildPaths (haddockDirName)
+import Distribution.Simple.BuildPaths (exeExtension, haddockDirName)
 import Distribution.Simple.Command (CommandUI)
 import Distribution.Simple.Compiler
   ( PackageDBStackCWD
@@ -96,7 +98,7 @@ import Distribution.Types.PackageDescription.Lens (componentModules)
 
 import Distribution.Client.Errors
 import Distribution.Simple.Utils
-import Distribution.System (Platform (..))
+import Distribution.System (Platform (..), buildPlatform)
 import Distribution.Utils.Path hiding
   ( (<.>)
   , (</>)
@@ -115,8 +117,8 @@ import Control.Concurrent.STM (TVar, atomically, modifyTVar)
 import Control.Exception (ErrorCall, Handler (..), SomeAsyncException, assert, catches, onException)
 import Data.IORef (newIORef, readIORef, writeIORef)
 import GHC.Clock (getMonotonicTime)
-import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, listDirectory)
-import System.FilePath (dropDrive, normalise, takeDirectory, (<.>), (</>))
+import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory)
+import System.FilePath (dropDrive, dropExtension, makeRelative, normalise, takeDirectory, takeExtension, (<.>), (</>))
 import System.IO (Handle, IOMode (AppendMode), withFile)
 import System.Semaphore (SemaphoreIdentifier)
 import Text.Printf (printf)
@@ -585,7 +587,11 @@ buildInplaceUnpackedPackage
             whenReconfigure $ do
               mbLBI <- runConfigure
               invalidatePackageRegFileMonitor packageFileMonitor
-              updatePackageConfigFileMonitor packageFileMonitor (getSymbolicPath srcdir) pkg
+              updatePackageConfigFileMonitor
+                packageFileMonitor
+                (getSymbolicPath srcdir)
+                pkg
+                (elabSetupOf plan pkg)
               return mbLBI
           PBBuildPhase{runBuild} ->
             whenRebuild $ withFileMonitor runBuild
@@ -688,7 +694,7 @@ buildInplaceUnpackedPackage
                   distDirLayout
                   pkgshared
                   plan
-                  pkg
+                  (installedUnitId pkg)
         updatePackageBuildFileMonitor
           packageFileMonitor
           (getSymbolicPath srcdir)
@@ -955,6 +961,176 @@ buildAndInstallUnpackedPackage
           Just logFile -> do
             createDirectoryIfMissing True (takeDirectory logFile)
             removeFileForcibly logFile
+
+--------------------------------------------------------------------------------
+
+-- * Build a setup
+
+--------------------------------------------------------------------------------
+
+-- | Compile the setup of a package in the project's build directory, where
+-- the units of the package expect it ('elabSetupExeDir').
+buildInplaceSetup
+  :: Verbosity
+  -> DistDirLayout
+  -> ElaboratedSharedConfig
+  -> ElaboratedInstallPlan
+  -> ElaboratedSetup
+  -> SymbolicPath CWD (Dir Pkg)
+  -> SymbolicPath Pkg (Dir Dist)
+  -> IO BuildResult
+buildInplaceSetup
+  verbosity
+  distDirLayout@DistDirLayout{distPackageCacheDirectory}
+  pkgshared
+  plan
+  elabSetup
+  srcdir
+  builddir = do
+    createDirectoryIfMissingVerbose
+      verbosity
+      True
+      (distPackageCacheDirectory (elabSetupDistDirParams pkgshared elabSetup))
+
+    timestamp <- beginUpdateFileMonitor
+    annotateFailureNoLog BuildFailed $
+      compileSetup
+        verbosity
+        (setupCompileOptions pkgshared elabSetup srcdir builddir)
+        (packageId elabSetup)
+        (elabSetupBuildType elabSetup)
+
+    sources <- execRebuild (getSymbolicPath srcdir) needSetup
+    -- A setup may import modules from the package directory. GHC left an
+    -- interface file for every module it compiled, so the ones with a
+    -- source file there are those modules. "Main" is the setup itself.
+    interfaces <- getDirectoryContentsRecursive (interpretSymbolicPath (Just srcdir) (compiledSetupDir builddir))
+    localModules <-
+      filterM
+        (doesFileExist . (getSymbolicPath srcdir </>))
+        [ dropExtension interface <.> ext
+        | interface <- interfaces
+        , takeExtension interface == ".hi"
+        , interface /= "Main.hi"
+        , ext <- ["hs", "lhs"]
+        ]
+    let dep_monitors =
+          map monitorFileHashed $
+            elabInplaceDependencyBuildCacheFiles
+              distDirLayout
+              pkgshared
+              plan
+              (installedUnitId elabSetup)
+    updateSetupFileMonitor
+      (newSetupFileMonitor pkgshared distDirLayout elabSetup)
+      (getSymbolicPath srcdir)
+      timestamp
+      elabSetup
+      (sources ++ map monitorFileHashed localModules ++ dep_monitors)
+
+    return
+      BuildResult
+        { buildResultDocs = DocsNotTried
+        , buildResultTests = TestsNotTried
+        , buildResultLogFile = Nothing
+        , buildResultBenchmark = Nothing
+        }
+
+-- | Compile the setup of a package and put it in the store, where the units
+-- of the package expect it ('elabSetupExeDir').
+buildAndInstallSetup
+  :: Verbosity
+  -> StoreDirLayout
+  -> BuildTimeSettings
+  -> ElaboratedSharedConfig
+  -> ElaboratedSetup
+  -> SymbolicPath CWD (Dir Pkg)
+  -> SymbolicPath Pkg (Dir Dist)
+  -> IO BuildResult
+buildAndInstallSetup
+  verbosity
+  storeDirLayout
+  BuildTimeSettings{buildSettingNumJobs, buildSettingLogFile}
+  pkgshared@ElaboratedSharedConfig
+    { pkgConfigCompiler = compiler
+    , pkgConfigPlatform = platform
+    }
+  elabSetup
+  srcdir
+  builddir = do
+    initLogFile
+
+    noticeProgress ProgressBuilding
+    annotateFailure mlogFile BuildFailed $
+      withLogging $ \mLogFileHandle ->
+        compileSetup
+          (setVerbosityHandles mLogFileHandle verbosity)
+          (setupCompileOptions pkgshared elabSetup srcdir builddir)
+            { useLoggingHandle = mLogFileHandle
+            }
+          pkgid
+          (elabSetupBuildType elabSetup)
+
+    noticeProgress ProgressInstalling
+    annotateFailure mlogFile InstallFailed $
+      void $
+        newStoreEntry verbosity storeDirLayout compiler uid placeFiles (return ())
+
+    noticeProgress ProgressCompleted
+
+    return
+      BuildResult
+        { buildResultDocs = DocsNotTried
+        , buildResultTests = TestsNotTried
+        , buildResultLogFile = mlogFile
+        , buildResultBenchmark = Nothing
+        }
+    where
+      uid = installedUnitId elabSetup
+      pkgid = packageId elabSetup
+
+      -- The executables go where 'elabSetupExeDir' says, relative to the
+      -- store entry.
+      placeFiles :: FilePath -> IO (FilePath, [FilePath])
+      placeFiles tmpDir = do
+        let entryDir = tmpDir </> prettyShow uid
+            builtDir = interpretSymbolicPath (Just srcdir) (compiledSetupDir builddir)
+            exeDir = entryDir </> makeRelative (storePackageDirectory storeDirLayout compiler uid) (elabSetupExeDir elabSetup)
+        createDirectoryIfMissingVerbose verbosity True exeDir
+        for_ ["setup", "hooks"] $ \name -> do
+          let exe = name <.> exeExtension buildPlatform
+          exists <- doesFileExist (builtDir </> exe)
+          when exists $
+            installExecutableFile verbosity (builtDir </> exe) (exeDir </> exe)
+        LBS.writeFile
+          (entryDir </> "cabal-hash.txt")
+          (renderPackageHashInputs (setupHashInputs pkgshared elabSetup))
+        return (entryDir, [])
+
+      noticeProgress :: ProgressPhase -> IO ()
+      noticeProgress phase =
+        when (isParallelBuild buildSettingNumJobs) $
+          progressMessage verbosity phase (prettyShow pkgid ++ " (setup)")
+
+      mlogFile :: Maybe FilePath
+      mlogFile =
+        case buildSettingLogFile of
+          Nothing -> Nothing
+          Just mkLogFile -> Just (mkLogFile compiler platform pkgid uid)
+
+      initLogFile :: IO ()
+      initLogFile =
+        case mlogFile of
+          Nothing -> return ()
+          Just logFile -> do
+            createDirectoryIfMissing True (takeDirectory logFile)
+            removeFileForcibly logFile
+
+      withLogging :: (Maybe Handle -> IO r) -> IO r
+      withLogging action =
+        case mlogFile of
+          Nothing -> action Nothing
+          Just logFile -> withFile logFile AppendMode (action . Just)
 
 -- | The copy part of the installation phase when doing build-and-install
 copyPkgFiles

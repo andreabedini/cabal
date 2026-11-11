@@ -8,6 +8,7 @@ module Distribution.Client.ProjectBuilding.Types
   , buildStatusRequiresBuild
   , buildStatusToString
   , BuildStatusRebuild (..)
+  , ConfigureReason (..)
   , BuildReason (..)
   , MonitorChangedReason (..)
 
@@ -100,7 +101,7 @@ buildStatusToString (BuildStatusUpToDate _) = "BuildStatusUpToDate"
 data BuildStatusRebuild
   = -- | The package configuration changed, so the configure and build phases
     --   needs to be (re)run.
-    BuildStatusConfigure (MonitorChangedReason ())
+    BuildStatusConfigure ConfigureReason
   | -- | The configuration has not changed but the build phase needs to be
     -- rerun. We record the reason the (re)build is needed.
     --
@@ -109,6 +110,13 @@ data BuildStatusRebuild
     -- @Just Nothing@ indicates that we know that no registration is
     -- necessary (e.g., executable.)
     BuildStatusBuild (Maybe (Maybe InstalledPackageInfo)) BuildReason
+
+data ConfigureReason
+  = -- | The configuration of the package changed (or first run or corrupt
+    -- cache)
+    ConfigureMonitorChanged (MonitorChangedReason ())
+  | -- | The setup that configures the package is going to be rebuilt.
+    ConfigureSetupRebuilt
 
 data BuildReason
   = -- | The dependencies of this package have been (re)built so the build

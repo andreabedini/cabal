@@ -39,6 +39,8 @@ module Distribution.Client.ProjectPlanning
   , foldElabNode
   , elabNodeUnit
   , mapElabUnit
+  , ElaboratedSetup (..)
+  , elabSetupOf
   , ElaboratedConfiguredPackage (..)
   , ElaboratedPlanPackage
   , ElaboratedSharedConfig (..)
@@ -77,6 +79,9 @@ module Distribution.Client.ProjectPlanning
 
     -- * Setup.hs CLI flags for building
   , setupHsScriptOptions
+  , setupCompileOptions
+  , setupPrebuilt
+  , setupHashInputs
   , setupHsCommonFlags
   , setupHsConfigureFlags
   , setupHsConfigureArgs
@@ -1754,14 +1759,19 @@ elaborateInstallPlan
                         <+> text "package"
                         <+> quotes (pretty (packageId pkg))
                     )
-                    $ map (InstallPlan.Configured . ElabUnit) <$> elaborateSolverToComponents mapDep pkg
+                    $ map InstallPlan.Configured
+                      <$> elaborateSolverToComponents
+                        -- The setup of a package is not something another
+                        -- package depends on.
+                        (filter (not . isSetupPlanPackage) . mapDep)
+                        pkg
 
       -- NB: We don't INSTANTIATE packages at this point.  That's
       -- a post-pass.  This makes it simpler to compute dependencies.
       elaborateSolverToComponents
         :: (SolverId -> [ElaboratedPlanPackage])
         -> SolverPackage UnresolvedPkgLoc
-        -> LogProgress [ElaboratedConfiguredPackage]
+        -> LogProgress [ElaboratedNode]
       elaborateSolverToComponents mapDep spkg@(SolverPackage _ _ _ deps0 exe_deps0) = do
         when (bt == PD.Make) $
           dieProgress $
@@ -1783,16 +1793,17 @@ elaborateInstallPlan
             case NE.nonEmpty whyNotPerComp of
               Nothing -> do
                 elaborationWarnings
-                return comps
+                return (setupNodes ++ map ElabUnit comps)
               Just notPerCompReasons -> do
                 checkPerPackageOk comps notPerCompReasons
                 pkgComp <-
                   elaborateSolverToPackage
+                    mapDep
                     notPerCompReasons
                     spkg
                     g
-                    (comps ++ maybeToList setupComponent)
-                return [pkgComp]
+                    comps
+                return (setupNodes ++ [ElabUnit pkgComp])
           Left cns ->
             dieProgress $
               hang
@@ -1858,55 +1869,10 @@ elaborateInstallPlan
                   <+> fsep (punctuate comma $ map (text . whyNotPerComponent) $ toList reasons)
           -- TODO: Maybe exclude Backpack too
 
-          (elab0, elaborationWarnings) = elaborateSolverToCommon spkg
+          (elab0, elabSetup0, elaborationWarnings) = elaborateSolverToCommon mapDep spkg
+          setupNodes = map ElabSetup (maybeToList elabSetup0)
           pkgid = elabPkgSourceId elab0
           pd = elabPkgDescription elab0
-
-          -- TODO: This is just a skeleton to get elaborateSolverToPackage
-          -- working correctly
-          -- TODO: When we actually support building these components, we
-          -- have to add dependencies on this from all other components
-          setupComponent :: Maybe ElaboratedConfiguredPackage
-          setupComponent
-            | bt `elem` [PD.Custom, PD.Hooks] =
-                Just
-                  elab0
-                    { elabModuleShape = emptyModuleShape
-                    , elabUnitId = notImpl "elabUnitId"
-                    , elabComponentId = notImpl "elabComponentId"
-                    , elabLinkedInstantiatedWith = Map.empty
-                    , elabInstallDirs = notImpl "elabInstallDirs"
-                    , elabPkgOrComp = ElabComponent (ElaboratedComponent{..})
-                    }
-            | otherwise =
-                Nothing
-            where
-              compSolverName = CD.ComponentSetup
-              compComponentName = Nothing
-
-              dep_pkgs = elaborateLibSolverId mapDep =<< CD.setupDeps deps0
-
-              compLibDependencies =
-                -- MP: No idea what this function does
-                map (\cid -> (configuredId cid, False)) dep_pkgs
-              compLinkedLibDependencies = notImpl "compLinkedLibDependencies"
-              compOrderLibDependencies = notImpl "compOrderLibDependencies"
-
-              -- Not supported:
-              compExeDependencies :: [a]
-              compExeDependencies = []
-
-              compExeDependencyPaths :: [a]
-              compExeDependencyPaths = []
-
-              compPkgConfigDependencies :: [a]
-              compPkgConfigDependencies = []
-
-              notImpl f =
-                error $
-                  "Distribution.Client.ProjectPlanning.setupComponent: "
-                    ++ f
-                    ++ " not implemented yet"
 
           buildComponent
             :: ( ConfiguredComponentMap
@@ -2124,7 +2090,7 @@ elaborateInstallPlan
       planPackageExePaths =
         -- Pre-existing executables are assumed to be in PATH
         -- already.  In fact, this should be impossible.
-        InstallPlan.foldPlanPackage (const []) $ foldElabNode $ \elab ->
+        InstallPlan.foldPlanPackage (const []) $ flip foldElabNode (const []) $ \elab ->
           let
             executables :: [FilePath]
             executables =
@@ -2148,12 +2114,14 @@ elaborateInstallPlan
               <$> executables
 
       elaborateSolverToPackage
-        :: NE.NonEmpty NotPerComponentReason
+        :: (SolverId -> [ElaboratedPlanPackage])
+        -> NE.NonEmpty NotPerComponentReason
         -> SolverPackage UnresolvedPkgLoc
         -> ComponentsGraph
         -> [ElaboratedConfiguredPackage]
         -> LogProgress ElaboratedConfiguredPackage
       elaborateSolverToPackage
+        mapDep
         pkgWhyNotPerComponent
         pkg@( SolverPackage
                 (SourcePackage pkgid _gpd _srcloc _descOverride)
@@ -2170,8 +2138,8 @@ elaborateInstallPlan
           elaborationWarnings
           return elab
           where
-            (elab0@ElaboratedConfiguredPackage{..}, elaborationWarnings) =
-              elaborateSolverToCommon pkg
+            (elab0@ElaboratedConfiguredPackage{..}, _, elaborationWarnings) =
+              elaborateSolverToCommon mapDep pkg
 
             elab1 =
               elab0
@@ -2257,9 +2225,11 @@ elaborateInstallPlan
             pkgStanzasEnabled = optStanzaKeysFilteredByValue (fromMaybe False) elabStanzasRequested
 
       elaborateSolverToCommon
-        :: SolverPackage UnresolvedPkgLoc
-        -> (ElaboratedConfiguredPackage, LogProgress ())
+        :: (SolverId -> [ElaboratedPlanPackage])
+        -> SolverPackage UnresolvedPkgLoc
+        -> (ElaboratedConfiguredPackage, Maybe ElaboratedSetup, LogProgress ())
       elaborateSolverToCommon
+        mapDep
         pkg@( SolverPackage
                 (SourcePackage pkgid gdesc srcloc descOverride)
                 flags
@@ -2267,9 +2237,54 @@ elaborateInstallPlan
                 deps0
                 _exe_deps0
               ) =
-          (elaboratedPackage, wayWarnings pkgid >> buildOptionsAdjustmentWarnings)
+          (elaboratedPackage, elaboratedSetup, wayWarnings pkgid >> buildOptionsAdjustmentWarnings)
           where
             elaboratedPackage = ElaboratedConfiguredPackage{..}
+
+            -- The setup of the package, when it has to be compiled. It is
+            -- the same whatever the flags and options of the package, so
+            -- that changing those does not rebuild it.
+            elaboratedSetup :: Maybe ElaboratedSetup
+            elaboratedSetup
+              | elabSetupScriptStyle == SetupNonCustomInternalLib = Nothing
+              | otherwise = Just elabSetup
+              where
+                elabSetup =
+                  ElaboratedSetup
+                    { elabSetupComponentId = setupId
+                    , elabSetupPkgSourceId = pkgid
+                    , elabSetupPkgSourceLocation = srcloc
+                    , elabSetupPkgSourceHash = elabPkgSourceHash
+                    , elabSetupPkgDescriptionOverride = descOverride
+                    , elabSetupLocalToProject = elabLocalToProject
+                    , elabSetupBuildStyle = elabBuildStyle
+                    , elabSetupBuildType = PD.buildType elabPkgDescription
+                    , elabSetupStyle = elabSetupScriptStyle
+                    , elabSetupCabalVersion = setupCliVersion elabSetupScriptCliVersion
+                    , elabSetupLibDependencies =
+                        [ configuredId dep
+                        | dep <- CD.setupDeps deps0 >>= elaborateLibSolverId mapDep
+                        ]
+                    , elabSetupPackageDBs = buildAndRegisterDbs
+                    , elabSetupExeDir = setupExeDir
+                    }
+                -- Not "-inplace-setup": that is the id of a component of
+                -- the package that is named "setup".
+                setupId
+                  | shouldBuildInplaceOnly pkg =
+                      mkComponentId (prettyShow pkgid ++ "-setup-inplace")
+                  | otherwise =
+                      hashedInstalledPackageId
+                        (setupHashInputs elaboratedSharedConfig elabSetup)
+                setupExeDir
+                  | shouldBuildInplaceOnly pkg =
+                      distBuildDirectory (elabSetupDistDirParams elaboratedSharedConfig elabSetup)
+                        </> "setup"
+                  | otherwise =
+                      storePackageDirectory storeDirLayout compiler (installedUnitId elabSetup)
+                        </> "bin"
+
+            elabSetupDependency = elabSetupComponentId <$> elaboratedSetup
 
             buildOptionsAdjustmentWarnings :: LogProgress ()
             buildOptionsAdjustmentWarnings =
@@ -2369,11 +2384,9 @@ elaborateInstallPlan
                 elabPkgDescription
                 libDepGraph
                 deps0
-            elabSetupPackageDBStack = buildAndRegisterDbs
 
             elabInplaceBuildPackageDBStack = inplacePackageDbs
             elabInplaceRegisterPackageDBStack = inplacePackageDbs
-            elabInplaceSetupPackageDBStack = inplacePackageDbs
 
             buildAndRegisterDbs
               | shouldBuildInplaceOnly pkg = inplacePackageDbs
@@ -2711,7 +2724,7 @@ shouldBeLocal (SpecificSourcePackage pkg) = case srcpkgSource pkg of
 
 -- | Given a 'ElaboratedPlanPackage', report if it matches a 'ComponentName'.
 matchPlanPkg :: (ComponentName -> Bool) -> ElaboratedPlanPackage -> Bool
-matchPlanPkg p = InstallPlan.foldPlanPackage (p . ipiComponentName) (foldElabNode (matchElabPkg p))
+matchPlanPkg p = InstallPlan.foldPlanPackage (p . ipiComponentName) (foldElabNode (matchElabPkg p) (const False))
 
 -- | Get the appropriate 'ComponentName' which identifies an installed
 -- component.
@@ -2758,7 +2771,7 @@ mkCCMapping =
             )
         )
     )
-    $ foldElabNode
+    $ flip foldElabNode (\elabSetup -> (packageName elabSetup, Map.empty))
     $ \elab ->
       let mk_aid cn =
             AnnotatedId
@@ -2791,7 +2804,10 @@ mkShapeMapping dpkg =
       InstallPlan.foldPlanPackage
         -- Uses Monad (->)
         (liftM2 (,) IPI.installedComponentId shapeInstalledPackage)
-        (foldElabNode (liftM2 (,) elabComponentId elabModuleShape))
+        ( foldElabNode
+            (liftM2 (,) elabComponentId elabModuleShape)
+            (\elabSetup -> (elabSetupComponentId elabSetup, emptyModuleShape))
+        )
         dpkg
     indef_uid =
       IndefFullUnitId
@@ -2840,13 +2856,13 @@ getComponentId
   :: ElaboratedPlanPackage
   -> ComponentId
 getComponentId (InstallPlan.PreExisting dipkg) = IPI.installedComponentId dipkg
-getComponentId (InstallPlan.Configured node) = foldElabNode elabComponentId node
-getComponentId (InstallPlan.Installed node) = foldElabNode elabComponentId node
+getComponentId (InstallPlan.Configured node) = foldElabNode elabComponentId elabSetupComponentId node
+getComponentId (InstallPlan.Installed node) = foldElabNode elabComponentId elabSetupComponentId node
 
 extractElabBuildStyle
   :: InstallPlan.GenericPlanPackage ipkg ElaboratedNode
   -> BuildStyle
-extractElabBuildStyle (InstallPlan.Configured node) = foldElabNode elabBuildStyle node
+extractElabBuildStyle (InstallPlan.Configured node) = elabNodeBuildStyle node
 extractElabBuildStyle _ = BuildAndInstall
 
 -- instantiateInstallPlan is responsible for filling out an InstallPlan
@@ -3063,7 +3079,6 @@ instantiateInstallPlan storeDirLayout defaultInstallDirs elaboratedShared plan =
         { elabBuildStyle = t
         , elabBuildPackageDBStack = elabInplaceBuildPackageDBStack elab
         , elabRegisterPackageDBStack = elabInplaceRegisterPackageDBStack elab
-        , elabSetupPackageDBStack = elabInplaceSetupPackageDBStack elab
         }
 
     ready_map = execState work Map.empty
@@ -3171,8 +3186,8 @@ availableTargets installPlan =
         | pkg <- InstallPlan.toList installPlan
         , (pkgid, cname, fake, target) <- case pkg of
             InstallPlan.PreExisting ipkg -> availableInstalledTargets ipkg
-            InstallPlan.Installed node -> foldElabNode availableSourceTargets node
-            InstallPlan.Configured node -> foldElabNode availableSourceTargets node
+            InstallPlan.Installed node -> foldElabNode availableSourceTargets (const []) node
+            InstallPlan.Configured node -> foldElabNode availableSourceTargets (const []) node
         ]
    in Map.union
         ( Map.fromListWith
@@ -3526,9 +3541,13 @@ pruneInstallPlanPass1 pkgs
     pkgs' = map (mapConfiguredPackage prune) pkgs
 
     prune :: ElaboratedNode -> PrunedPackage
-    prune = foldElabNode $ \elab ->
-      let elab' = addOptionalStanzas elab
-       in PrunedPackage (ElabUnit elab') (pruneOptionalDependencies elab')
+    prune = foldElabNode pruneUnit pruneSetup
+      where
+        pruneUnit elab =
+          let elab' = addOptionalStanzas elab
+           in PrunedPackage (ElabUnit elab') (pruneOptionalDependencies elab')
+        pruneSetup elabSetup =
+          PrunedPackage (ElabSetup elabSetup) (Graph.nodeNeighbors elabSetup)
 
     graph = Graph.fromDistinctList pkgs'
 
@@ -3550,7 +3569,7 @@ pruneInstallPlanPass1 pkgs
         is_repl_gpp (InstallPlan.Configured pkg) = is_repl_pp pkg
         is_repl_gpp _ = False
 
-        is_repl_pp (PrunedPackage node _) = foldElabNode (not . null . elabReplTarget) node
+        is_repl_pp (PrunedPackage node _) = foldElabNode (not . null . elabReplTarget) (const False) node
 
     -- Anything which is inplace and left after pruning could be a repl target, then just need to check the
     -- reverse closure after calculating roots to capture dependencies which are on the path between roots.
@@ -3573,7 +3592,7 @@ pruneInstallPlanPass1 pkgs
       | otherwise = Graph.toList closed_graph
 
     is_root :: PrunedPackage -> Maybe UnitId
-    is_root (PrunedPackage node _) = foldElabNode is_root_unit node
+    is_root (PrunedPackage node _) = foldElabNode is_root_unit (const Nothing) node
 
     is_root_unit :: ElaboratedConfiguredPackage -> Maybe UnitId
     is_root_unit elab =
@@ -3646,8 +3665,9 @@ pruneInstallPlanPass1 pkgs
     pruneOptionalDependencies :: ElaboratedConfiguredPackage -> [UnitId]
     pruneOptionalDependencies elab@ElaboratedConfiguredPackage{elabPkgOrComp = ElabComponent _} =
       InstallPlan.depends elab -- no pruning
-    pruneOptionalDependencies ElaboratedConfiguredPackage{elabPkgOrComp = ElabPackage pkg} =
-      (fold . CD.filterDeps keepNeeded) (pkgOrderDependencies pkg)
+    pruneOptionalDependencies elab@ElaboratedConfiguredPackage{elabPkgOrComp = ElabPackage pkg} =
+      elabOrderSetupDependencies elab
+        ++ (fold . CD.filterDeps keepNeeded) (pkgOrderDependencies pkg)
       where
         keepNeeded (CD.ComponentTest _) _ = TestStanzas `optStanzaSetMember` stanzas
         keepNeeded (CD.ComponentBench _) _ = BenchStanzas `optStanzaSetMember` stanzas
@@ -3853,13 +3873,13 @@ pruneInstallPlanPass2 pkgs =
         ]
 
     -- Packages that must be built on disk because they are (transitively)
-    -- needed as library dependencies by an exe build-tool.  Even if such a
+    -- needed as library dependencies by an exe build-tool or a setup.  Even if such a
     -- package was originally marked InMemory for the multi-repl session, it
     -- must also produce real on-disk artifacts so the exe can link against it.
     -- The repl phase still runs for these packages, so GHCi loads them from
     -- source under the same package-id, preserving type identity.
     mustBuildOnDisk :: Set UnitId
-    mustBuildOnDisk = go exeDeps Set.empty
+    mustBuildOnDisk = go (exeDeps <> setupNodes) Set.empty
       where
         go frontier visited
           | Set.null frontier = visited
@@ -3881,12 +3901,29 @@ pruneInstallPlanPass2 pkgs =
     -- the ComponentIds from 'elabLibDependencies'.
     perPkgDeps :: [(UnitId, [UnitId], [UnitId])]
     perPkgDeps =
-      [ ( installedUnitId pkg
-        , elabOrderLibDependencies pkg
-        , elabOrderExeDependencies pkg
-        )
-      | InstallPlan.Configured (ElabUnit pkg) <- pkgs
+      [ foldElabNode unitDeps setupDeps node
+      | InstallPlan.Configured node <- pkgs
       ]
+      where
+        unitDeps pkg =
+          ( installedUnitId pkg
+          , elabOrderLibDependencies pkg
+          , elabOrderExeDependencies pkg
+          )
+        setupDeps elabSetup =
+          ( installedUnitId elabSetup
+          , Graph.nodeNeighbors elabSetup
+          , []
+          )
+
+    -- The setups in the plan. A setup is run during the build, like an exe
+    -- build tool, so the libraries it links against have to be on disk too.
+    setupNodes :: Set UnitId
+    setupNodes =
+      Set.fromList
+        [ installedUnitId elabSetup
+        | InstallPlan.Configured (ElabSetup elabSetup) <- pkgs
+        ]
 
     -- Library-dependency adjacency for in-plan packages only.
     planLibDepMap :: Map UnitId [UnitId]
@@ -3936,10 +3973,25 @@ pruneInstallPlanToDependencies pkgTargets installPlan =
     $ fmap (InstallPlan.new (InstallPlan.planIndepGoals installPlan))
       . checkBrokenDeps
       . Graph.fromDistinctList
+      . dropUnusedSetups
       . filter (\pkg -> installedUnitId pkg `Set.notMember` pkgTargets)
       . InstallPlan.toList
     $ installPlan
   where
+    -- The setup of a target is part of the target, not one of its
+    -- dependencies: once the target is gone nothing uses it.
+    dropUnusedSetups :: [ElaboratedPlanPackage] -> [ElaboratedPlanPackage]
+    dropUnusedSetups pkgs =
+      filter (\pkg -> not (isSetupPlanPackage pkg) || installedUnitId pkg `Set.member` usedSetups) pkgs
+      where
+        usedSetups =
+          Set.fromList
+            [ setup
+            | pkg <- pkgs
+            , elab <- maybeToList (InstallPlan.foldPlanPackage (const Nothing) elabNodeUnit pkg)
+            , setup <- elabOrderSetupDependencies elab
+            ]
+
     -- Our strategy is to remove the packages we don't want and then check
     -- if the remaining graph is broken or not, ie any packages with dangling
     -- dependencies. If there are then we cannot prune the given targets.
@@ -4016,16 +4068,13 @@ setupHsScriptOptions
             else Just cliVersion
       , useCompiler = Just pkgConfigCompiler
       , usePlatform = Just pkgConfigPlatform
-      , usePackageDB = elabSetupPackageDBStack
+      , -- A unit does not compile a setup: it runs the one that its package's
+        -- setup node built, or calls into the Cabal library.
+        usePackageDB = elabBuildPackageDBStack
       , usePackageIndex = Nothing
-      , useSetupDependencies =
-          ExplicitSetupDeps
-            [ (uid, srcid)
-            | (ConfiguredId srcid (Just (CLibName LMainLibName)) uid, _) <-
-                elabSetupDependencies elab
-            ]
-      , useVersionMacros = elabSetupScriptStyle == SetupCustomExplicitDeps
-      , usePrebuiltSetup = Nothing
+      , useSetupDependencies = ExplicitSetupDeps []
+      , useVersionMacros = False
+      , usePrebuiltSetup = setupPrebuilt <$> elabSetupOf plan elab
       , useProgramDb = pkgConfigCompilerProgs
       , useDistPref = builddir
       , useLoggingHandle = Nothing -- this gets set later
@@ -4051,6 +4100,50 @@ setupHsScriptOptions
       }
     where
       cliVersion = setupCliVersion elabSetupScriptCliVersion
+
+-- | How to compile the setup of a package.
+setupCompileOptions
+  :: ElaboratedSharedConfig
+  -> ElaboratedSetup
+  -> SymbolicPath CWD (Dir Pkg)
+  -> SymbolicPath Pkg (Dir Dist)
+  -> SetupScriptOptions
+setupCompileOptions
+  ElaboratedSharedConfig{..}
+  ElaboratedSetup{..}
+  srcdir
+  builddir =
+    defaultSetupScriptOptions
+      { useCabalVersion = thisVersion elabSetupCabalVersion
+      , -- NB: for build-type: Hooks we don't want to commit to a Cabal
+        -- version, as all that should matter is the version of Cabal-hooks,
+        -- not of Cabal.
+        useCabalSpecVersion =
+          if elabSetupBuildType == PD.Hooks
+            then Nothing
+            else Just elabSetupCabalVersion
+      , useCompiler = Just pkgConfigCompiler
+      , usePlatform = Just pkgConfigPlatform
+      , usePackageDB = elabSetupPackageDBs
+      , useSetupDependencies =
+          ExplicitSetupDeps
+            [ (cid, srcid)
+            | ConfiguredId srcid (Just (CLibName LMainLibName)) cid <-
+                elabSetupLibDependencies
+            ]
+      , useVersionMacros = elabSetupStyle == SetupCustomExplicitDeps
+      , useProgramDb = pkgConfigCompilerProgs
+      , useDistPref = builddir
+      , useWorkingDir = Just srcdir
+      }
+
+-- | The compiled setup of a package, as the units that run it refer to it.
+setupPrebuilt :: ElaboratedSetup -> PrebuiltSetup
+setupPrebuilt elabSetup =
+  PrebuiltSetup
+    { prebuiltSetupDir = elabSetupExeDir elabSetup
+    , prebuiltSetupCabalVersion = elabSetupCabalVersion elabSetup
+    }
 
 -- | To be used for the input for elaborateInstallPlan.
 --
@@ -4557,6 +4650,7 @@ packageHashInputs
                   ++ [ confInstId dep
                      | dep <- CD.select relevantDeps pkgExeDependencies
                      ]
+                  ++ setupDep
             ElabComponent comp ->
               Set.fromList
                 ( map
@@ -4564,16 +4658,22 @@ packageHashInputs
                     ( map fst (compLibDependencies comp)
                         ++ compExeDependencies comp
                     )
+                    ++ setupDep
                 )
       , pkgHashOtherConfig = packageHashConfigInputs pkgshared elab
       }
     where
+      -- The setup can affect what is built. Its own hash covers what it is
+      -- built from.
+      setupDep = maybeToList (elabSetupDependency elab)
+
       -- Obviously the main deps are relevant
       relevantDeps CD.ComponentLib = True
       relevantDeps (CD.ComponentSubLib _) = True
       relevantDeps (CD.ComponentFLib _) = True
       relevantDeps (CD.ComponentExe _) = True
-      -- Setup deps can affect the Setup.hs behaviour and thus what is built
+      -- A unit has no dependencies of this kind: they are those of the
+      -- package's setup, which is a node of its own.
       relevantDeps CD.ComponentSetup = True
       -- However testsuites and benchmarks do not get installed and should not
       -- affect the result, so we do not include them.
@@ -4583,6 +4683,34 @@ packageHashInputs _ pkg =
   error $
     "packageHashInputs: only for packages with source hashes. "
       ++ prettyShow (packageId pkg)
+
+-- | The inputs of the hash that identifies a setup in the store: what it is
+-- compiled from, against which libraries, and with which compiler. None of
+-- the options its package is configured with are among them.
+setupHashInputs
+  :: ElaboratedSharedConfig
+  -> ElaboratedSetup
+  -> PackageHashInputs
+setupHashInputs
+  ElaboratedSharedConfig{pkgConfigCompiler, pkgConfigPlatform}
+  elabSetup@ElaboratedSetup{elabSetupPkgSourceHash = Just srchash} =
+    PackageHashInputs
+      { pkgHashPkgId = packageId elabSetup
+      , pkgHashComponent = Just CD.ComponentSetup
+      , pkgHashSourceHash = srchash
+      , pkgHashPkgConfigDeps = Set.empty
+      , pkgHashDirectDeps =
+          Set.fromList (map confInstId (elabSetupLibDependencies elabSetup))
+      , pkgHashOtherConfig =
+          defaultPackageHashConfigInputs
+            (compilerId pkgConfigCompiler)
+            (compilerAbiTag pkgConfigCompiler)
+            pkgConfigPlatform
+      }
+setupHashInputs _ elabSetup =
+  error $
+    "setupHashInputs: only for packages with source hashes. "
+      ++ prettyShow (packageId elabSetup)
 
 packageHashConfigInputs
   :: ElaboratedSharedConfig

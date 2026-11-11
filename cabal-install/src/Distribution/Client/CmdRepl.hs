@@ -56,6 +56,7 @@ import Distribution.Client.ProjectPlanning
   )
 import Distribution.Client.ProjectPlanning.Types
   ( elabOrderExeDependencies
+  , elabOrderSetupDependencies
   , foldElabNode
   , showElaboratedInstallPlan
   )
@@ -738,10 +739,18 @@ addDepsToProjectTarget deps pkgId ctx =
 generateReplFlags :: Bool -> ElaboratedInstallPlan -> OriginalComponentInfo -> [String]
 generateReplFlags includeTransitive elaboratedPlan OriginalComponentInfo{..} = flags
   where
+    -- The executables and setups that are run during the build. They are
+    -- not packages that GHC knows about.
     exeDeps :: [UnitId]
     exeDeps =
       foldMap
-        (InstallPlan.foldPlanPackage (const []) (foldElabNode elabOrderExeDependencies))
+        ( InstallPlan.foldPlanPackage
+            (const [])
+            ( foldElabNode
+                (\elab -> elabOrderExeDependencies elab ++ elabOrderSetupDependencies elab)
+                (const [])
+            )
+        )
         (InstallPlan.dependencyClosure elaboratedPlan [ociUnitId])
 
     deps, deps', trans, trans' :: [UnitId]

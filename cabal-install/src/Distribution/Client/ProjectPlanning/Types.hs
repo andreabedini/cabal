@@ -14,6 +14,17 @@ module Distribution.Client.ProjectPlanning.Types
   , foldElabNode
   , elabNodeUnit
   , mapElabUnit
+  , elabNodeName
+  , elabNodeBuildStyle
+  , elabNodePkgSourceLocation
+  , elabNodePkgDescriptionOverride
+  , elabNodeDistDirParams
+  , ElaboratedSetup (..)
+  , elabSetupDistDirParams
+  , elabSetupMonitorFile
+  , elabSetupName
+  , elabSetupOf
+  , isSetupPlanPackage
   , ElaboratedConfiguredPackage (..)
   , showElaboratedInstallPlan
   , elabDistDirParams
@@ -22,7 +33,7 @@ module Distribution.Client.ProjectPlanning.Types
   , elabOrderLibDependencies
   , elabExeDependencies
   , elabOrderExeDependencies
-  , elabSetupDependencies
+  , elabOrderSetupDependencies
   , elabPkgConfigDependencies
   , elabInplaceDependencyBuildCacheFiles
   , elabRequiresRegistration
@@ -149,56 +160,178 @@ type ElaboratedPlanPackage =
 -- | A node of the elaborated install plan that is built from source, as
 -- opposed to a pre-existing installed package.
 --
--- The only kind of node is a /unit/: a whole package or one of its
+-- A node is either a /unit/, which is a whole package or one of its
 -- components, configured and built through the @Setup@ command line
--- interface. The type exists so that other kinds of node can be added
--- without giving them the fields of an 'ElaboratedConfiguredPackage'; see
--- <https://github.com/haskell/cabal/issues/9986>.
-newtype ElaboratedNode
+-- interface, or the compiled /setup/ that the units of a package run for
+-- that.
+data ElaboratedNode
   = ElabUnit ElaboratedConfiguredPackage
+  | ElabSetup ElaboratedSetup
   deriving (Eq, Show, Generic)
 
 instance Binary ElaboratedNode
 instance Structured ElaboratedNode
 
 -- | Case analysis on an 'ElaboratedNode'.
-foldElabNode :: (ElaboratedConfiguredPackage -> a) -> ElaboratedNode -> a
-foldElabNode unit (ElabUnit elab) = unit elab
+foldElabNode
+  :: (ElaboratedConfiguredPackage -> a)
+  -> (ElaboratedSetup -> a)
+  -> ElaboratedNode
+  -> a
+foldElabNode unit _ (ElabUnit elab) = unit elab
+foldElabNode _ setup (ElabSetup elabSetup) = setup elabSetup
 
 -- | The unit of a node, if the node is one.
 elabNodeUnit :: ElaboratedNode -> Maybe ElaboratedConfiguredPackage
-elabNodeUnit = foldElabNode Just
+elabNodeUnit = foldElabNode Just (const Nothing)
 
--- | Apply a function to the unit of a node.
+-- | Apply a function to the unit of a node, leaving a setup as it is.
 mapElabUnit
   :: (ElaboratedConfiguredPackage -> ElaboratedConfiguredPackage)
   -> ElaboratedNode
   -> ElaboratedNode
 mapElabUnit f (ElabUnit elab) = ElabUnit (f elab)
+mapElabUnit _ node@ElabSetup{} = node
 
 instance Package ElaboratedNode where
-  packageId = foldElabNode packageId
+  packageId = foldElabNode packageId packageId
 
 instance HasConfiguredId ElaboratedNode where
-  configuredId = foldElabNode configuredId
+  configuredId = foldElabNode configuredId configuredId
 
 instance HasUnitId ElaboratedNode where
-  installedUnitId = foldElabNode installedUnitId
+  installedUnitId = foldElabNode installedUnitId installedUnitId
 
 instance IsNode ElaboratedNode where
   type Key ElaboratedNode = UnitId
-  nodeKey = foldElabNode nodeKey
-  nodeNeighbors = foldElabNode nodeNeighbors
+  nodeKey = foldElabNode nodeKey nodeKey
+  nodeNeighbors = foldElabNode nodeNeighbors nodeNeighbors
+
+elabNodeBuildStyle :: ElaboratedNode -> BuildStyle
+elabNodeBuildStyle = foldElabNode elabBuildStyle elabSetupBuildStyle
+
+elabNodePkgSourceLocation :: ElaboratedNode -> PackageLocation (Maybe FilePath)
+elabNodePkgSourceLocation = foldElabNode elabPkgSourceLocation elabSetupPkgSourceLocation
+
+elabNodePkgDescriptionOverride :: ElaboratedNode -> Maybe CabalFileText
+elabNodePkgDescriptionOverride =
+  foldElabNode elabPkgDescriptionOverride elabSetupPkgDescriptionOverride
+
+elabNodeDistDirParams :: ElaboratedSharedConfig -> ElaboratedNode -> DistDirParams
+elabNodeDistDirParams shared =
+  foldElabNode (elabDistDirParams shared) (elabSetupDistDirParams shared)
+
+-- | The compiled setup of a package: the @Setup@ executable that its units
+-- are configured and built with, and for @build-type: Hooks@ also the
+-- executable that runs its hooks.
+--
+-- Only a package whose setup has to be compiled has one, that is, not a
+-- package of 'SetupNonCustomInternalLib' style. The units of the package
+-- depend on it ('elabSetupDependency'); it does not refer to them, and does
+-- not depend on how they are configured.
+data ElaboratedSetup = ElaboratedSetup
+  { elabSetupComponentId :: ComponentId
+  -- ^ Identifies the node in the plan, as the 'ComponentId' of a unit does.
+  , elabSetupPkgSourceId :: PackageId
+  , elabSetupPkgSourceLocation :: PackageLocation (Maybe FilePath)
+  , elabSetupPkgSourceHash :: Maybe PackageSourceHash
+  , elabSetupPkgDescriptionOverride :: Maybe CabalFileText
+  , elabSetupLocalToProject :: Bool
+  , elabSetupBuildStyle :: BuildStyle
+  -- ^ Built in the project's build directory, or in the store. Never
+  -- 'InMemory'.
+  , elabSetupBuildType :: Cabal.BuildType
+  , elabSetupStyle :: SetupScriptStyle
+  , elabSetupCabalVersion :: Version
+  -- ^ The version of the Cabal library the setup is built with.
+  , elabSetupLibDependencies :: [ConfiguredId]
+  -- ^ The libraries the setup is compiled against.
+  , elabSetupPackageDBs :: PackageDBStackCWD
+  -- ^ Where those libraries are registered.
+  , elabSetupExeDir :: FilePath
+  -- ^ The directory the executables end up in.
+  }
+  deriving (Eq, Show, Generic)
+
+instance Binary ElaboratedSetup
+instance Structured ElaboratedSetup
+
+instance Package ElaboratedSetup where
+  packageId = elabSetupPkgSourceId
+
+instance HasConfiguredId ElaboratedSetup where
+  configuredId elabSetup =
+    ConfiguredId (packageId elabSetup) Nothing (elabSetupComponentId elabSetup)
+
+instance HasUnitId ElaboratedSetup where
+  installedUnitId = newSimpleUnitId . elabSetupComponentId
+
+instance IsNode ElaboratedSetup where
+  type Key ElaboratedSetup = UnitId
+  nodeKey = installedUnitId
+  nodeNeighbors = map (newSimpleUnitId . confInstId) . elabSetupLibDependencies
+
+-- | The setup node a unit is configured and built with, if its package has
+-- one.
+elabSetupOf :: ElaboratedInstallPlan -> ElaboratedConfiguredPackage -> Maybe ElaboratedSetup
+elabSetupOf plan elab = do
+  cid <- elabSetupDependency elab
+  case InstallPlan.lookup plan (newSimpleUnitId cid) of
+    Just (InstallPlan.Configured (ElabSetup elabSetup)) -> Just elabSetup
+    Just (InstallPlan.Installed (ElabSetup elabSetup)) -> Just elabSetup
+    _ ->
+      error $
+        "elabSetupOf: the plan has no setup "
+          ++ prettyShow cid
+          ++ " for "
+          ++ prettyShow (elabUnitId elab)
+
+-- | Whether a plan node is the setup of a package.
+isSetupPlanPackage :: ElaboratedPlanPackage -> Bool
+isSetupPlanPackage =
+  InstallPlan.foldPlanPackage (const False) (foldElabNode (const False) (const True))
+
+-- | A user-friendly descriptor for an 'ElaboratedSetup'.
+elabSetupName :: Verbosity -> ElaboratedSetup -> String
+elabSetupName verbosity elabSetup
+  | verbosityLevel verbosity <= Normal =
+      "setup from " ++ prettyShow (packageId elabSetup)
+  | otherwise =
+      prettyShow (installedUnitId elabSetup)
+
+-- | A setup is built in the build directory of its package, where a build
+-- of the whole package has always put it.
+elabSetupDistDirParams :: ElaboratedSharedConfig -> ElaboratedSetup -> DistDirParams
+elabSetupDistDirParams shared elabSetup =
+  DistDirParams
+    { distParamUnitId = installedUnitId elabSetup
+    , distParamComponentId = elabSetupComponentId elabSetup
+    , distParamPackageId = elabSetupPkgSourceId elabSetup
+    , distParamComponentName = Nothing
+    , distParamCompilerId = compilerId (pkgConfigCompiler shared)
+    , distParamPlatform = pkgConfigPlatform shared
+    , distParamOptimization = NormalOptimisation
+    }
+
+-- | The cache file of the file monitor that says whether a setup built in
+-- the project's build directory is up to date. It is not one of the files
+-- a unit keeps in the same directory.
+elabSetupMonitorFile :: DistDirLayout -> ElaboratedSharedConfig -> ElaboratedSetup -> FilePath
+elabSetupMonitorFile layout shared elabSetup =
+  distPackageCacheFile layout (elabSetupDistDirParams shared elabSetup) "setup"
 
 -- | User-friendly display string for an 'ElaboratedPlanPackage'.
 elabPlanPackageName :: Verbosity -> ElaboratedPlanPackage -> String
 elabPlanPackageName verbosity (PreExisting ipkg)
   | verbosityLevel verbosity <= Normal = prettyShow (packageName ipkg)
   | otherwise = prettyShow (installedUnitId ipkg)
-elabPlanPackageName verbosity (Configured node) =
-  foldElabNode (elabConfiguredName verbosity) node
-elabPlanPackageName verbosity (Installed node) =
-  foldElabNode (elabConfiguredName verbosity) node
+elabPlanPackageName verbosity (Configured node) = elabNodeName verbosity node
+elabPlanPackageName verbosity (Installed node) = elabNodeName verbosity node
+
+-- | User-friendly display string for an 'ElaboratedNode'.
+elabNodeName :: Verbosity -> ElaboratedNode -> String
+elabNodeName verbosity =
+  foldElabNode (elabConfiguredName verbosity) (elabSetupName verbosity)
 
 showElaboratedInstallPlan :: ElaboratedInstallPlan -> String
 showElaboratedInstallPlan = InstallPlan.showInstallPlan_gen showNode
@@ -212,7 +345,7 @@ showElaboratedInstallPlan = InstallPlan.showInstallPlan_gen showNode
         herald =
           hsep
             [ text (InstallPlan.showPlanPackageTag pkg)
-            , InstallPlan.foldPlanPackage (const mempty) (foldElabNode in_mem) pkg
+            , InstallPlan.foldPlanPackage (const mempty) (foldElabNode in_mem (const mempty)) pkg
             , pretty (packageId pkg)
             , parens (pretty (nodeKey pkg))
             ]
@@ -221,11 +354,13 @@ showElaboratedInstallPlan = InstallPlan.showInstallPlan_gen showNode
           BuildInplaceOnly InMemory -> parens (text "In Memory")
           _ -> mempty
 
-        deps = InstallPlan.foldPlanPackage installed_deps (foldElabNode local_deps) pkg
+        deps = InstallPlan.foldPlanPackage installed_deps (foldElabNode local_deps setup_deps) pkg
 
         installed_deps = map pretty . nodeNeighbors
 
         local_deps cfg = [(if internal then text "+" else mempty) <> pretty (confInstId uid) | (uid, internal) <- elabLibDependencies cfg]
+
+        setup_deps = map (pretty . confInstId) . elabSetupLibDependencies
 
 -- TODO: [code cleanup] decide if we really need this, there's not much in it, and in principle
 --      even platform and compiler could be different if we're building things
@@ -327,10 +462,8 @@ data ElaboratedConfiguredPackage = ElaboratedConfiguredPackage
   -- just happen not to have any tests.  (But perhaps we should
   -- warn if ALL local packages don't have any tests.)
   , elabPackageDbs :: [Maybe PackageDBCWD]
-  , elabSetupPackageDBStack :: PackageDBStackCWD
   , elabBuildPackageDBStack :: PackageDBStackCWD
   , elabRegisterPackageDBStack :: PackageDBStackCWD
-  , elabInplaceSetupPackageDBStack :: PackageDBStackCWD
   , elabInplaceBuildPackageDBStack :: PackageDBStackCWD
   , elabInplaceRegisterPackageDBStack :: PackageDBStackCWD
   , elabPkgDescriptionOverride :: Maybe CabalFileText
@@ -384,6 +517,9 @@ data ElaboratedConfiguredPackage = ElaboratedConfiguredPackage
   -- without explicit deps, and the cabal spec version the .cabal file needs.
   , elabSetupScriptCliVersion :: SetupCliVersion
   -- ^ The Cabal library version used to provide the Setup CLI.
+  , elabSetupDependency :: Maybe ComponentId
+  -- ^ The 'ElaboratedSetup' node this unit is configured and built with, if
+  -- the package has one.
   , -- Build time related:
     elabConfigureTargets :: [ComponentTarget]
   , elabBuildTargets :: [ComponentTarget]
@@ -496,7 +632,7 @@ dataDirsEnvironmentForPlan distDirLayout =
   mapMaybe
     ( InstallPlan.foldPlanPackage
         (const Nothing)
-        (foldElabNode (dataDirEnvVarForPackage distDirLayout))
+        (foldElabNode (dataDirEnvVarForPackage distDirLayout) (const Nothing))
     )
     . InstallPlan.toList
 
@@ -612,14 +748,21 @@ elabDistDirParams shared elab =
 -- use 'elabLibDependencies'.  This method is the same as
 -- 'nodeNeighbors'.
 --
--- NB: this method DOES include setup deps.
+-- NB: this method DOES include the dependency on the package's setup.
 elabOrderDependencies :: ElaboratedConfiguredPackage -> [UnitId]
 elabOrderDependencies elab =
-  case elabPkgOrComp elab of
-    -- Important not to have duplicates: otherwise InstallPlan gets
-    -- confused.
-    ElabPackage pkg -> ordNub (fold (pkgOrderDependencies pkg))
-    ElabComponent comp -> compOrderDependencies comp
+  elabOrderSetupDependencies elab
+    ++ case elabPkgOrComp elab of
+      -- Important not to have duplicates: otherwise InstallPlan gets
+      -- confused.
+      ElabPackage pkg -> ordNub (fold (pkgOrderDependencies pkg))
+      ElabComponent comp -> compOrderDependencies comp
+
+-- | Like 'elabOrderDependencies', but only returns the dependency on the
+-- package's setup, if it has one. Like an executable dependency, it is
+-- something the unit runs while it builds.
+elabOrderSetupDependencies :: ElaboratedConfiguredPackage -> [UnitId]
+elabOrderSetupDependencies = map newSimpleUnitId . maybeToList . elabSetupDependency
 
 -- | Like 'elabOrderDependencies', but only returns dependencies on
 -- libraries.
@@ -633,7 +776,7 @@ elabOrderLibDependencies elab =
     ElabComponent comp -> compOrderLibDependencies comp
 
 -- | The library dependencies (i.e., the libraries we depend on, NOT
--- the dependencies of the library), NOT including setup dependencies.
+-- the dependencies of the library).
 -- These are passed to the @Setup@ script via @--dependency@ or @--promised-dependency@.
 elabLibDependencies :: ElaboratedConfiguredPackage -> [(ConfiguredId, Bool)]
 elabLibDependencies elab =
@@ -666,17 +809,6 @@ elabExeDependencyPaths elab =
     ElabPackage pkg -> map snd $ CD.nonSetupDeps (pkgExeDependencyPaths pkg)
     ElabComponent comp -> map snd (compExeDependencyPaths comp)
 
--- | The setup dependencies (the library dependencies of the setup executable;
--- note that it is not legal for setup scripts to have executable
--- dependencies at the moment.)
-elabSetupDependencies :: ElaboratedConfiguredPackage -> [(ConfiguredId, Bool)]
-elabSetupDependencies elab =
-  case elabPkgOrComp elab of
-    ElabPackage pkg -> CD.setupDeps (pkgLibDependencies pkg)
-    -- TODO: Custom setups not supported for components yet.  When
-    -- they are, need to do this differently
-    ElabComponent _ -> []
-
 elabPkgConfigDependencies :: ElaboratedConfiguredPackage -> [(PkgconfigName, Maybe PkgconfigVersion)]
 elabPkgConfigDependencies ElaboratedConfiguredPackage{elabPkgOrComp = ElabPackage pkg} =
   pkgPkgConfigDependencies pkg
@@ -707,14 +839,19 @@ elabInplaceDependencyBuildCacheFiles
   :: DistDirLayout
   -> ElaboratedSharedConfig
   -> ElaboratedInstallPlan
-  -> ElaboratedConfiguredPackage
+  -> UnitId
+  -- ^ The node whose dependencies these are
   -> [FilePath]
-elabInplaceDependencyBuildCacheFiles layout sconf plan root_elab =
-  go =<< InstallPlan.directDeps plan (nodeKey root_elab)
+elabInplaceDependencyBuildCacheFiles layout sconf plan root =
+  go =<< InstallPlan.directDeps plan root
   where
-    go = InstallPlan.foldPlanPackage (const []) $ foldElabNode $ \elab -> do
+    go = InstallPlan.foldPlanPackage (const []) $ foldElabNode unit setup
+    unit elab = do
       guard (isInplaceBuildStyle (elabBuildStyle elab))
       return $ distPackageCacheFile layout (elabDistDirParams sconf elab) "build"
+    setup elabSetup = do
+      guard (isInplaceBuildStyle (elabSetupBuildStyle elabSetup))
+      return $ elabSetupMonitorFile layout sconf elabSetup
 
 -- | Some extra metadata associated with an
 -- 'ElaboratedConfiguredPackage' which indicates that the "package"

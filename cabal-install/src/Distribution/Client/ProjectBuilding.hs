@@ -17,6 +17,7 @@ module Distribution.Client.ProjectBuilding
   , BuildStatusMap
   , BuildStatus (..)
   , BuildStatusRebuild (..)
+  , ConfigureReason (..)
   , BuildReason (..)
   , MonitorChangedReason (..)
   , buildStatusToString
@@ -96,7 +97,7 @@ import Distribution.Client.Errors
 import Distribution.Simple.Flag (fromFlagOrDefault)
 
 import Distribution.Client.ProjectBuilding.PackageFileMonitor
-import Distribution.Client.ProjectBuilding.UnpackedPackage (annotateFailureNoLog, buildAndInstallUnpackedPackage, buildInplaceUnpackedPackage)
+import Distribution.Client.ProjectBuilding.UnpackedPackage (annotateFailureNoLog, buildAndInstallSetup, buildAndInstallUnpackedPackage, buildInplaceSetup, buildInplaceUnpackedPackage)
 
 ------------------------------------------------------------------------------
 
@@ -177,65 +178,60 @@ rebuildTargetsDryRun distDirLayout@DistDirLayout{..} shared =
   where
     dryRunPkg
       :: ElaboratedPlanPackage
-      -> [BuildStatus]
+      -> [(UnitId, BuildStatus)]
       -> IO BuildStatus
     dryRunPkg (InstallPlan.PreExisting _pkg) _depsBuildStatus =
       return BuildStatusPreExisting
     dryRunPkg (InstallPlan.Installed _pkg) _depsBuildStatus =
       return BuildStatusInstalled
-    dryRunPkg (InstallPlan.Configured (ElabUnit pkg)) depsBuildStatus = do
-      mloc <- checkFetched (elabPkgSourceLocation pkg)
+    dryRunPkg (InstallPlan.Configured node) depsBuildStatus = do
+      mloc <- checkFetched (elabNodePkgSourceLocation node)
       case mloc of
         Nothing -> return BuildStatusDownload
         Just (LocalUnpackedPackage srcdir) ->
           -- For the case of a user-managed local dir, irrespective of the
           -- build style, we build from that directory and put build
           -- artifacts under the shared dist directory.
-          dryRunLocalPkg pkg depsBuildStatus srcdir
+          dryRunLocalNode node depsBuildStatus srcdir
         -- The rest cases are all tarball cases are,
         -- and handled the same as each other though depending on the build style.
         Just (LocalTarballPackage tarball) ->
-          dryRunTarballPkg pkg depsBuildStatus tarball
+          dryRunTarballNode node depsBuildStatus tarball
         Just (RemoteTarballPackage _ tarball) ->
-          dryRunTarballPkg pkg depsBuildStatus tarball
+          dryRunTarballNode node depsBuildStatus tarball
         Just (RepoTarballPackage _ _ tarball) ->
-          dryRunTarballPkg pkg depsBuildStatus tarball
+          dryRunTarballNode node depsBuildStatus tarball
         Just (RemoteSourceRepoPackage _repo tarball) ->
-          dryRunTarballPkg pkg depsBuildStatus tarball
+          dryRunTarballNode node depsBuildStatus tarball
 
-    dryRunTarballPkg
-      :: ElaboratedConfiguredPackage
-      -> [BuildStatus]
+    dryRunTarballNode
+      :: ElaboratedNode
+      -> [(UnitId, BuildStatus)]
       -> FilePath
       -> IO BuildStatus
-    dryRunTarballPkg pkg depsBuildStatus tarball =
-      case elabBuildStyle pkg of
+    dryRunTarballNode node depsBuildStatus tarball =
+      case elabNodeBuildStyle node of
         BuildAndInstall -> return (BuildStatusUnpack tarball)
         BuildInplaceOnly{} -> do
           -- TODO: [nice to have] use a proper file monitor rather
           -- than this dir exists test
           exists <- doesDirectoryExist srcdir
           if exists
-            then dryRunLocalPkg pkg depsBuildStatus srcdir
+            then dryRunLocalNode node depsBuildStatus srcdir
             else return (BuildStatusUnpack tarball)
       where
         srcdir :: FilePath
-        srcdir = distUnpackedSrcDirectory (packageId pkg)
+        srcdir = distUnpackedSrcDirectory (packageId node)
 
-    dryRunLocalPkg
-      :: ElaboratedConfiguredPackage
-      -> [BuildStatus]
+    -- Go and do lots of I/O, reading caches and probing files to work out
+    -- if anything has changed
+    dryRunLocalNode
+      :: ElaboratedNode
+      -> [(UnitId, BuildStatus)]
       -> FilePath
       -> IO BuildStatus
-    dryRunLocalPkg pkg depsBuildStatus srcdir = do
-      -- Go and do lots of I/O, reading caches and probing files to work out
-      -- if anything has changed
-      change <-
-        checkPackageFileMonitorChanged
-          packageFileMonitor
-          pkg
-          srcdir
-          depsBuildStatus
+    dryRunLocalNode node depsBuildStatus srcdir = do
+      change <- foldElabNode checkUnit checkSetup node
       case change of
         -- It did change, giving us 'BuildStatusRebuild' info on why
         Left rebuild ->
@@ -244,12 +240,25 @@ rebuildTargetsDryRun distDirLayout@DistDirLayout{..} shared =
         Right buildResult ->
           return (BuildStatusUpToDate buildResult)
       where
-        packageFileMonitor :: PackageFileMonitor
-        packageFileMonitor =
-          newPackageFileMonitor
-            shared
-            distDirLayout
-            (elabDistDirParams shared pkg)
+        checkUnit pkg =
+          checkPackageFileMonitorChanged
+            (newPackageFileMonitor shared distDirLayout (elabDistDirParams shared pkg))
+            pkg
+            srcdir
+            ( or
+                [ buildStatusRequiresBuild status
+                | (dep, status) <- depsBuildStatus
+                , dep `elem` elabOrderSetupDependencies pkg
+                ]
+            )
+            (map snd depsBuildStatus)
+
+        checkSetup elabSetup =
+          checkSetupFileMonitorChanged
+            (newSetupFileMonitor shared distDirLayout elabSetup)
+            elabSetup
+            srcdir
+            (map snd depsBuildStatus)
 
 -- | A specialised traversal over the packages in an install plan.
 --
@@ -257,12 +266,13 @@ rebuildTargetsDryRun distDirLayout@DistDirLayout{..} shared =
 -- dependencies. The result for each package is accumulated into a 'Map' and
 -- returned as the final result. In addition, when visiting a package, the
 -- visiting function is passed the results for all the immediate package
--- dependencies. This can be used to propagate information from dependencies.
+-- dependencies, each with the dependency it is for. This can be used to
+-- propagate information from dependencies.
 foldMInstallPlanDepOrder
   :: forall m ipkg srcpkg b
    . (Monad m, IsGraph ipkg srcpkg)
   => ( GenericPlanPackage ipkg srcpkg
-       -> [b]
+       -> [(Key ipkg, b)]
        -> m b
      )
   -> GenericInstallPlan ipkg srcpkg
@@ -277,12 +287,12 @@ foldMInstallPlanDepOrder visit =
     go !results [] = return results
     go !results (pkg : pkgs) = do
       -- we go in the right order so the results map has entries for all deps
-      let depresults :: [b]
+      let depresults :: [(Key ipkg, b)]
           depresults =
             map
               ( \ipkgid ->
                   let result = Map.findWithDefault (error "foldMInstallPlanDepOrder") ipkgid results
-                   in result
+                   in (ipkgid, result)
               )
               (InstallPlan.depends pkg)
       result <- visit pkg depresults
@@ -397,11 +407,10 @@ rebuildTargets
                 keepGoing
                 (BuildFailure Nothing . DependentFailed . packageId)
                 installPlan
-                $ \(ReadyPackage (ElabUnit elab)) ->
+                $ \pkg ->
                   -- TODO: review exception handling
                   handle (\(e :: BuildFailure) -> return (Left e)) $ fmap Right $ do
-                    let pkg = ReadyPackage elab
-                        pkgBuildStatus = Map.findWithDefault (error "rebuildTargets") (nodeKey pkg) pkgsBuildStatus
+                    let pkgBuildStatus = Map.findWithDefault (error "rebuildTargets") (nodeKey pkg) pkgsBuildStatus
 
                     rebuildTarget
                       verbosity
@@ -431,32 +440,29 @@ rebuildTargets
         -- all the package dbs we may need to create
         (Set.toList . Set.fromList)
           [ pkgdb
-          | InstallPlan.Configured (ElabUnit elab) <- InstallPlan.toList installPlan
+          | InstallPlan.Configured node <- InstallPlan.toList installPlan
           , pkgdb <-
-              concat
-                [ elabBuildPackageDBStack elab
-                , elabRegisterPackageDBStack elab
-                , elabSetupPackageDBStack elab
-                ]
+              foldElabNode
+                (\elab -> elabBuildPackageDBStack elab ++ elabRegisterPackageDBStack elab)
+                elabSetupPackageDBs
+                node
           ]
 
       offlineError :: BuildOutcomes
       offlineError = Map.fromList . map makeBuildOutcome $ packagesToDownload
         where
-          makeBuildOutcome :: ElaboratedConfiguredPackage -> (UnitId, BuildOutcome)
-          makeBuildOutcome
-            ElaboratedConfiguredPackage
-              { elabUnitId
-              , elabPkgSourceId = PackageIdentifier{pkgName, pkgVersion}
-              } =
-              ( elabUnitId
-              , Left
-                  ( BuildFailure
-                      { buildFailureLogFile = Nothing
-                      , buildFailureReason = GracefulFailure $ makeError pkgName pkgVersion
-                      }
-                  )
-              )
+          makeBuildOutcome :: ElaboratedNode -> (UnitId, BuildOutcome)
+          makeBuildOutcome node =
+            ( installedUnitId node
+            , Left
+                ( BuildFailure
+                    { buildFailureLogFile = Nothing
+                    , buildFailureReason = GracefulFailure $ makeError pkgName pkgVersion
+                    }
+                )
+            )
+            where
+              PackageIdentifier{pkgName, pkgVersion} = packageId node
           makeError :: PackageName -> Version -> String
           makeError n v =
             "--offline was specified, hence refusing to download the package: "
@@ -464,9 +470,9 @@ rebuildTargets
               ++ " version "
               ++ Disp.render (pretty v)
 
-      packagesToDownload :: [ElaboratedConfiguredPackage]
+      packagesToDownload :: [ElaboratedNode]
       packagesToDownload =
-        [ elab | InstallPlan.Configured (ElabUnit elab) <- InstallPlan.reverseTopologicalOrder installPlan, isRemote $ elabPkgSourceLocation elab
+        [ node | InstallPlan.Configured node <- InstallPlan.reverseTopologicalOrder installPlan, isRemote $ elabNodePkgSourceLocation node
         ]
         where
           isRemote :: PackageLocation a -> Bool
@@ -606,7 +612,7 @@ rebuildTarget
   -> ElaboratedSharedConfig
   -> ElaboratedInstallPlan
   -> TVar InstalledPackageIndex
-  -> ElaboratedReadyPackage
+  -> GenericReadyPackage ElaboratedNode
   -> BuildStatus
   -> IO BuildResult
 rebuildTarget
@@ -621,7 +627,7 @@ rebuildTarget
   sharedPackageConfig
   plan
   ipiTVar
-  rpkg@(ReadyPackage pkg)
+  (ReadyPackage node)
   pkgBuildStatus
     -- Technically, doing the --only-download filtering only in this function is
     -- not perfect. We could also prune the plan at an earlier stage, like it's
@@ -634,7 +640,7 @@ rebuildTarget
     | buildSettingOnlyDownload buildSettings = do
         case pkgBuildStatus of
           BuildStatusDownload ->
-            void $ waitAsyncPackageDownload verbosity downloadMap pkg
+            void $ waitAsyncPackageDownload verbosity downloadMap node
           _ -> return ()
         return
           BuildResult
@@ -660,7 +666,7 @@ rebuildTarget
       downloadPhase = do
         downsrcloc <-
           annotateFailureNoLog DownloadFailed $
-            waitAsyncPackageDownload verbosity downloadMap pkg
+            waitAsyncPackageDownload verbosity downloadMap node
         case downsrcloc of
           DownloadedTarball tarball -> unpackTarballPhase tarball
       -- TODO: [nice to have] git/darcs repos etc
@@ -671,15 +677,27 @@ rebuildTarget
           verbosity
           distDirLayout
           tarball
-          (packageId pkg)
-          (elabDistDirParams sharedPackageConfig pkg)
-          (elabBuildStyle pkg)
-          (elabPkgDescriptionOverride pkg)
-          $ case elabBuildStyle pkg of
+          (packageId node)
+          (elabNodeDistDirParams sharedPackageConfig node)
+          shippedDistDirParams
+          (elabNodeBuildStyle node)
+          (elabNodePkgDescriptionOverride node)
+          $ case elabNodeBuildStyle node of
             BuildAndInstall -> buildAndInstall
             BuildInplaceOnly{} -> buildInplace buildStatus
               where
-                buildStatus = BuildStatusConfigure MonitorFirstRun
+                buildStatus = BuildStatusConfigure (ConfigureMonitorChanged MonitorFirstRun)
+
+      -- A dist directory shipped in the tarball is for the units of the
+      -- package. When it is their setup that unpacks the tarball, it goes to
+      -- one of them, as if that unit had unpacked it.
+      shippedDistDirParams :: DistDirParams
+      shippedDistDirParams =
+        case mapMaybe
+          (InstallPlan.foldPlanPackage (const Nothing) elabNodeUnit)
+          (foldElabNode (const []) (InstallPlan.revDirectDeps plan . installedUnitId) node) of
+          unit : _ -> elabDistDirParams sharedPackageConfig unit
+          [] -> elabNodeDistDirParams sharedPackageConfig node
 
       -- Note that this really is rebuild, not build. It can only happen for
       -- 'BuildInplaceOnly' style packages. 'BuildAndInstall' style packages
@@ -688,13 +706,13 @@ rebuildTarget
       rebuildPhase :: BuildStatusRebuild -> SymbolicPath CWD (Dir Pkg) -> IO BuildResult
       rebuildPhase buildStatus srcdir =
         assert
-          (isInplaceBuildStyle $ elabBuildStyle pkg)
+          (isInplaceBuildStyle $ elabNodeBuildStyle node)
           buildInplace
           buildStatus
           srcdir
           builddir
         where
-          distdir = distBuildDirectory (elabDistDirParams sharedPackageConfig pkg)
+          distdir = distBuildDirectory (elabNodeDistDirParams sharedPackageConfig node)
           builddir =
             makeSymbolicPath $
               makeRelative (normalise $ getSymbolicPath srcdir) distdir
@@ -702,38 +720,66 @@ rebuildTarget
 
       buildAndInstall :: SymbolicPath CWD (Dir Pkg) -> SymbolicPath Pkg (Dir Dist) -> IO BuildResult
       buildAndInstall srcdir builddir =
-        buildAndInstallUnpackedPackage
-          verbosity
-          distDirLayout
-          storeDirLayout
-          semaphoreName
-          buildSettings
-          registerLock
-          cacheLock
-          sharedPackageConfig
-          plan
-          rpkg
-          ipiTVar
-          srcdir
-          builddir
+        foldElabNode
+          ( \pkg ->
+              buildAndInstallUnpackedPackage
+                verbosity
+                distDirLayout
+                storeDirLayout
+                semaphoreName
+                buildSettings
+                registerLock
+                cacheLock
+                sharedPackageConfig
+                plan
+                (ReadyPackage pkg)
+                ipiTVar
+                srcdir
+                builddir
+          )
+          ( \elabSetup ->
+              buildAndInstallSetup
+                verbosity
+                storeDirLayout
+                buildSettings
+                sharedPackageConfig
+                elabSetup
+                srcdir
+                builddir
+          )
+          node
 
       buildInplace :: BuildStatusRebuild -> SymbolicPath CWD (Dir Pkg) -> SymbolicPath Pkg (Dir Dist) -> IO BuildResult
       buildInplace buildStatus srcdir builddir =
         -- TODO: [nice to have] use a relative build dir rather than absolute
-        buildInplaceUnpackedPackage
-          verbosity
-          distDirLayout
-          semaphoreName
-          buildSettings
-          registerLock
-          cacheLock
-          sharedPackageConfig
-          plan
-          rpkg
-          ipiTVar
-          buildStatus
-          srcdir
-          builddir
+        foldElabNode
+          ( \pkg ->
+              buildInplaceUnpackedPackage
+                verbosity
+                distDirLayout
+                semaphoreName
+                buildSettings
+                registerLock
+                cacheLock
+                sharedPackageConfig
+                plan
+                (ReadyPackage pkg)
+                ipiTVar
+                buildStatus
+                srcdir
+                builddir
+          )
+          ( \elabSetup ->
+              buildInplaceSetup
+                verbosity
+                distDirLayout
+                sharedPackageConfig
+                plan
+                elabSetup
+                srcdir
+                builddir
+          )
+          node
 
 -- TODO: [nice to have] do we need to use a with-style for the temp
 -- files for downloading http packages, or are we going to cache them
@@ -766,10 +812,10 @@ asyncDownloadPackages verbosity withRepoCtx installPlan pkgsBuildStatus body
     pkgsToDownload :: [PackageLocation (Maybe FilePath)]
     pkgsToDownload =
       ordNub $
-        [ elabPkgSourceLocation elab
-        | InstallPlan.Configured (ElabUnit elab) <-
+        [ elabNodePkgSourceLocation node
+        | InstallPlan.Configured node <-
             InstallPlan.reverseTopologicalOrder installPlan
-        , let uid = installedUnitId elab
+        , let uid = installedUnitId node
               pkgBuildStatus = Map.findWithDefault (error "asyncDownloadPackages") uid pkgsBuildStatus
         , BuildStatusDownload <- [pkgBuildStatus]
         ]
@@ -779,14 +825,14 @@ asyncDownloadPackages verbosity withRepoCtx installPlan pkgsBuildStatus body
 waitAsyncPackageDownload
   :: Verbosity
   -> AsyncFetchMap
-  -> ElaboratedConfiguredPackage
+  -> ElaboratedNode
   -> IO DownloadedSourceLocation
-waitAsyncPackageDownload verbosity downloadMap elab = do
+waitAsyncPackageDownload verbosity downloadMap node = do
   pkgloc <-
     waitAsyncFetchPackage
       verbosity
       downloadMap
-      (elabPkgSourceLocation elab)
+      (elabNodePkgSourceLocation node)
   case downloadedSourceLocation pkgloc of
     Just loc -> return loc
     Nothing -> fail "waitAsyncPackageDownload: unexpected source location"
@@ -812,6 +858,8 @@ withTarballLocalDirectory
   -> FilePath
   -> PackageId
   -> DistDirParams
+  -> DistDirParams
+  -- ^ where a dist directory shipped in the tarball goes
   -> BuildStyle
   -> Maybe CabalFileText
   -> ( SymbolicPath CWD (Dir Pkg) -- Source directory
@@ -825,6 +873,7 @@ withTarballLocalDirectory
   tarball
   pkgid
   dparams
+  shippedDistDirParams
   buildstyle
   pkgTextOverride
   buildPkg =
@@ -877,7 +926,7 @@ withTarballLocalDirectory
             distDirLayout
             srcrootdir
             pkgid
-            dparams
+            shippedDistDirParams
         buildPkg (makeSymbolicPath srcdir) builddir
 
 unpackPackageTarball

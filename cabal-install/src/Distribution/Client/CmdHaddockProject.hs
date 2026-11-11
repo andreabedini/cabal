@@ -41,7 +41,7 @@ import Distribution.Client.ProjectPlanning
   )
 import Distribution.Client.ProjectPlanning.Types
   ( elabDistDirParams
-  , foldElabNode
+  , elabNodeUnit
   )
 import Distribution.Client.ScriptUtils
   ( AcceptNoTargets (..)
@@ -451,5 +451,5 @@ haddockProjectAction flags _extraArgs globalFlags = do
       :: ElaboratedInstallPlan
       -> [Either InstalledPackageInfo ElaboratedConfiguredPackage]
     matchingPackages =
-      fmap (foldPlanPackage Left (foldElabNode Right))
+      mapMaybe (foldPlanPackage (Just . Left) (fmap Right . elabNodeUnit))
         . InstallPlan.toList

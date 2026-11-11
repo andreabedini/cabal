@@ -291,5 +291,5 @@ binDirectories layout config = fromElaboratedInstallPlan
     fromSrcPkg = S.fromList . Planning.binDirectories layout config
 
     fromPlan (PreExisting _) = mempty
-    fromPlan (Configured node) = foldElabNode fromSrcPkg node
-    fromPlan (Installed node) = foldElabNode fromSrcPkg node
+    fromPlan (Configured node) = foldElabNode fromSrcPkg mempty node
+    fromPlan (Installed node) = foldElabNode fromSrcPkg mempty node
