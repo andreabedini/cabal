@@ -32,6 +32,9 @@ module Distribution.Client.SetupWrapper
   , SetupScriptOptions (..)
   , SetupDependencies (..)
   , setupDependencies
+  , PrebuiltSetup (..)
+  , compileSetup
+  , compiledSetupDir
   , defaultSetupScriptOptions
   , externalSetupMethod
   ) where
@@ -319,6 +322,15 @@ setupDependencies :: SetupDependencies -> [(ComponentId, PackageId)]
 setupDependencies (ExplicitSetupDeps deps) = deps
 setupDependencies (ImplicitSetupDeps deps) = deps
 
+-- | The setup of a package, compiled ahead of time with 'compileSetup'.
+data PrebuiltSetup = PrebuiltSetup
+  { prebuiltSetupDir :: FilePath
+  -- ^ The directory that holds the executables.
+  , prebuiltSetupCabalVersion :: Version
+  -- ^ The version of the Cabal library the executables are linked against,
+  -- which is the version of their command line interface.
+  }
+
 -- | @SetupScriptOptions@ are options used to configure and run 'Setup', as
 -- opposed to options given to the Cabal command at runtime.
 data SetupScriptOptions = SetupScriptOptions
@@ -361,6 +373,9 @@ data SetupScriptOptions = SetupScriptOptions
   -- ^ Should we build the Setup.hs with CPP version macros available?
   -- We turn this on when we have a setup stanza in .cabal that declares
   -- explicit setup dependencies.
+  , usePrebuiltSetup :: Maybe PrebuiltSetup
+  -- ^ Run this setup, which is already compiled, and compile nothing. The
+  -- fields that say how to compile a setup are then unused.
   , -- Used only by 'cabal clean' on Windows.
     --
     -- Note: win32 clean hack
@@ -407,6 +422,7 @@ defaultSetupScriptOptions =
     , usePackageIndex = Nothing
     , useSetupDependencies = ImplicitSetupDeps []
     , useVersionMacros = False
+    , usePrebuiltSetup = Nothing
     , useProgramDb = emptyProgramDb
     , useDistPref = defaultDistPref
     , useLoggingHandle = Nothing
@@ -490,6 +506,9 @@ chooseSetupMethod
   -> Maybe (SetupMethod spec)
   -- ^ the in-library method, if the arguments permit one
   -> IO (Version, SetupMethod spec, SetupScriptOptions)
+chooseSetupMethod verbosity options _ buildType' mbLibraryMethod
+  | Just prebuilt <- usePrebuiltSetup options =
+      choosePrebuiltSetupMethod verbosity options prebuilt buildType' mbLibraryMethod
 chooseSetupMethod verbosity options pkg buildType' mbLibraryMethod =
   case mbLibraryMethod of
     Nothing -> externalMethod
@@ -502,10 +521,9 @@ chooseSetupMethod verbosity options pkg buildType' mbLibraryMethod =
       | buildType' == Hooks -> do
           -- NB: needs 'hooksMain' available in Cabal to compile the external
           -- hooks executable, hence the 'not hasHooksMain' guard above.
-          compileExternalExe verbosity options pkg buildType' WantHooks
+          compileExternalExe verbosity options (package pkg) buildType' WantHooks
           externalHooksABI <-
-            externalSetupHooksABI verbosity $
-              hooksProgFilePath (useWorkingDir options) (useDistPref options)
+            externalSetupHooksABI verbosity (hooksExePath options)
           let internalHooksABI = hooksVersion
           if externalHooksABI == internalHooksABI
             then do
@@ -520,7 +538,7 @@ chooseSetupMethod verbosity options pkg buildType' mbLibraryMethod =
   where
     hasHooksMain =
       case cabalLibFromOptions options of
-        Just (v, _) -> v >= mkVersion [3, 17]
+        Just (v, _) -> cabalLibHasHooksMain v
         Nothing     -> False
     externalMethod = do
       debug verbosity $ "Using external setup method with build-type " ++ show buildType'
@@ -532,8 +550,66 @@ chooseSetupMethod verbosity options pkg buildType' mbLibraryMethod =
           "Using implicit dependencies: "
             ++ show (map (prettyShow . snd) deps)
       (version, path, options') <-
-        compileExternalExe verbosity options pkg buildType' WantSetup
+        compileExternalExe verbosity options (package pkg) buildType' WantSetup
       return (version, ExternalMethod path, options')
+
+-- | 'chooseSetupMethod' for a setup that is already compiled.
+--
+-- A prebuilt setup is always run as an external executable, except that the
+-- hooks of a @build-type: Hooks@ package are called through its hooks
+-- executable when that executable was built (see 'compileSetup') and agrees
+-- with this @cabal-install@ on the hooks ABI.
+choosePrebuiltSetupMethod
+  :: Verbosity
+  -> SetupScriptOptions
+  -> PrebuiltSetup
+  -> BuildType
+  -> Maybe (SetupMethod spec)
+  -- ^ the in-library method, if the arguments permit one
+  -> IO (Version, SetupMethod spec, SetupScriptOptions)
+choosePrebuiltSetupMethod verbosity options prebuilt buildType' mbLibraryMethod =
+  case mbLibraryMethod of
+    Just libraryMethod
+      | buildType' == Hooks
+      , hooksExeUsableInLibrary version -> do
+          hooksExeExists <- doesFileExist (hooksExePath options)
+          externalHooksABI <-
+            if hooksExeExists
+              then Just <$> externalSetupHooksABI verbosity (hooksExePath options)
+              else return Nothing
+          if externalHooksABI == Just hooksVersion
+            then do
+              debug verbosity "Using in-library setup method with build-type Hooks."
+              return (cabalVersion, libraryMethod, options)
+            else do
+              debug verbosity "Hooks ABI mismatch; falling back to external setup method."
+              externalMethod
+    _ -> externalMethod
+  where
+    version = prebuiltSetupCabalVersion prebuilt
+    externalMethod = do
+      debug verbosity $ "Using prebuilt setup with build-type " ++ show buildType'
+      path <- tryCanonicalizePath (prebuiltSetupDir prebuilt </> "setup" <.> exeExtension buildPlatform)
+      return (version, ExternalMethod path, options)
+
+-- | The external hooks executable of a package: the prebuilt one, or else
+-- the one this module compiles into the build directory.
+hooksExePath :: SetupScriptOptions -> FilePath
+hooksExePath options = case usePrebuiltSetup options of
+  Just prebuilt -> prebuiltSetupDir prebuilt </> "hooks" <.> exeExtension buildPlatform
+  Nothing -> hooksProgFilePath (useWorkingDir options) (useDistPref options)
+
+-- | Does this version of the Cabal library provide 'hooksMain', which an
+-- external hooks executable needs?
+cabalLibHasHooksMain :: Version -> Bool
+cabalLibHasHooksMain v = v >= mkVersion [3, 17]
+
+-- | Can @cabal-install@ call the hooks executable of a package whose setup
+-- depends on this version of the Cabal library? It has to be the version
+-- @cabal-install@ itself is built with, and even then the two may disagree
+-- on the hooks ABI, which only asking the executable tells.
+hooksExeUsableInLibrary :: Version -> Bool
+hooksExeUsableInLibrary v = cabalLibHasHooksMain v && v == cabalVersion
 
 runSetupMethod :: WithCallStack (SetupMethod UseGeneralSetup -> SetupRunner UseGeneralSetup)
 runSetupMethod (ExternalMethod path) = externalSetupMethod path
@@ -640,7 +716,7 @@ setupWrapper verbosity options mpkg cmd getCommonFlags getFlags getExtraArgs wra
   let
     verbHandles = verbosityHandles verbosity
     extraArgs = getExtraArgs version
-    hooksExe = hooksProgFilePath (useWorkingDir options) (useDistPref options)
+    hooksExe = hooksExePath options
   case setupMethod setup of
     ExternalMethod path -> do
       runSetupCommand verbosity setup{setupMethod = ExternalMethod path}
@@ -854,17 +930,66 @@ data WantedExternalExe (meth :: ExternalExe) where
   WantHooks :: WantedExternalExe HooksExe
   WantSetup :: WantedExternalExe SetupExe
 
+-- | Compile the setup of a package ahead of running it, into
+-- 'compiledSetupDir'. Pass that directory as the 'usePrebuiltSetup' of the
+-- commands that run the setup.
+--
+-- The @Setup@ executable is always built. The hooks executable of a
+-- @build-type: Hooks@ package is built as well when @cabal-install@ may be
+-- able to call it (see 'hooksExeUsableInLibrary').
+--
+-- The setup's dependencies must determine the version of the Cabal library
+-- (see 'cabalLibFromOptions').
+compileSetup
+  :: Verbosity
+  -> SetupScriptOptions
+  -> PackageId
+  -> BuildType
+  -> IO ()
+compileSetup verbosity options pkgId bt = do
+  createDirectoryIfMissingVerbose verbosity True $ i (setupDir options)
+  (cabalLibVersion, mCabalLibInstalledPkgId, options') <-
+    cabalLibVersionToUse verbosity options pkgId bt WantSetup
+  debug verbosity $ "Using Cabal library version " ++ prettyShow cabalLibVersion
+  -- Always run the compiler and let it decide what is out of date: the
+  -- caller decides when a setup needs rebuilding.
+  let compile :: WantedExternalExe exe -> IO ()
+      compile wantedExe =
+        void $
+          compileExe
+            verbosity
+            platform
+            pkgId
+            bt
+            wantedExe
+            options'
+            cabalLibVersion
+            mCabalLibInstalledPkgId
+            True
+  compile WantSetup
+  when (bt == Hooks && hooksExeUsableInLibrary cabalLibVersion) $
+    compile WantHooks
+  where
+    i :: SymbolicPathX allowAbs Pkg to -> FilePath
+    i = interpretSymbolicPath (useWorkingDir options)
+    platform = fromMaybe buildPlatform (usePlatform options)
+
+-- | The directory 'compileSetup' puts the executables in, relative to the
+-- package directory.
+compiledSetupDir :: SymbolicPath Pkg (Dir Dist) -> SymbolicPath Pkg (Dir setup)
+compiledSetupDir distPref = distPref Cabal.Path.</> makeRelativePathEx "setup"
+
 compileExternalExe
   :: Verbosity
   -> SetupScriptOptions
-  -> PackageDescription
+  -> PackageId
   -> BuildType
   -> WantedExternalExe exe
   -> IO (If (exe == HooksExe) () (Version, FilePath, SetupScriptOptions))
-compileExternalExe verbosity options pkg bt wantedExe = do
+compileExternalExe verbosity options pkgId bt wantedExe = do
   createDirectoryIfMissingVerbose verbosity True $ i (setupDir options)
   (cabalLibVersion, mCabalLibInstalledPkgId, options') <-
-    cabalLibVersionToUse verbosity options (package pkg) bt wantedExe
+    cabalLibVersionToUse verbosity options pkgId bt wantedExe
   debug verbosity $ "Using Cabal library version " ++ prettyShow cabalLibVersion
   exePath <-
     if useCachedSetupExecutable bt
@@ -872,7 +997,7 @@ compileExternalExe verbosity options pkg bt wantedExe = do
         getCachedSetupExecutable
           verbosity
           platform
-          (package pkg)
+          pkgId
           bt
           options'
           cabalLibVersion
@@ -881,7 +1006,7 @@ compileExternalExe verbosity options pkg bt wantedExe = do
         compileExe
           verbosity
           platform
-          (package pkg)
+          pkgId
           bt
           wantedExe
           options'
@@ -1236,7 +1361,7 @@ compileHooksScript verbosity platform pkgId opts ver mbCompId forceCompile =
     verbosity platform pkgId Hooks opts ver mbCompId forceCompile
 
 setupDir :: SetupScriptOptions -> SymbolicPath Pkg (Dir setup)
-setupDir opts = useDistPref opts Cabal.Path.</> makeRelativePathEx "setup"
+setupDir = compiledSetupDir . useDistPref
 setupVersionFile :: SetupScriptOptions -> SymbolicPath Pkg File
 setupVersionFile opts = setupDir opts Cabal.Path.</> makeRelativePathEx ( "setup" <.> "version" )
 setupHs, hooksHs, setupHooks, setupProgFile, hooksProgFile :: SetupScriptOptions -> SymbolicPath Pkg File

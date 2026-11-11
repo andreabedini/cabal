@@ -289,6 +289,7 @@ configureSetupScript
       , useExtraEnvOverrides = []
       , setupCacheLock = lock
       , useWin32CleanHack = False
+      , usePrebuiltSetup = Nothing
       , -- If the @custom-setup@ stanza has an explicit list of dependencies,
         -- use those exclusively. Otherwise, the list is not exhaustive, and
         -- we have a special case in 'SetupWrapper' to go looking for a Cabal
