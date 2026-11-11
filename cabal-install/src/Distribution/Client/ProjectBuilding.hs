@@ -364,8 +364,6 @@ rebuildTargets
     | fromFlagOrDefault False (projectConfigOfflineMode config) && not (null packagesToDownload) = return offlineError
     | otherwise = do
         registerLock <- newLock -- serialise registration
-        cacheLock <- newLock -- serialise access to setup exe cache
-        -- TODO: [code cleanup] eliminate setup exe cache
         info verbosity $
           "Executing install plan "
             ++ case buildSettingNumJobs of
@@ -420,7 +418,6 @@ rebuildTargets
                       buildSettings
                       downloadMap
                       registerLock
-                      cacheLock
                       sharedPackageConfig
                       installPlan
                       ipiTVar
@@ -607,8 +604,6 @@ rebuildTarget
   -> AsyncFetchMap
   -> Lock
   -- ^ Serialises package registration
-  -> Lock
-  -- ^ Serialises access to the setup executable cache
   -> ElaboratedSharedConfig
   -> ElaboratedInstallPlan
   -> TVar InstalledPackageIndex
@@ -623,7 +618,6 @@ rebuildTarget
   buildSettings
   downloadMap
   registerLock
-  cacheLock
   sharedPackageConfig
   plan
   ipiTVar
@@ -729,7 +723,6 @@ rebuildTarget
                 semaphoreName
                 buildSettings
                 registerLock
-                cacheLock
                 sharedPackageConfig
                 plan
                 (ReadyPackage pkg)
@@ -760,7 +753,6 @@ rebuildTarget
                 semaphoreName
                 buildSettings
                 registerLock
-                cacheLock
                 sharedPackageConfig
                 plan
                 (ReadyPackage pkg)

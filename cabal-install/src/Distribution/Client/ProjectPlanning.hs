@@ -128,7 +128,6 @@ import Distribution.Client.DistDirLayout
 import Distribution.Client.FetchUtils
 import Distribution.Client.HashValue
 import Distribution.Client.HttpUtils
-import Distribution.Client.JobControl
 import Distribution.Client.PackageHash
 import Distribution.Client.ProjectConfig
 import Distribution.Client.ProjectConfig.Import (docProjectConfigFiles)
@@ -4041,18 +4040,14 @@ setupHsScriptOptions
   -> DistDirLayout
   -> SymbolicPath CWD (Dir Pkg)
   -> SymbolicPath Pkg (Dir Dist)
-  -> Lock
   -> SetupScriptOptions
--- TODO: Fix this so custom is a separate component.  Custom can ALWAYS
--- be a separate component!!! See #9986.
 setupHsScriptOptions
   (ReadyPackage elab@ElaboratedConfiguredPackage{..})
   plan
   ElaboratedSharedConfig{..}
   distdir
   srcdir
-  builddir
-  cacheLock =
+  builddir =
     SetupScriptOptions
       { useCabalVersion = thisVersion cliVersion
       , -- NB: for build-type: Hooks we don't want to commit to a Cabal
@@ -4081,7 +4076,7 @@ setupHsScriptOptions
         -- for build-tools-depends.
         useExtraEnvOverrides = dataDirsEnvironmentForPlan distdir plan
       , useWin32CleanHack = False -- TODO: [required eventually]
-      , setupCacheLock = Just cacheLock
+      , setupCacheLock = Nothing
       , isInteractive = False
       , isMainLibOrExeComponent = case elabPkgOrComp of
           -- if it's a package, it's all together, so we have to assume it's

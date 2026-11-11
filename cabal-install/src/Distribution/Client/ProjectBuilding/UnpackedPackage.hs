@@ -173,8 +173,6 @@ buildAndRegisterUnpackedPackage
   -> BuildTimeSettings
   -> Lock
   -- ^ Serialises package registration
-  -> Lock
-  -- ^ Serialises access to the setup executable cache
   -> ElaboratedSharedConfig
   -> ElaboratedInstallPlan
   -> ElaboratedReadyPackage
@@ -197,7 +195,6 @@ buildAndRegisterUnpackedPackage
     , buildSettingBuildTimings
     }
   registerLock
-  cacheLock
   pkgshared@ElaboratedSharedConfig
     { pkgConfigCompiler = compiler
     , pkgConfigCompilerProgs = progdb
@@ -449,7 +446,6 @@ buildAndRegisterUnpackedPackage
           distDirLayout
           srcdir
           builddir
-          cacheLock
 
       setup
         :: (HasCallStack, RightFlagsForPhase flags setupSpec)
@@ -530,8 +526,6 @@ buildInplaceUnpackedPackage
   -> BuildTimeSettings
   -> Lock
   -- ^ Serialises package registration
-  -> Lock
-  -- ^ Serialises access to the setup executable cache
   -> ElaboratedSharedConfig
   -> ElaboratedInstallPlan
   -> ElaboratedReadyPackage
@@ -550,7 +544,6 @@ buildInplaceUnpackedPackage
   maybe_semaphore
   buildSettings@BuildTimeSettings{buildSettingHaddockOpen}
   registerLock
-  cacheLock
   pkgshared@ElaboratedSharedConfig{pkgConfigPlatform = Platform _ os}
   plan
   rpkg@(ReadyPackage pkg)
@@ -574,7 +567,6 @@ buildInplaceUnpackedPackage
         maybe_semaphore
         buildSettings
         registerLock
-        cacheLock
         pkgshared
         plan
         rpkg
@@ -772,8 +764,6 @@ buildAndInstallUnpackedPackage
   -> BuildTimeSettings
   -> Lock
   -- ^ Serialises package registration
-  -> Lock
-  -- ^ Serialises access to the setup executable cache
   -> ElaboratedSharedConfig
   -> ElaboratedInstallPlan
   -> ElaboratedReadyPackage
@@ -790,7 +780,6 @@ buildAndInstallUnpackedPackage
   maybe_semaphore
   buildSettings@BuildTimeSettings{buildSettingNumJobs, buildSettingLogFile}
   registerLock
-  cacheLock
   pkgshared@ElaboratedSharedConfig
     { pkgConfigCompiler = compiler
     , pkgConfigPlatform = platform
@@ -822,7 +811,6 @@ buildAndInstallUnpackedPackage
         maybe_semaphore
         buildSettings
         registerLock
-        cacheLock
         pkgshared
         plan
         rpkg
