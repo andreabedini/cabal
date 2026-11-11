@@ -127,8 +127,8 @@ encodePlanAsJson distDirLayout elaboratedInstallPlan elaboratedSharedConfig =
     planPackageToJ pkg =
       case pkg of
         InstallPlan.PreExisting ipi -> installedPackageInfoToJ ipi
-        InstallPlan.Configured elab -> elaboratedPackageToJ False elab
-        InstallPlan.Installed elab -> elaboratedPackageToJ True elab
+        InstallPlan.Configured node -> foldElabNode (elaboratedPackageToJ False) node
+        InstallPlan.Installed node -> foldElabNode (elaboratedPackageToJ True) node
     -- Note that the plan.json currently only uses the elaborated plan,
     -- not the improved plan. So we will not get the Installed state for
     -- that case, but the code supports it in case we want to use this
@@ -636,8 +636,8 @@ postBuildProjectStatus
           | pkg <- InstallPlan.toList plan
           , let libdeps = case pkg of
                   InstallPlan.PreExisting ipkg -> installedDepends ipkg
-                  InstallPlan.Configured srcpkg -> elabLibDeps srcpkg
-                  InstallPlan.Installed srcpkg -> elabLibDeps srcpkg
+                  InstallPlan.Configured node -> foldElabNode elabLibDeps node
+                  InstallPlan.Installed node -> foldElabNode elabLibDeps node
           ]
 
       elabLibDeps :: ElaboratedConfiguredPackage -> [UnitId]
@@ -669,14 +669,14 @@ postBuildProjectStatus
         selectPlanPackageIdSet $ \case
           InstallPlan.PreExisting _ -> False
           InstallPlan.Installed _ -> False
-          InstallPlan.Configured srcpkg -> elabLocalToProject srcpkg
+          InstallPlan.Configured node -> foldElabNode elabLocalToProject node
 
       packagesBuildInplace :: Set UnitId
       packagesBuildInplace =
         selectPlanPackageIdSet $ \case
           InstallPlan.PreExisting _ -> False
           InstallPlan.Installed _ -> False
-          InstallPlan.Configured srcpkg -> isInplaceBuildStyle (elabBuildStyle srcpkg)
+          InstallPlan.Configured node -> foldElabNode (isInplaceBuildStyle . elabBuildStyle) node
 
       packagesAlreadyInStore :: Set UnitId
       packagesAlreadyInStore =
@@ -686,7 +686,7 @@ postBuildProjectStatus
           InstallPlan.Configured _ -> False
 
       selectPlanPackageIdSet
-        :: ( InstallPlan.GenericPlanPackage InstalledPackageInfo ElaboratedConfiguredPackage
+        :: ( ElaboratedPlanPackage
              -> Bool
            )
         -> Set UnitId
@@ -972,12 +972,12 @@ selectGhcEnvironmentFileLibraries PostBuildProjectStatus{..} =
       -- A pre-existing global lib
       InstallPlan.PreExisting _ -> True
       -- A package in the store. Check it's a lib.
-      InstallPlan.Installed pkg -> elabRequiresRegistration pkg
+      InstallPlan.Installed node -> foldElabNode elabRequiresRegistration node
       -- A package we were installing this time, either destined for the store
       -- or just locally. Check it's a lib and that it is probably up to date.
-      InstallPlan.Configured pkg ->
-        elabRequiresRegistration pkg
-          && installedUnitId pkg `Set.member` packagesProbablyUpToDate
+      InstallPlan.Configured node ->
+        foldElabNode elabRequiresRegistration node
+          && installedUnitId node `Set.member` packagesProbablyUpToDate
 
 selectGhcEnvironmentFilePackageDbs :: ElaboratedInstallPlan -> PackageDBStackCWD
 selectGhcEnvironmentFilePackageDbs elaboratedInstallPlan =
@@ -1016,8 +1016,8 @@ selectGhcEnvironmentFilePackageDbs elaboratedInstallPlan =
       [ srcpkg
       | pkg <- InstallPlan.toList elaboratedInstallPlan
       , srcpkg <- maybeToList $ case pkg of
-          InstallPlan.Configured srcpkg -> Just srcpkg
-          InstallPlan.Installed srcpkg -> Just srcpkg
+          InstallPlan.Configured node -> elabNodeUnit node
+          InstallPlan.Installed node -> elabNodeUnit node
           InstallPlan.PreExisting _ -> Nothing
       ]
 

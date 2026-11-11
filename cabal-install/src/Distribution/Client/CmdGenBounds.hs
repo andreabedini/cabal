@@ -122,11 +122,11 @@ genBoundsAction flags targetStrings globalFlags =
       -- Step 4a: Find the local packages from the install plan. These are the
       -- candidates for which we will generate bounds.
       localPkgs :: [ElaboratedConfiguredPackage]
-      localPkgs = mapMaybe (InstallPlan.foldPlanPackage (const Nothing) (\p -> Just p)) (InstallPlan.toList elaboratedPlan')
+      localPkgs = mapMaybe (InstallPlan.foldPlanPackage (const Nothing) elabNodeUnit) (InstallPlan.toList elaboratedPlan')
 
       -- Step 4b: Extract which versions we chose for each package from the pruned install plan.
       pkgVersionMap :: Map.Map ComponentId PackageIdentifier
-      pkgVersionMap = Map.fromList (map (InstallPlan.foldPlanPackage externalVersion localVersion) (InstallPlan.toList elaboratedPlan'))
+      pkgVersionMap = Map.fromList (map (InstallPlan.foldPlanPackage externalVersion (foldElabNode localVersion)) (InstallPlan.toList elaboratedPlan'))
 
       externalVersion :: InstalledPackageInfo -> (ComponentId, PackageIdentifier)
       externalVersion pkg = (installedComponentId pkg, packageId pkg)

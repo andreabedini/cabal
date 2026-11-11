@@ -10,6 +10,10 @@ module Distribution.Client.ProjectPlanning.Types
     -- * Elaborated install plan types
   , ElaboratedInstallPlan
   , normaliseConfiguredPackage
+  , ElaboratedNode (..)
+  , foldElabNode
+  , elabNodeUnit
+  , mapElabUnit
   , ElaboratedConfiguredPackage (..)
   , showElaboratedInstallPlan
   , elabDistDirParams
@@ -135,22 +139,66 @@ import Text.PrettyPrint (hsep, parens, text)
 type ElaboratedInstallPlan =
   GenericInstallPlan
     InstalledPackageInfo
-    ElaboratedConfiguredPackage
+    ElaboratedNode
 
 type ElaboratedPlanPackage =
   GenericPlanPackage
     InstalledPackageInfo
-    ElaboratedConfiguredPackage
+    ElaboratedNode
+
+-- | A node of the elaborated install plan that is built from source, as
+-- opposed to a pre-existing installed package.
+--
+-- The only kind of node is a /unit/: a whole package or one of its
+-- components, configured and built through the @Setup@ command line
+-- interface. The type exists so that other kinds of node can be added
+-- without giving them the fields of an 'ElaboratedConfiguredPackage'; see
+-- <https://github.com/haskell/cabal/issues/9986>.
+newtype ElaboratedNode
+  = ElabUnit ElaboratedConfiguredPackage
+  deriving (Eq, Show, Generic)
+
+instance Binary ElaboratedNode
+instance Structured ElaboratedNode
+
+-- | Case analysis on an 'ElaboratedNode'.
+foldElabNode :: (ElaboratedConfiguredPackage -> a) -> ElaboratedNode -> a
+foldElabNode unit (ElabUnit elab) = unit elab
+
+-- | The unit of a node, if the node is one.
+elabNodeUnit :: ElaboratedNode -> Maybe ElaboratedConfiguredPackage
+elabNodeUnit = foldElabNode Just
+
+-- | Apply a function to the unit of a node.
+mapElabUnit
+  :: (ElaboratedConfiguredPackage -> ElaboratedConfiguredPackage)
+  -> ElaboratedNode
+  -> ElaboratedNode
+mapElabUnit f (ElabUnit elab) = ElabUnit (f elab)
+
+instance Package ElaboratedNode where
+  packageId = foldElabNode packageId
+
+instance HasConfiguredId ElaboratedNode where
+  configuredId = foldElabNode configuredId
+
+instance HasUnitId ElaboratedNode where
+  installedUnitId = foldElabNode installedUnitId
+
+instance IsNode ElaboratedNode where
+  type Key ElaboratedNode = UnitId
+  nodeKey = foldElabNode nodeKey
+  nodeNeighbors = foldElabNode nodeNeighbors
 
 -- | User-friendly display string for an 'ElaboratedPlanPackage'.
 elabPlanPackageName :: Verbosity -> ElaboratedPlanPackage -> String
 elabPlanPackageName verbosity (PreExisting ipkg)
   | verbosityLevel verbosity <= Normal = prettyShow (packageName ipkg)
   | otherwise = prettyShow (installedUnitId ipkg)
-elabPlanPackageName verbosity (Configured elab) =
-  elabConfiguredName verbosity elab
-elabPlanPackageName verbosity (Installed elab) =
-  elabConfiguredName verbosity elab
+elabPlanPackageName verbosity (Configured node) =
+  foldElabNode (elabConfiguredName verbosity) node
+elabPlanPackageName verbosity (Installed node) =
+  foldElabNode (elabConfiguredName verbosity) node
 
 showElaboratedInstallPlan :: ElaboratedInstallPlan -> String
 showElaboratedInstallPlan = InstallPlan.showInstallPlan_gen showNode
@@ -164,7 +212,7 @@ showElaboratedInstallPlan = InstallPlan.showInstallPlan_gen showNode
         herald =
           hsep
             [ text (InstallPlan.showPlanPackageTag pkg)
-            , InstallPlan.foldPlanPackage (const mempty) in_mem pkg
+            , InstallPlan.foldPlanPackage (const mempty) (foldElabNode in_mem) pkg
             , pretty (packageId pkg)
             , parens (pretty (nodeKey pkg))
             ]
@@ -173,7 +221,7 @@ showElaboratedInstallPlan = InstallPlan.showInstallPlan_gen showNode
           BuildInplaceOnly InMemory -> parens (text "In Memory")
           _ -> mempty
 
-        deps = InstallPlan.foldPlanPackage installed_deps local_deps pkg
+        deps = InstallPlan.foldPlanPackage installed_deps (foldElabNode local_deps) pkg
 
         installed_deps = map pretty . nodeNeighbors
 
@@ -448,7 +496,7 @@ dataDirsEnvironmentForPlan distDirLayout =
   mapMaybe
     ( InstallPlan.foldPlanPackage
         (const Nothing)
-        (dataDirEnvVarForPackage distDirLayout)
+        (foldElabNode (dataDirEnvVarForPackage distDirLayout))
     )
     . InstallPlan.toList
 
@@ -664,7 +712,7 @@ elabInplaceDependencyBuildCacheFiles
 elabInplaceDependencyBuildCacheFiles layout sconf plan root_elab =
   go =<< InstallPlan.directDeps plan (nodeKey root_elab)
   where
-    go = InstallPlan.foldPlanPackage (const []) $ \elab -> do
+    go = InstallPlan.foldPlanPackage (const []) $ foldElabNode $ \elab -> do
       guard (isInplaceBuildStyle (elabBuildStyle elab))
       return $ distPackageCacheFile layout (elabDistDirParams sconf elab) "build"
 

@@ -210,7 +210,7 @@ printTargetForms verbosity targetStrings targets elaboratedPlan =
        in text "Found" <+> int n <+> text t <+> text "matching" <+> text query Pretty.<> char '.'
 
     localPkgs =
-      [x | Configured x@ElaboratedConfiguredPackage{elabLocalToProject = True} <- InstallPlan.toList elaboratedPlan]
+      [x | Configured (ElabUnit x@ElaboratedConfiguredPackage{elabLocalToProject = True}) <- InstallPlan.toList elaboratedPlan]
 
     targetForm ct x =
       let pkgId@PackageIdentifier{pkgName = n} = elabPkgSourceId x

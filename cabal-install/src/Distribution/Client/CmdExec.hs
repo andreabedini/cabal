@@ -57,6 +57,7 @@ import Distribution.Client.ProjectPlanning
 import qualified Distribution.Client.ProjectPlanning as Planning
 import Distribution.Client.ProjectPlanning.Types
   ( dataDirsEnvironmentForPlan
+  , foldElabNode
   )
 import Distribution.Client.Setup
   ( GlobalFlags
@@ -290,5 +291,5 @@ binDirectories layout config = fromElaboratedInstallPlan
     fromSrcPkg = S.fromList . Planning.binDirectories layout config
 
     fromPlan (PreExisting _) = mempty
-    fromPlan (Configured pkg) = fromSrcPkg pkg
-    fromPlan (Installed pkg) = fromSrcPkg pkg
+    fromPlan (Configured node) = foldElabNode fromSrcPkg node
+    fromPlan (Installed node) = foldElabNode fromSrcPkg node

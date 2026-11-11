@@ -2115,8 +2115,8 @@ testProgramOptionsSpecific config0 = do
 filterConfiguredPackages :: [ElaboratedPlanPackage] -> [ElaboratedConfiguredPackage]
 filterConfiguredPackages [] = []
 filterConfiguredPackages (InstallPlan.PreExisting _ : pkgs) = filterConfiguredPackages pkgs
-filterConfiguredPackages (InstallPlan.Installed elab : pkgs) = elab : filterConfiguredPackages pkgs
-filterConfiguredPackages (InstallPlan.Configured elab : pkgs) = elab : filterConfiguredPackages pkgs
+filterConfiguredPackages (InstallPlan.Installed (ElabUnit elab) : pkgs) = elab : filterConfiguredPackages pkgs
+filterConfiguredPackages (InstallPlan.Configured (ElabUnit elab) : pkgs) = elab : filterConfiguredPackages pkgs
 
 getProgArgs :: [ElaboratedConfiguredPackage] -> String -> Maybe [String]
 getProgArgs [] _ = Nothing
@@ -2361,7 +2361,7 @@ expectPackageConfigured
 expectPackageConfigured plan buildOutcomes pkgid = do
   planpkg <- expectPlanPackage plan pkgid
   case (planpkg, InstallPlan.lookupBuildOutcome planpkg buildOutcomes) of
-    (InstallPlan.Configured pkg, Nothing) ->
+    (InstallPlan.Configured (ElabUnit pkg), Nothing) ->
       return pkg
     (_, buildResult) -> unexpectedBuildResult "Configured" planpkg buildResult
 
@@ -2373,12 +2373,12 @@ expectPackageInstalled
 expectPackageInstalled plan buildOutcomes pkgid = do
   planpkg <- expectPlanPackage plan pkgid
   case (planpkg, InstallPlan.lookupBuildOutcome planpkg buildOutcomes) of
-    (InstallPlan.Configured pkg, Just (Right _result)) ->
+    (InstallPlan.Configured (ElabUnit pkg), Just (Right _result)) ->
       -- result isn't used by any test
       return pkg
     -- package can be installed in the global .store!
     -- (when installing from tarball!)
-    (InstallPlan.Installed pkg, Nothing) ->
+    (InstallPlan.Installed (ElabUnit pkg), Nothing) ->
       return pkg
     (_, buildResult) -> unexpectedBuildResult "Installed" planpkg buildResult
 
@@ -2390,7 +2390,7 @@ expectPackageFailed
 expectPackageFailed plan buildOutcomes pkgid = do
   planpkg <- expectPlanPackage plan pkgid
   case (planpkg, InstallPlan.lookupBuildOutcome planpkg buildOutcomes) of
-    (InstallPlan.Configured pkg, Just (Left failure)) ->
+    (InstallPlan.Configured (ElabUnit pkg), Just (Left failure)) ->
       return (pkg, failure)
     (_, buildResult) -> unexpectedBuildResult "Failed" planpkg buildResult
 

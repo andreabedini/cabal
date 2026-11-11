@@ -183,7 +183,7 @@ rebuildTargetsDryRun distDirLayout@DistDirLayout{..} shared =
       return BuildStatusPreExisting
     dryRunPkg (InstallPlan.Installed _pkg) _depsBuildStatus =
       return BuildStatusInstalled
-    dryRunPkg (InstallPlan.Configured pkg) depsBuildStatus = do
+    dryRunPkg (InstallPlan.Configured (ElabUnit pkg)) depsBuildStatus = do
       mloc <- checkFetched (elabPkgSourceLocation pkg)
       case mloc of
         Nothing -> return BuildStatusDownload
@@ -296,7 +296,7 @@ improveInstallPlanWithUpToDatePackages
 improveInstallPlanWithUpToDatePackages pkgsBuildStatus =
   InstallPlan.installed canPackageBeImproved
   where
-    canPackageBeImproved :: ElaboratedConfiguredPackage -> Bool
+    canPackageBeImproved :: ElaboratedNode -> Bool
     canPackageBeImproved pkg =
       case Map.lookup (nodeKey pkg) pkgsBuildStatus of
         Just BuildStatusUpToDate{} -> True
@@ -397,10 +397,11 @@ rebuildTargets
                 keepGoing
                 (BuildFailure Nothing . DependentFailed . packageId)
                 installPlan
-                $ \pkg ->
+                $ \(ReadyPackage (ElabUnit elab)) ->
                   -- TODO: review exception handling
                   handle (\(e :: BuildFailure) -> return (Left e)) $ fmap Right $ do
-                    let pkgBuildStatus = Map.findWithDefault (error "rebuildTargets") (nodeKey pkg) pkgsBuildStatus
+                    let pkg = ReadyPackage elab
+                        pkgBuildStatus = Map.findWithDefault (error "rebuildTargets") (nodeKey pkg) pkgsBuildStatus
 
                     rebuildTarget
                       verbosity
@@ -430,7 +431,7 @@ rebuildTargets
         -- all the package dbs we may need to create
         (Set.toList . Set.fromList)
           [ pkgdb
-          | InstallPlan.Configured elab <- InstallPlan.toList installPlan
+          | InstallPlan.Configured (ElabUnit elab) <- InstallPlan.toList installPlan
           , pkgdb <-
               concat
                 [ elabBuildPackageDBStack elab
@@ -465,7 +466,7 @@ rebuildTargets
 
       packagesToDownload :: [ElaboratedConfiguredPackage]
       packagesToDownload =
-        [ elab | InstallPlan.Configured elab <- InstallPlan.reverseTopologicalOrder installPlan, isRemote $ elabPkgSourceLocation elab
+        [ elab | InstallPlan.Configured (ElabUnit elab) <- InstallPlan.reverseTopologicalOrder installPlan, isRemote $ elabPkgSourceLocation elab
         ]
         where
           isRemote :: PackageLocation a -> Bool
@@ -541,7 +542,7 @@ runDeferredBenchmarks keepGoing installPlan buildOutcomes
   where
     -- Run the benchmarks of the given units, in order, and record their
     -- failures. Unless we keep going, stop at the first failure.
-    go :: BuildOutcomes -> [ElaboratedReadyPackage] -> IO BuildOutcomes
+    go :: BuildOutcomes -> [GenericReadyPackage ElaboratedNode] -> IO BuildOutcomes
     go outcomes [] = return outcomes
     go outcomes (pkg : pkgs)
       | Just (Right result) <- Map.lookup uid outcomes
@@ -766,7 +767,7 @@ asyncDownloadPackages verbosity withRepoCtx installPlan pkgsBuildStatus body
     pkgsToDownload =
       ordNub $
         [ elabPkgSourceLocation elab
-        | InstallPlan.Configured elab <-
+        | InstallPlan.Configured (ElabUnit elab) <-
             InstallPlan.reverseTopologicalOrder installPlan
         , let uid = installedUnitId elab
               pkgBuildStatus = Map.findWithDefault (error "asyncDownloadPackages") uid pkgsBuildStatus

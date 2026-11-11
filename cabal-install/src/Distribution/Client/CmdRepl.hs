@@ -56,6 +56,7 @@ import Distribution.Client.ProjectPlanning
   )
 import Distribution.Client.ProjectPlanning.Types
   ( elabOrderExeDependencies
+  , foldElabNode
   , showElaboratedInstallPlan
   )
 import Distribution.Client.ScriptUtils
@@ -740,7 +741,7 @@ generateReplFlags includeTransitive elaboratedPlan OriginalComponentInfo{..} = f
     exeDeps :: [UnitId]
     exeDeps =
       foldMap
-        (InstallPlan.foldPlanPackage (const []) elabOrderExeDependencies)
+        (InstallPlan.foldPlanPackage (const []) (foldElabNode elabOrderExeDependencies))
         (InstallPlan.dependencyClosure elaboratedPlan [ociUnitId])
 
     deps, deps', trans, trans' :: [UnitId]

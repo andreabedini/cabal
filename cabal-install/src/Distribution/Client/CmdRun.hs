@@ -59,6 +59,7 @@ import Distribution.Client.ProjectPlanning.Types
   ( ElaboratedPackageOrComponent (..)
   , dataDirsEnvironmentForPlan
   , elabExeDependencyPaths
+  , elabNodeUnit
   )
 import Distribution.Client.ScriptUtils
   ( AcceptNoTargets (..)
@@ -455,7 +456,8 @@ matchingPackagesByUnitId uid =
   mapMaybe
     ( foldPlanPackage
         (const Nothing)
-        ( \x ->
+        ( \node -> do
+            x <- elabNodeUnit node
             if elabUnitId x == uid
               then Just x
               else Nothing

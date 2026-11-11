@@ -150,7 +150,7 @@ listbinAction flags args globalFlags = do
         return $
           IP.foldPlanPackage
             (const []) -- IPI don't have executables
-            (elaboratedPackage (Orchestration.distDirLayout baseCtx) (elaboratedShared buildCtx) selectedComponent)
+            (foldElabNode (elaboratedPackage (Orchestration.distDirLayout baseCtx) (elaboratedShared buildCtx) selectedComponent))
             gpp
 
     case binfiles of

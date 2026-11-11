@@ -879,7 +879,7 @@ availableTargetIndexes installPlan = AvailableTargetIndexes{..}
     availableTargetsEmptyPackages =
       Map.fromList
         [ (packageId pkg, [])
-        | InstallPlan.Configured pkg <- InstallPlan.toList installPlan
+        | InstallPlan.Configured (ElabUnit pkg) <- InstallPlan.toList installPlan
         , case elabPkgOrComp pkg of
             ElabComponent _ -> False
             ElabPackage _ -> null (pkgComponents (elabPkgDescription pkg))
@@ -1121,8 +1121,8 @@ printPlan
         | buildSettingDryRun = "would"
         | otherwise = "will"
 
-      showPkgAndReason :: ElaboratedReadyPackage -> String
-      showPkgAndReason (ReadyPackage elab) =
+      showPkgAndReason :: GenericReadyPackage ElaboratedNode -> String
+      showPkgAndReason (ReadyPackage (ElabUnit elab)) =
         unwords $
           filter
             (not . null)
@@ -1264,7 +1264,7 @@ writeBuildReports settings buildContext plan buildOutcomes = do
       comp = pkgConfigCompiler . elaboratedShared $ buildContext
       getRepo (RepoTarballPackage r _ _) = Just r
       getRepo _ = Nothing
-      fromPlanPackage (InstallPlan.Configured pkg) (Just result) =
+      fromPlanPackage (InstallPlan.Configured (ElabUnit pkg)) (Just result) =
         let installOutcome = case result of
               Left bf -> case buildFailureReason bf of
                 GracefulFailure _ -> BuildReports.PlanningFailed
@@ -1364,7 +1364,7 @@ dieOnBuildFailures verbosity currentCommand plan buildOutcomes
       , case buildFailureReason failure of
           DependentFailed{} -> verbosityLevel verbosity > Normal
           _ -> True
-      , InstallPlan.Configured pkg <-
+      , InstallPlan.Configured (ElabUnit pkg) <-
           maybeToList (InstallPlan.lookup plan pkgid)
       ]
 
@@ -1431,13 +1431,13 @@ dieOnBuildFailures verbosity currentCommand plan buildOutcomes
     rootpkgs :: [ElaboratedConfiguredPackage]
     rootpkgs =
       [ pkg
-      | InstallPlan.Configured pkg <- InstallPlan.toList plan
+      | InstallPlan.Configured (ElabUnit pkg) <- InstallPlan.toList plan
       , hasNoDependents pkg
       ]
 
     ultimateDeps
       :: UnitId
-      -> [InstallPlan.GenericPlanPackage InstalledPackageInfo ElaboratedConfiguredPackage]
+      -> [InstallPlan.GenericPlanPackage InstalledPackageInfo ElaboratedNode]
     ultimateDeps pkgid =
       filter
         (\pkg -> hasNoDependents pkg && installedUnitId pkg /= pkgid)

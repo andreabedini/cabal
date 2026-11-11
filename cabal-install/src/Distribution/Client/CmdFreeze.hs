@@ -249,7 +249,7 @@ projectFreezeConstraints plan =
     flagAssignments =
       Map.fromList
         [ (pkgname, flags)
-        | InstallPlan.Configured elab <- InstallPlan.toList plan
+        | InstallPlan.Configured (ElabUnit elab) <- InstallPlan.toList plan
         , let flags = elabFlagAssignment elab
               pkgname = packageName elab
         , not (nullFlagAssignment flags)
@@ -278,6 +278,6 @@ projectFreezeConstraints plan =
     localPackages =
       Map.fromList
         [ (packageName elab, ())
-        | InstallPlan.Configured elab <- InstallPlan.toList plan
+        | InstallPlan.Configured (ElabUnit elab) <- InstallPlan.toList plan
         , elabLocalToProject elab
         ]
